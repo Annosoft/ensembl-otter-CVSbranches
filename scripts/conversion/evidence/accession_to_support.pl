@@ -1,227 +1,254 @@
 #!/usr/local/bin/perl
 
-#Fetch slice for whole chromosome
-#For each gene
-#Fetch
-#check for overlap with any exon in transcript
-#create a supporting feature
-#write
+=head1 NAME
 
+accession_to_support.pl - script to add supporting evidence to a Vega database
+
+=head1 SYNOPSIS
+
+    accession_to_support.pl [options]
+
+    General options:
+        --dbname, db_name=NAME              use database NAME
+        --host, --dbhost, --db_host=HOST    use database host HOST
+        --port, --dbport, --db_port=PORT    use database port PORT
+        --user, --dbuser, --db_user=USER    use database username USER
+        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
+        --conffile, --conf=FILE             read parameters from FILE
+        --logfile, --log=FILE               log to FILE (default: *STDOUT)
+        -i, --interactive                   run script interactively
+                                            (default: true)
+        -n, --dry_run, --dry                don't write results to database
+        -h, --help, -?                      print help (this message)
+
+    Specific options:
+        --chromosomes, --chr=LIST           only process LIST chromosomes
+        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                            (or read list from FILE)
+
+=head1 DESCRIPTION
+
+This script adds the supporting evidence for Vega. It does so by comparing
+accesions between annotated evidence and similarity features from the protein
+pipeline run. If a match is found, it is added to the supporting_feature
+table.
+
+Pseudocode:
+
+    foreach gene
+        get all similarity features, store in datastructure
+        foreach transcript
+            get all annotated evidenc
+            foreach evidence
+                foreach similarity feature
+                    accession matches?
+                        foreach exon
+                            similarity feature overlaps exon?
+                                store supporting evidence
+
+There are occasions where no match for annotated evidence can be found.
+Possible reasons for this are: spelling mistake by annotator; feature not found
+by protein pipeline run (e.g. removed from external database, renamed)
+
+=head1 LICENCE
+
+This code is distributed under an Apache style licence:
+Please see http://www.ensembl.org/code_licence.html for details
+
+=head1 AUTHOR
+
+Patrick Meidl <pm2@sanger.ac.uk>
+Original code by Tim Hubbard <th@sanger.ac.uk>
+
+=head1 CONTACT
+
+Post questions to the EnsEMBL development list ensembl-dev@ebi.ac.uk
+
+=cut
 
 use strict;
+use warnings;
+no warnings 'uninitialized';
+
+use FindBin qw($Bin);
+use vars qw($SERVERROOT);
+
+BEGIN {
+    $SERVERROOT = "$Bin/../../../..";
+    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
+    unshift(@INC, "$SERVERROOT/ensembl/modules");
+    unshift(@INC, "$SERVERROOT/bioperl-live");
+}
 
 use Getopt::Long;
+use Pod::Usage;
+use Bio::EnsEMBL::Utils::ConversionSupport;
 
-use Bio::Otter::DBSQL::DBAdaptor;
-use Bio::EnsEMBL::Slice;
-use Bio::EnsEMBL::RawContig;
-use Bio::EnsEMBL::Translation;
-use Bio::EnsEMBL::Clone;
-use Bio::Seq;
-use Bio::SeqIO;
+$| = 1;
 
-my $t_host    = 'ecs1d';
-my $t_user    = 'ensadmin';
-my $t_pass    = 'ensembl';
-my $t_port    = 19322;
-my $t_dbname  = 'otter_merged_chrs_with_anal';
+my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
 
-my $chr      = 14;
-my $path     = 'GENOSCOPE';
+# parse options
+$support->parse_common_options(@_);
+$support->parse_extra_options(
+    'chromosomes|chr=s@',
+    'gene_stable_id|gsi=s@',
+);
 
-$|=1;
-
-my $elist;
-
-&GetOptions( 't_host:s'=> \$t_host,
-             't_user:s'=> \$t_user,
-             't_pass:s'=> \$t_pass,
-             't_port:s'=> \$t_port,
-             't_dbname:s'  => \$t_dbname,
-             'chr:s'     => \$chr,
-             'path:s'  => \$path,
-	     'elist:s' => \$elist,
-            );
-
-if (!defined($chr)) {
-  die "Missing required args\n";
+if ($support->param('help') or $support->error) {
+    warn $support->error if $support->error;
+    pod2usage(1);
 }
 
-# script can fail when not enough memory.  Rerunning it will
-# add duplicate features (since supporting features are written into tables)
-# possible to add a list of gene_stable_id's that have already been added
-my %elist;
-if(-e $elist){
-    open(IN,$elist) || die "cannot open $elist";
-    while(<IN>){
-	chomp;
-	$elist{$_}=1;
-    }
-    close(IN);
-    print scalar(keys %elist)." gene stable id loaded\n";
-}
+$support->comma_to_list('chromosomes');
+$support->list_or_file('gene_stable_id');
 
-my $tdb = new Bio::Otter::DBSQL::DBAdaptor(-host => $t_host,
-                                           -user => $t_user,
-                                           -pass => $t_pass,
-                                           -port => $t_port,
-                                           -dbname => $t_dbname);
+# ask user to confirm parameters to proceed
+$support->confirm_params;
 
+# get log filehandle and print heading and parameters to logfile
+$support->log_filehandle('>>');
+$support->log($support->init_log);
 
-$tdb->assembly_type($path);
+# connect to database and get adaptors (caching features on one slice only)
+# get an ensembl database for better performance (no otter tables are needed)
+my $dba = $support->get_database('otter');
+$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
+my $sa = $dba->get_SliceAdaptor();
+my $ga = $dba->get_GeneAdaptor();
+my $aa = $dba->get_AnalysisAdaptor();
+# statement handle for storing supporting evidence
+my $sql = "insert into supporting_feature
+           (exon_id, feature_id, feature_type)
+           values(?, ?, ?)";
+my $sth = $dba->dbc->prepare($sql);
 
-my $chr_slice = $tdb->get_SliceAdaptor()->fetch_by_chr_name($chr);
+my @gene_stable_ids = $support->param('gene_stable_id');
+my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
+my $chr_length = $support->get_chrlength($dba);
+my @chr_sorted = $support->sort_chromosomes($chr_length);
+my %analysis = map { $_->logic_name => $_ } @{ $aa->fetch_all };
+my %ftype = (
+    'Bio::EnsEMBL::DnaDnaAlignFeature' => 'dna_align_feature',
+    'Bio::EnsEMBL::DnaPepAlignFeature' => 'protein_align_feature',
+);
 
-my $ens_genes = $chr_slice->get_all_Genes;
+# loop over chromosomes
+$support->log("Looping over chromosomes: @chr_sorted\n\n");
+foreach my $chr (@chr_sorted) {
+    $support->log("> Chromosome $chr (".$chr_length->{$chr}
+               ."bp). ".$support->date_and_mem."\n\n");
+    
+    # fetch genes from db
+    $support->log("Fetching genes...\n");
+    my $slice = $sa->fetch_by_region('chromosome', $chr);
+    my $genes = $ga->fetch_by_Slice($slice);
+    $support->log("Done fetching ".scalar @$genes." genes. " .
+                   $support->date_and_mem."\n\n");
 
-#my $genes = $tdb->get_GeneAdaptor()->fetch_by_Slice($chr_slice);
+    # loop over genes
+    my $gnum = 0;
+    my $tnum = 0;
+    my $enum = 0;
+    foreach my $gene (@$genes) {
+        my $gsi = $gene->stable_id;
+        my $gid = $gene->dbID;
+        my $gene_name = $gene->display_xref->display_id;
 
-my $padding = 1000;
+        # filter to user-specified gene_stable_ids
+        if (scalar(@gene_stable_ids)){
+            next unless $gene_stable_ids{$gsi};
+        }
 
-my %analyses;
+        # adjust gene's slice to cover gene +/- 1000 bp
+        my $gene_slice = $sa->fetch_by_region('chromosome', $chr, $gene->start - 1000, $gene->end + 1000);
+        $gene = $gene->transfer($gene_slice);
+        unless ($gene) {
+            $support->log_warning("Gene $gene_name ($gid, $gsi) doesn't transfer to padded gene_slice.\n");
+            next;
+        }
+        
+        $gnum++;
+        my %se_hash = ();
+        my $gene_has_support = 0;
+        $support->log("Gene $gene_name ($gid, $gsi) on slice ".
+                       $gene->slice->name."... ".
+                       $support->date_and_mem."\n");
 
-foreach my $ens_gene (@$ens_genes) {
-  my $slice_start=$ens_gene->start-$padding;
-  my $slice_end=$ens_gene->end+$padding;
-  my $gene_slice = $tdb->get_SliceAdaptor()->fetch_by_chr_start_end($chr,$slice_start,$slice_end);
+        # fetch similarity features from db and store required information in
+        # lightweight datastructure (name => [ start, end, dbID, type ])
+        $support->log("Fetching similarity features... ".
+                       $support->date_and_mem."\n", 1);
+        my $similarity = $gene_slice->get_all_SimilarityFeatures;
+        my $sf = {};
+        foreach my $f (@$similarity) {
+            (my $hitname = $f->hseqname) =~ s/\.[0-9]*$//;
+            push @{ $sf->{$hitname} },
+                 [ $f->start, $f->end, $f->dbID, $ftype{ref($f)} ];
+        }
+        $support->log("Done fetching ".(scalar @$similarity)." features.".
+                       $support->date_and_mem."\n", 1);
 
-  my $ott_genes = $tdb->get_GeneAdaptor()->fetch_by_Slice($gene_slice);
+        # loop over transcripts
+        foreach my $trans (@{ $gene->get_all_Transcripts }) {
+            $tnum++;
+            $support->log("Transcript ".$trans->stable_id."...\n", 1);
 
-  my $gene = undef;
-  foreach my $ott_gene (@$ott_genes) {
-    if ($ott_gene->dbID == $ens_gene->dbID) {
-      $gene = $ott_gene;
-      last;
-    }
-  }
-  if (!defined($gene)) {
-    die "Failed finding gene which should have been there for " . $ens_gene->stable_id ."\n";
-  }
-  my $gsi=$gene->stable_id;
-  print "Slice for $gsi is ".
-      $slice_start.
-      "-".
-      $slice_end.
-      " (".
-      $slice_end-$slice_start.
-      ")\n";
-
-  # don't process slices no list again
-  if($elist{$gsi}){
-      print "$gsi in exclusion list - skipped\n";
-      next;
-  }else{
-      print "Looking for matches to $gsi\n";
-  }
-  my $has_support = 0;
-
-  my $fps = $gene_slice->get_all_SimilarityFeatures;
-
-  sort {$a->start <=> $b->start} @$fps;
-
-
-  OUTER: foreach my $trans (@{$gene->get_all_Transcripts}) {
-    my @evidence = $trans->transcript_info->evidence;
-
-    foreach my $evi (@evidence) {
-      my $acc = $evi->name;
-      $acc =~ s/.*://;
-      $acc =~ s/\.[0-9]*$//;
-      print " Looking for $acc\n";
-      foreach my $fp (@$fps) {
-        my $cmpname = $fp->hseqname;
-        $cmpname =~ s/\.[0-9]*$//;
-        if ($cmpname eq $acc) {
-          foreach my $exon (@{$trans->get_all_Exons}) {
-            if ($exon->overlaps($fp)) {
-              print " Got overlapping accession match dbID = " . $fp->dbID. "\n";
-              $fp->analysis(get_Analysis_by_type($tdb,$evi->type . "_evidence"));
-              $exon->add_supporting_features($fp);
-              $has_support = 1;
+            # loop over evidence added by annotators for this transcript
+            my @evidence = $trans->transcript_info->evidence;
+            my @exons = @{ $trans->get_all_Exons };
+            $enum += scalar(@exons);
+            foreach my $evi (@evidence) {
+                my $acc = $evi->name;
+                $acc =~ s/.*://;
+                $acc =~ s/\.[0-9]*$//;
+                my $ana = $analysis{$evi->type . "_evidence"};
+                $support->log("Evidence $acc...\n", 2);
+                # loop over similarity features on the slice, compare name with
+                # evidence
+                my $match = 0;
+                foreach my $hitname (keys %$sf) {
+                    if ($hitname eq $acc) {
+                        foreach my $hit (@{ $sf->{$hitname} }) {
+                            # loop over exons and look for overlapping
+                            # similarity features
+                            foreach my $exon (@exons) {
+                                if ($exon->end >= $hit->[0] && $exon->start <= $hit->[1]) {
+                                    $support->log("Matches similarity feature with dbID ".$hit->[2].".\n", 3);
+                                    # store unique evidence identifier in hash
+                                    $se_hash{$exon->dbID.":".$hit->[2].":".$hit->[3]} = 1;
+                                    
+                                    $match = 1;
+                                    $gene_has_support++;
+                                }
+                            }
+                        }
+                    }
+                }
+                $support->log_warning("No matching similarity feature found for $acc.\n", 3) unless ($match);
             }
-          }
         }
-      }
-    }
-  }
-  $gene->transform;
-  if ($has_support) {
-    foreach my $trans (@{$gene->get_all_Transcripts}) {
-      foreach my $exon (@{$trans->get_all_Exons}) {
-        store_supporting_features($tdb, $exon);
-      }
-    }
-  }
-}
 
-#End main
-{
-    my( %ana );
+        $support->log("Found $gene_has_support matches (".
+                       scalar(keys %se_hash)." unique).\n", 1);
 
-    sub get_Analysis_by_type {
-        my( $dba, $type ) = @_;
-
-        unless (exists($ana{$type})) {
-            my $logic = $type;
-            my $ana_aptr = $dba->get_AnalysisAdaptor;
-            ($ana{$type}) = $ana_aptr->fetch_by_logic_name($logic);
-            die "Can't get analysis object for logic name '$logic'"
-                unless exists $ana{$type};
+        # store supporting evidence in db
+        if ($gene_has_support and !$support->param('dry_run')) {
+            $support->log("Storing supporting evidence... ".
+                           $support->date_and_mem."\n", 1);
+            foreach my $se (keys %se_hash) {
+                $sth->execute(split(":", $se));
+            }
+            $support->log("Done storing evidence. ".
+                           $support->date_and_mem."\n", 1);
         }
-        return $ana{$type};
     }
+    $support->log("\nProcessed $gnum genes (of ".scalar @$genes." on this chromosome), $tnum transcripts, $enum exons.\n");
+    $support->log("Done with chromosome $chr. ".$support->date_and_mem."\n\n");
 }
 
-
-# Nasty but there's no way to just add support to an exon through the API
-sub store_supporting_features {
-  my ($db, $exon) = @_;
-
-  my $sql = "insert into supporting_feature (exon_id, feature_id, feature_type)
-             values(?, ?, ?)";
-
-  my $sf_sth = $db->prepare($sql);
-
-  my $dna_adaptor = $db->get_DnaAlignFeatureAdaptor();
-  my $pep_adaptor = $db->get_ProteinAlignFeatureAdaptor();
-  my $type;
-
-  my @exons = ();
-  if($exon->isa('Bio::EnsEMBL::StickyExon')) {
-    @exons = @{$exon->get_all_component_Exons};
-  } else {
-    @exons = ($exon);
-  }
-
-  foreach my $e (@exons) {
-    foreach my $sf (@{$e->get_all_supporting_features}) {
-      unless($sf->isa("Bio::EnsEMBL::BaseAlignFeature")){
-        die("$sf must be an align feature otherwise it can't be stored");
-      }
-
-      #sanity check
-      eval { $sf->validate(); };
-      if ($@) {
-        print ("Supporting feature invalid. Skipping feature\n");
-        next;
-      }
+# finish log
+$support->log($support->finish_log);
 
 
-      $sf->contig($e->contig);
-      if($sf->isa("Bio::EnsEMBL::DnaDnaAlignFeature")){
-        $dna_adaptor->store($sf);
-        $type = 'dna_align_feature';
-      }elsif($sf->isa("Bio::EnsEMBL::DnaPepAlignFeature")){
-        $pep_adaptor->store($sf);
-        $type = 'protein_align_feature';
-      } else {
-        print("Supporting feature of unknown type. Skipping : [$sf]\n");
-        next;
-      }
-
-      # print $sf_sth->{Statement} . "\n";
-      # print "   values would have been exon " . $exon->dbID . " feature " . $sf->dbID . " type $type\n";
-      $sf_sth->execute($exon->dbID, $sf->dbID, $type);
-    }
-  }
-}
