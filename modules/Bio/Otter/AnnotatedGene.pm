@@ -265,7 +265,7 @@ sub stable_id {
     $self->gene_info->gene_stable_id($arg);
   }
 
-  return $self->SUPER::stable_id($arg);
+  return $self->SUPER::stable_id();
 }
 
 
