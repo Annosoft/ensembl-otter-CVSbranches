@@ -107,16 +107,16 @@ my $author_def = {
     '7955'   => {
         'default'    => [ 'zfish', 'zfish-help@sanger.ac.uk' ],
     },
+    # Canis_familiaris
+    '9615'   => {
+        'default'    => [ 'zfish', 'zfish-help@sanger.ac.uk' ],
+    },
 };
 
 # determine species from database
-my $sql = 'select meta_value from meta where meta_key = "species.taxonomy_id"';
-my $sth = $dbh->prepare($sql);
-$sth->execute;
-my ($sid) = $sth->fetchrow_array;
-$sth->finish;
-$support->throw("Could not determine taxonomy_id from database.") unless $sid;
-my $chromosomes = $author_def->{$sid};
+my $tid = $support->get_taxonomy_id($dba);
+my $chromosomes = $author_def->{$tid};
+$support->throw("Unknown taxonomy_id. Please update the definition hash in this script.") unless $chomosomes;
 
 # ask user to confirm author lookup hash
 print "These author settings will be used:\n\n";
