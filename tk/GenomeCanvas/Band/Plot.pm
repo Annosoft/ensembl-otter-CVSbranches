@@ -6,6 +6,7 @@ package GenomeCanvas::Band::Plot;
 use strict;
 use Carp;
 use GenomeCanvas::Band;
+use Symbol 'gensym';
 
 use vars '@ISA';
 @ISA = ('GenomeCanvas::Band');
@@ -42,6 +43,22 @@ sub range {
         return (0,1);
     }
 }
+
+
+sub show_midline {
+    my( $self, $show_midline ) = @_;
+    
+    if (defined $show_midline) {
+        $self->{'_show_midline'} = $show_midline ? 1 : 0;
+    }
+    $show_midline = $self->{'_show_midline'};
+    if (defined $show_midline) {
+        return $show_midline;
+    } else {
+        return 1;
+    }
+}
+
 
 sub render {
     my( $band ) = @_;
@@ -135,14 +152,16 @@ sub create_plot {
         }
 
         # Draw midline
-        my $x1 = $start / $rpp;
-        my $x2 = $end   / $rpp;
-        $canvas->createLine(
-            $x1, $y_middle, $x2, $y_middle,
-            -fill       => '#ff6666',
-            -width      => 1,
-            -tags       => [@tags],
-            );
+        if ($band->show_midline) {
+            my $x1 = $start / $rpp;
+            my $x2 = $end   / $rpp;
+            $canvas->createLine(
+                $x1, $y_middle, $x2, $y_middle,
+                -fill       => '#ff6666',
+                -width      => 1,
+                -tags       => [@tags],
+                );
+        }
 
         # Draw plot
         $canvas->createLine(
@@ -152,6 +171,43 @@ sub create_plot {
             -tags       => [@tags],
             );
     }
+}
+
+
+sub pos_value_file {
+    my( $self, $pos_value_file ) = @_;
+    
+    if ($pos_value_file) {
+        $self->{'_pos_value_file'} = $pos_value_file;
+    }
+    return $self->{'_pos_value_file'};
+}
+
+sub pos_value {
+    my( $self, $start, $end ) = @_;
+    
+    my $file = $self->pos_value_file
+        or confess "pos_value_file not set";
+    my $fh = gensym();
+    open $fh, $file or confess "Can't read '$file' : $!";
+    
+    my $pos_list   = [];
+    my $value_list = [];
+    if ($start and $end) {
+        while (<$fh>) {
+            my ($pos, $value) = split;
+            next if $pos < $start or $pos > $end;
+            push(@$pos_list, $pos);
+            push(@$value_list, $value);
+        }
+    } else {
+        while (<$fh>) {
+            my ($pos, $value) = split;
+            push(@$pos_list, $pos);
+            push(@$value_list, $value);
+        }
+    }
+    return($pos_list, $value_list);
 }
 
 sub gc_profile {
@@ -222,6 +278,7 @@ sub draw_plot_axes {
 
     # Y axis ticks
     for (my $i = $low; $i <= $high; $i += $major) {
+        $i = sprintf("%.1f", $i);
         my $y = $y_max - (($i - $low) * $scale);
         # Left axis
         $band->tick_label($i, 'w', 0,      $y);
