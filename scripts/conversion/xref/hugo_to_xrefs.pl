@@ -1,237 +1,247 @@
 #!/usr/local/bin/perl
 
+=head1 NAME
+
+hugo_to_xrefs.pl - adds xrefs from HUGO input file
+
+=head1 SYNOPSIS
+
+    hugo_to_xrefs.pl [options]
+
+    General options:
+        --dbname, db_name=NAME              use database NAME
+        --host, --dbhost, --db_host=HOST    use database host HOST
+        --port, --dbport, --db_port=PORT    use database port PORT
+        --user, --dbuser, --db_user=USER    use database username USER
+        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
+        --conffile, --conf=FILE             read parameters from FILE
+        --logfile, --log=FILE               log to FILE (default: *STDOUT)
+        -i, --interactive                   run script interactively
+                                            (default: true)
+        -n, --dry_run, --dry                don't write results to database
+        -h, --help, -?                      print help (this message)
+
+    Specific options:
+        --chromosomes, --chr=LIST           only process LIST chromosomes
+        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                            (or read list from FILE)
+        --nomeidfile, --nome=FILE           read HUGO nomenclature from FILE
+
+=head1 DESCRIPTION
+
+This script parses a file downloaded from HUGO
+(http://www.gene.ucl.ac.uk/nomenclature/) and adds xrefs to HUGO, LocusLink,
+Swissprot, RefSeq, OMIM and others. HUGO names are set as the display name for
+the matching genes.
+
+=head1 LICENCE
+
+This code is distributed under an Apache style licence:
+Please see http://www.ensembl.org/code_licence.html for details
+
+=head1 AUTHOR
+
+Patrick Meidl <pm2@sanger.ac.uk>
+Original code by Tim Hubbard <th@sanger.ac.uk>
+
+=head1 CONTACT
+
+Post questions to the EnsEMBL development list ensembl-dev@ebi.ac.uk
+
+=cut
+
 use strict;
+use warnings;
+no warnings 'uninitialized';
 
-use Bio::Otter::DBSQL::DBAdaptor;
+use FindBin qw($Bin);
+use vars qw($SERVERROOT);
+
+BEGIN {
+    $SERVERROOT = "$Bin/../../../..";
+    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
+    unshift(@INC, "$SERVERROOT/ensembl/modules");
+    unshift(@INC, "$SERVERROOT/bioperl-live");
+}
+
 use Getopt::Long;
-
-my $host   = 'ecs2a';
-my $user   = 'ensadmin';
-my $pass   = 'ensembl';
-my $port   = 3306;
-my $dbname = 'otter_merged_chrs_with_anal';
-
-my @chromosomes;
-my $path = 'VEGA';
-my $do_store = 0;
-my $nomeid_file = undef;
+use Pod::Usage;
+use Bio::EnsEMBL::Utils::ConversionSupport;
 
 $| = 1;
 
-&GetOptions(
-  'host:s'        => \$host,
-  'user:s'        => \$user,
-  'dbname:s'      => \$dbname,
-  'pass:s'        => \$pass,
-  'path:s'        => \$path,
-  'port:n'        => \$port,
-  'chromosomes:s' => \@chromosomes,
-  'nomeidfile:s'  => \$nomeid_file,
-  'store'         => \$do_store,
+my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
+
+# parse options
+$support->parse_common_options(@_);
+$support->parse_extra_options(
+    'chromosomes|chr=s@',
+    'gene_stable_id|gsi=s@',
+    'nomeidfile|nome=s',
 );
 
-if (scalar(@chromosomes)) {
-  @chromosomes = split (/,/, join (',', @chromosomes));
+if ($support->param('help') or $support->error) {
+    warn $support->error if $support->error;
+    pod2usage(1);
 }
 
-my $db = new Bio::Otter::DBSQL::DBAdaptor(
-  -host   => $host,
-  -user   => $user,
-  -port   => $port,
-  -pass   => $pass,
-  -dbname => $dbname
-);
-$db->assembly_type($path);
+$support->comma_to_list('chromosomes');
+$support->list_or_file('gene_stable_id');
 
-my $sa  = $db->get_SliceAdaptor();
-my $aga = $db->get_GeneAdaptor();
-my $adx = $db->get_DBEntryAdaptor();
+# ask user to confirm parameters to proceed
+$support->confirm_params;
 
-my $chrhash = get_chrlengths($db,$path);
+# make sure add_vega_xrefs.pl has been run
+print "This script must run after add_vega_xrefs.pl. Have you run it?\n";
+$support->user_confirm;
 
-#filter to specified chromosome names only
-if (scalar(@chromosomes)) {
-  foreach my $chr (@chromosomes) {
-    my $found = 0;
-    foreach my $chr_from_hash (keys %$chrhash) {
-      if ($chr_from_hash =~ /^${chr}$/) {
-        $found = 1;
-        last;
-      }
-    }
-    if (!$found) {
-      print "Didn't find chromosome named $chr in database $dbname\n";
-    }
-  }
-  HASH: foreach my $chr_from_hash (keys %$chrhash) {
-    foreach my $chr (@chromosomes) {
-      if ($chr_from_hash =~ /^${chr}$/) { next HASH; }
-    }
-    delete($chrhash->{$chr_from_hash});
-  }
-}
+# get log filehandle and print heading and parameters to logfile
+$support->log_filehandle('>>');
+$support->log($support->init_log);
 
-open FPNOM, "<$nomeid_file" or die "Couldn't open file $nomeid_file\n";
-my $line = <FPNOM>;
+# read HUGO data from file
+$support->log("Reading HUGO nomenclature file...\n");
+$support->check_required_params('nomeidfile');
+open (NOM, '<', $support->param('nomeidfile')) or die
+    "Couldn't open ".$support->param('nomeidfile')."for reading: $!\n";
+my $line = <NOM>;
 chomp $line;
-my @fieldnames = split /\t/,$line;
+my @fieldnames = split /\t/, $line;
+my $num_fields = scalar(@fieldnames);
 my %hugohash;
-while (<FPNOM>) {
-  chomp;
-  my @fields = split /\t/,$_,-1;
-
-  if (scalar(@fields) != scalar(@fieldnames)) {
-    print "Got " . scalar(@fields) . " and " . scalar(@fieldnames) . "\n";
-    die "Inconsistent number of fields for $_";
-  }
-  my $i=0;
-#   foreach my $field (@fields) {
-#     print "Field " . $fieldnames[$i++] . " = " . $field . "\n";
-#   } 
-#   print "#################\n";
-  if (defined($hugohash{$fields[1]})) {
-    die "Duplicate lines for " . $fields[1];
-  }
-  $hugohash{$fields[1]} = \@fields;
+while (<NOM>) {
+    chomp;
+    my @fields = split /\t/, $_, -1;
+    if (scalar(@fields) != $num_fields) {
+        $support->log("Wrong number of fields (got " . scalar(@fields) .
+                      ", should be $num_fields).\n");
+        $support->log("Entry:\n$_\n");
+        $support->log("Aborting.\n");
+        die("Inconsistent field numbers in HUGO file. Aborting.\n");
+    }
+    if (defined($hugohash{$fields[1]})) {
+        $support->log("Duplicate lines for " . $fields[1] . ". Aborting.\n");
+        die("Duplicate lines in HUGO file. Aborting.\n");
+    }
+    $hugohash{$fields[1]} = \@fields;
 }
+$support->log("Done reading ".(scalar keys %hugohash)." entries. ".$support->date_and_mem."\n");
 
-my %convhash;
-$convhash{MIM} = "MIM";
-$convhash{"Ref Seq"} = "RefSeq";
-$convhash{"Locus Link"},"LocusLink";
-$convhash{"SWISSPROT"},"SWISSPROT";
+my %convhash = (
+    'MIM'           => 'OMIM',
+    'Ref Seq'       => 'RefSeq',
+    'Locus Link'    => 'LocusLink',
+    'SWISSPROT'     => 'SWISSPROT',
+);
 
-foreach my $chr (reverse sort bychrnum keys %$chrhash) {
-  print STDERR "Chr $chr from 1 to " . $chrhash->{$chr} . " on " . $path . "\n";
-  my $chrstart = 1;
-  my $chrend   = $chrhash->{$chr};
+# connect to database and get adaptors (caching features on one slice only)
+# get an ensembl database for better performance (no otter tables are needed)
+my $dba = $support->get_database('ensembl');
+$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
+my $sa = $dba->get_SliceAdaptor();
+my $ga = $dba->get_GeneAdaptor();
+my $ea = $dba->get_DBEntryAdaptor();
+# statement handle for display_xref_id update
+my $sth = $dba->dbc->prepare("update gene set display_xref_id=?  where gene_id=?");
 
-  my $slice = $sa->fetch_by_chr_start_end($chr, 1, $chrhash->{$chr});
+my @gene_stable_ids = $support->param('gene_stable_id');
+my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
+my $chr_length = $support->get_chrlength($dba);
+my @chr_sorted = $support->sort_chromosomes($chr_length);
 
-  print "Fetching genes\n";
-  my $genes = $aga->fetch_by_Slice($slice);
-  print "Done fetching genes\n";
+# loop over chromosomes
+$support->log("Looping over chromosomes: @chr_sorted\n\n");
+foreach my $chr (@chr_sorted) {
+    $support->log("> Chromosome $chr (".$chr_length->{$chr}
+               ."bp). ".$support->date_and_mem."\n\n");
+    
+    # fetch genes from db
+    $support->log("Fetching genes...\n");
+    my $slice = $sa->fetch_by_region('chromosome', $chr);
+    my $genes = $ga->fetch_all_by_Slice($slice);
+    $support->log("Done fetching ".scalar @$genes." genes. " .
+                   $support->date_and_mem."\n\n");
 
-  foreach my $gene (@$genes) {
-    my $gene_name;
-    if ($gene->gene_info->name && $gene->gene_info->name->name) {
-      $gene_name = $gene->gene_info->name->name;
-    } else {
-      die "Failed finding gene name for " .$gene->stable_id . "\n";
-    }
+    # loop over genes
+    my $n_hugo = 0;
+    my %n_other = map { $convhash{$_}, 0 } keys %convhash;
+    my $gnum = 0;
+    foreach my $gene (@$genes) {
+        my $gsi = $gene->stable_id;
+        my $gid = $gene->dbID;
+        my $gene_name = $gene->display_xref->display_id;
 
-    # Human hugo symbols are meant to be upper case apart from orfs.
-    # There's one which isn't (IL27w).
-    my $uc_gene_name;
-    if ($gene_name =~ /C.*orf[0-9]*/) {
-      $uc_gene_name = $gene_name;
-    } else {
-      $uc_gene_name = uc $gene_name;
-    }
-
-    if (defined($hugohash{$uc_gene_name})) {
-      print "Found hugo match for $gene_name\n";
-      my $dbentry=Bio::EnsEMBL::DBEntry->new(-primary_id=>$hugohash{$uc_gene_name}->[0],
-                                             -display_id=>$gene_name, 
-                                             -version=>1,
-                                             -release=>1,
-                                             -dbname=>"HUGO",
-                                            );
-      $dbentry->status('KNOWN');
-      $gene->add_DBLink($dbentry);
-      $adx->store($dbentry,$gene->dbID,'Gene') if $do_store;
-  # Display xref id update
-      my $sth = $db->prepare("update gene set display_xref_id=" . 
-                             $dbentry->dbID . " where gene_id=" . $gene->dbID);
-      print $sth->{Statement} . "\n";
-      $sth->execute;
-
-      for (my $i=4;$i<13;$i++) {
-        my $xid = $hugohash{$uc_gene_name}->[$i];
-        if (exists($convhash{$fieldnames[$i]}) && $xid ne "") {
-          my $dbentry=Bio::EnsEMBL::DBEntry->new(-primary_id=>$xid,
-                                                 -display_id=>$xid, 
-                                                 -version=>1,
-                                                 -release=>1,
-                                                 -dbname=>$convhash{$fieldnames[$i]},
-                                                );
-          if ($fieldnames[$i] eq "SWISSPROT") {
-            $dbentry->status('XREF');
-          } else {
-            $dbentry->status('KNOWNXREF');
-          }
-          $gene->add_DBLink($dbentry);
-          #print "Would have added $convhash{$fieldnames[$i]} with $xid\n"
-          $adx->store($dbentry,$gene->dbID,'Gene') if $do_store;
+        # filter to user-specified gene_stable_ids
+        if (scalar(@gene_stable_ids)){
+            next unless $gene_stable_ids{$gsi};
         }
-      }
-    } else {
-      print "No hugo match for $gene_name\n";
-    }
-  }
-}
 
-sub get_chrlengths{
-  my $db = shift;
-  my $type = shift;
+        $gnum++;
+        $support->log("Gene $gene_name ($gid, $gsi)...\n");
 
-  if (!$db->isa('Bio::EnsEMBL::DBSQL::DBAdaptor')) {
-    die "get_chrlengths should be passed a Bio::EnsEMBL::DBSQL::DBAdaptor\n";
-  }
+        # Human hugo symbols are meant to be upper case apart from orfs.
+        # There's one which isn't (IL27w).
+        my $uc_gene_name;
+        if ($gene_name =~ /C.*orf[0-9]*/) {
+            $uc_gene_name = $gene_name;
+        } else {
+            $uc_gene_name = uc $gene_name;
+        }
 
-  my %chrhash;
-
-  my $q = qq( SELECT chrom.name,max(chr_end) FROM assembly as ass, chromosome as chrom
-              WHERE ass.type = '$type' and ass.chromosome_id = chrom.chromosome_id
-              GROUP BY chrom.name
+        if (defined($hugohash{$uc_gene_name})) {
+            $n_hugo++;
+            my $dbentry = Bio::EnsEMBL::DBEntry->new(
+                    -primary_id => $hugohash{$uc_gene_name}->[0],
+                    -display_id => $gene_name, 
+                    -version    => 1,
+                    -release    => 1,
+                    -dbname     => 'HUGO',
             );
+            $dbentry->status('KNOWN');
+            $gene->add_DBEntry($dbentry);
+            unless ($support->param('dry_run')) {
+                $ea->store($dbentry, $gid, 'Gene');
+                $sth->execute($dbentry->dbID, $gid);
+                $support->log("Stored HUGO xref ".$dbentry->dbID." for gene $gid.\n", 1);
+            }
 
-  my $sth = $db->prepare($q) || $db->throw("can't prepare: $q");
-  my $res = $sth->execute || $db->throw("can't execute: $q");
-
-  while( my ($chr, $length) = $sth->fetchrow_array) {
-    $chrhash{$chr} = $length;
-  }
-  return \%chrhash;
+            # store other xrefs for this gene
+            for (my $i = 4; $i < 13; $i++) {
+                my $xid = $hugohash{$uc_gene_name}->[$i];
+                if (exists($convhash{$fieldnames[$i]}) and $xid ne "") {
+                    $n_other{$fieldnames[$i]}++;
+                    my $dbentry = Bio::EnsEMBL::DBEntry->new(
+                            -primary_id => $xid,
+                            -display_id => $xid, 
+                            -version    => 1,
+                            -release    => 1,
+                            -dbname     => $convhash{$fieldnames[$i]},
+                    );
+                    if ($fieldnames[$i] eq "SWISSPROT") {
+                        $dbentry->status('XREF');
+                    } else {
+                        $dbentry->status('KNOWNXREF');
+                    }
+                    $gene->add_DBEntry($dbentry);
+                    unless ($support->param('dry_run')) {
+                        $ea->store($dbentry, $gid, 'Gene');
+                        $sth->execute($dbentry->dbID, $gid);
+                        $support->log("Stored ".$fieldnames[$i]." xref ".$dbentry->dbID." ($xid) for gene $gid.\n", 1);
+                    }
+                }
+            }
+        } else {
+            $support->log("No HUGO match for gene $gene_name.\n", 1);
+        }
+    }
+    $support->log("\nProcessed $gnum genes (of ".scalar @$genes." on this chromosome).\n");
+    $support->log("Genes with no HUGO match: ".($gnum - $n_hugo).".\n");
+    my $matches = join ", ", map { "$convhash{$_} $n_other{$_}" } sort keys %convhash;
+    $support->log("Matches: HUGO $n_hugo, $matches.\n");
+    $support->log("Done with chromosome $chr. ".$support->date_and_mem."\n\n");
 }
 
-
-sub bychrnum {
-
-  my @awords = split /_/, $a;
-  my @bwords = split /_/, $b;
-
-  my $anum = $awords[0];
-  my $bnum = $bwords[0];
-
-  #  if ($anum !~ /^chr/ || $bnum !~ /^chr/) {
-  #    die "Chr name doesn't begin with chr for $a or $b";
-  #  }
-
-  $anum =~ s/chr//;
-  $bnum =~ s/chr//;
-
-  if ($anum !~ /^[0-9]*$/) {
-    if ($bnum !~ /^[0-9]*$/) {
-      return $anum cmp $bnum;
-    } else {
-      return 1;
-    }
-  }
-  if ($bnum !~ /^[0-9]*$/) {
-    return -1;
-  }
-
-  if ($anum <=> $bnum) {
-    return $anum <=> $bnum;
-  } else {
-    if ($#awords == 0) {
-      return -1;
-    } elsif ($#bwords == 0) {
-      return 1;
-    } else {
-      return $awords[1] cmp $bwords[1];
-    }
-  }
-}
+# finish log
+$support->log($support->finish_log);
 

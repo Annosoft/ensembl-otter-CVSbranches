@@ -12,7 +12,8 @@ use Bio::Otter::Lace::AceDatabase;
 use Bio::Otter::Converter;
 use Bio::Otter::Lace::TempFile;
 use URI::Escape qw{ uri_escape };
-
+use MIME::Base64;
+use Hum::EnsCmdLineDB;
 
 sub new {
     my( $pkg ) = @_;
@@ -166,10 +167,9 @@ sub get_xml_for_contig_from_Dataset {
     warn "url <$url>\n";
 
     my $ua = $self->get_UserAgent;
-    my $request = HTTP::Request->new;
-    $request->method('GET');
+    my $request = $self->new_http_request('GET');
     $request->uri($url);
-    
+
     my $xml = $ua->request($request)->content;
     #warn $xml;
     $self->_check_for_error(\$xml);
@@ -183,12 +183,15 @@ sub get_xml_for_contig_from_Dataset {
 }
 
 sub _check_for_error {
-    my( $self, $xml_ref ) = @_;
+    my( $self, $xml_ref, $return_instead_of_confessing ) = @_;
     
     if ($$xml_ref =~ m{<response>(.+?)</response>}s) {
         # response can be empty on success
         my $err = $1;
-        confess $err if $err =~ /\w/;
+        if($err =~ /\w/){
+            return 0 if $return_instead_of_confessing;
+            confess $err;
+        }
     }
     return 1;
 }
@@ -219,14 +222,20 @@ sub get_all_DataSets {
     unless ($ds = $self->{'_datasets'}) {    
         my $ua   = $self->get_UserAgent;
         my $root = $self->url_root;
-        my $request = HTTP::Request->new;
-        $request->method('GET');
-        $request->uri("$root/get_datasets?details=true");
-        #warn $request->uri;
-
-        my $content = $ua->request($request)->content;
+        my $content;
+        for(my $i = 0 ; $i <= 3 ; $i++){
+            if($i > 0){
+                my $pass = $self->password_prompt();
+                #warn "Attempting to connect using password '" . '*' x length($pass) . "'\n";
+                $self->password($pass);
+            }
+            my $request = $self->new_http_request('GET');
+            $request->uri("$root/get_datasets?details=true");
+            #warn $request->uri();
+            $content = $ua->request($request)->content;
+            last if $self->_check_for_error(\$content,1);
+        }
         $self->_check_for_error(\$content);
-
         $ds = $self->{'_datasets'} = [];
 
         my $in_details = 0;
@@ -266,7 +275,7 @@ sub save_otter_ace {
     local *DEBUG;
     my $debug_file = "/var/tmp/otter-debug.$$.save.ace";
     open DEBUG, "> $debug_file" or die;
-    print DEBUG $ace_str;
+#    print DEBUG $ace_str;
     close DEBUG;
     
     my $ace = Bio::Otter::Lace::TempFile->new;
@@ -282,8 +291,7 @@ sub save_otter_ace {
     
     # Save to server with POST
     my $url = $self->url_root . '/write_region';
-    my $request = HTTP::Request->new;
-    $request->method('POST');
+    my $request = $self->new_http_request('POST');
     $request->uri($url);
     $request->content(
         join('&',
@@ -300,6 +308,7 @@ sub save_otter_ace {
     return 1;
 }
 
+
 sub unlock_otter_ace {
     my( $self, $ace_str, $dataset ) = @_;
     
@@ -310,13 +319,22 @@ sub unlock_otter_ace {
     my $write = $ace->write_file_handle;
     print $write $ace_str;
     my $xml = Bio::Otter::Converter::ace_to_XML($ace->read_file_handle);
+    
     #print STDERR $xml;
     
     # Save to server with POST
+    return $self->_send_to_server($xml , $dataset);
+
+}
+
+# saves some code replication between unlock_otter_ace and remove_stale_locks  
+sub _send_to_server{
+    my ($self , $xml , $dataset ) =@_ ;
+    
     my $url = $self->url_root . '/unlock_region';
-    my $request = HTTP::Request->new;
-    $request->method('POST');
+    my $request = $self->new_http_request('POST');
     $request->uri($url);
+    
     $request->content(
         join('&',
             'author='   . uri_escape($self->author),
@@ -327,8 +345,70 @@ sub unlock_otter_ace {
         );
     
     my $content = $self->get_UserAgent->request($request)->content;
+    
     $self->_check_for_error(\$content);
     return 1;
+}
+
+
+# this method is used when a lace session has failed to open, and has left locks behind
+# It takes the sequence set (with the 'locked' clones as the selected_CloneSequences)
+sub remove_stale_locks {
+    my( $self,  $ss , $dataset) = @_;
+
+    my $xml ;
+    foreach my $cs ( @{ $ss->selected_CloneSequences }){
+        $xml .= $self->_xml_string($cs , $ss->name);    
+    }
+    
+    return $self->_send_to_server($xml , $dataset) ;
+}
+
+## used to produce the relevant XML for the 'remove_stale_locks' method above
+sub _xml_string{
+    my ($self, $contig, $ss_name) = @_ ;
+       
+    my $xml_string = "<otter>
+    <sequence_set>
+      <assembly_type>" . $ss_name . "</assembly_type>
+        <sequence_fragment>
+            <id>" . $contig->contig_name . "</id>
+            <chromosome>" . $contig->chromosome->name . "</chromosome>
+            <accession>" . $contig->accession . "</accession>
+            <assembly_start>" . $contig->chr_start . "</assembly_start>
+            <assembly_end>" . $contig->chr_end ."</assembly_end>
+        </sequence_fragment> 
+    </sequence_set>
+    </otter>" ;
+
+    return $xml_string ;
+}
+
+sub new_http_request{
+    my ($self, $method) = @_;
+    my $request = HTTP::Request->new();
+    $request->method($method || 'GET');
+
+    if(defined(my $password = $self->password())){
+        my $encoded = MIME::Base64::encode_base64($self->username() . ":$password");
+        $request->header(Authorization => qq`Basic $encoded`);
+    }
+    return $request;
+}
+sub username{
+    my $self = shift;
+    warn "GET only, user author() method to set" if @_;
+    return $self->author();
+}
+sub password{
+    my ($self, $pass) = @_;
+    $self->{'_options'}->{'client'}->{'password'} = $pass if defined($pass);
+    return $self->{'_options'}->{'client'}->{'password'};
+}
+sub password_prompt{
+    my $self = shift;
+    my $user = $self->username();
+    return Hum::EnsCmdLineDB::prompt_for_password("Please enter your password ($user): ");
 }
 
 1;
