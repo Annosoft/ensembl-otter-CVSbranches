@@ -220,5 +220,5 @@ $dbh->do('DROP TABLE IF EXISTS chr_transcript_info_temp');
 $support->log("Done.\n");
 
 # finish logfile
-$support->finish_log;
+$support->log($support->finish_log);
 
