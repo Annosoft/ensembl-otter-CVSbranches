@@ -24,7 +24,7 @@ asmtype2chrname.pl - convert assembly type to fake chromosome names
 
 =head1 DESCRIPTION
 
-This script does 2 (slightly related things):
+This script does 2 (slightly related) things:
 
 1. Unwanted chromosomes (with all clones, contigs and dangling features) are
 deleted from the database.
