@@ -136,15 +136,13 @@ if ($support->param('dry_run')) {
 
 # delete old authors, insert new authors into database
 $support->log("Deleting old authors, inserting new authors into db...\n");
-$dbh->do('DELETE FROM author') or $support->throw($dbh->errstr);
+$dbh->do('DELETE FROM author');
 my ($author, $email) = @{ $chromosomes->{'default'} };
-$dbh->do("INSERT INTO author VALUES (1000, '$email', '$author')")
-    or $support->throw($dbh->errstr);
+$dbh->do("INSERT INTO author VALUES (1000, '$email', '$author')");
 my $i = 1001;
 foreach my $chr (keys %{ $chromosomes->{'other'} }) {
     my ($author, $email) = @{ $chromosomes->{'other'}->{$chr} };
-    $dbh->do("INSERT INTO author VALUES ($i, '$email', '$author')")
-        or $support->throw($dbh->errstr);
+    $dbh->do("INSERT INTO author VALUES ($i, '$email', '$author')");
     $i++;
 }
 $support->log("Done.\n");
@@ -167,7 +165,7 @@ if (scalar(keys %{ $chromosomes->{'other'} })) {
             AND gsi.stable_id = cgi.gene_stable_id
             AND cgi.gene_info_id = gi.gene_info_id
             AND g.seq_region_id = sr.seq_region_id
-    )) or $support->throw($dbh->errstr);
+    ));
     $support->log("Done.\n");
 
     $support->log("Creating temporary table with transcript_info_id -> chromosome mappings...\n");
@@ -184,16 +182,14 @@ if (scalar(keys %{ $chromosomes->{'other'} })) {
             AND tsi.stable_id = cti.transcript_stable_id
             AND cti.transcript_info_id = ti.transcript_info_id
             AND t.seq_region_id = sr.seq_region_id
-    )) or $support->throw($dbh->errstr);
+    ));
     $support->log("Done.\n");
 }
 
 # set all author to default for all genes/transcripts
 $support->log("Setting author to default for all genes/transcripts...\n");
-$dbh->do(qq(UPDATE gene_info SET author_id = 1000))
-    or $support->throw($dbh->errstr);
-$dbh->do(qq(UPDATE transcript_info SET author_id = 1000))
-    or $support->throw($dbh->errstr);
+$dbh->do(qq(UPDATE gene_info SET author_id = 1000));
+$dbh->do(qq(UPDATE transcript_info SET author_id = 1000));
 $support->log("Done.\n");
 
 # set correct author_id for chromosomes with non-default author
@@ -206,23 +202,21 @@ foreach my $chr (keys %{ $chromosomes->{'other'} }) {
         WHERE   cg.gene_info_id = gi.gene_info_id
             AND cg.name = '$chr'
             AND au.author_name = '$author'
-    )) or $support->throw($dbh->errstr);
+    ));
     $dbh->do(qq(
         UPDATE transcript_info ti, chr_transcript_info_temp ct, author au
         SET ti.author_id = au.author_id
         WHERE   ct.transcript_info_id = ti.transcript_info_id
             AND ct.name = '$chr'
             AND au.author_name = '$author'
-    )) or $support->throw($dbh->errstr);
+    ));
 }
 $support->log("Done.\n");
 
 # drop temporary tables
 $support->log("Dropping temporary tables...\n");
-$dbh->do('DROP TABLE IF EXISTS chr_gene_info_temp')
-    or $support->throw($dbh->errstr);
-$dbh->do('DROP TABLE IF EXISTS chr_transcript_info_temp')
-    or $support->throw($dbh->errstr);
+$dbh->do('DROP TABLE IF EXISTS chr_gene_info_temp');
+$dbh->do('DROP TABLE IF EXISTS chr_transcript_info_temp');
 $support->log("Done.\n");
 
 # finish logfile

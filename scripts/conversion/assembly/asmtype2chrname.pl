@@ -99,11 +99,11 @@ my $sql;
 # sanity check: make sure you don't have duplicate (ie shared between
 # chromosomes/assemblies) contigs in assembly
 my $sth = $dbh->prepare('SELECT count(*) FROM assembly');
-$sth->execute or $support->throw($sth->errstr);
+$sth->execute;
 my ($all) = $sth->fetchrow_array;
 $sth->finish;
 $sth = $dbh->prepare('SELECT count(distinct(contig_id)) FROM assembly');
-$sth->execute or $support->throw($sth->errstr);
+$sth->execute;
 my ($unique) = $sth->fetchrow_array;
 $sth->finish;
 unless ($all == $unique) {
@@ -114,8 +114,7 @@ unless ($all == $unique) {
 # make a backup copy of the chromosome table
 $support->log("Backing up chromosome table to chromosome_old...\n");
 unless ($support->param('dry_run')) {
-    my $b = $dbh->do("CREATE TABLE chromosome_old SELECT * FROM chromosome")
-                      or $support->throw($dbh->errstr);
+    my $b = $dbh->do("CREATE TABLE chromosome_old SELECT * FROM chromosome");
     $support->log("Done backing up $b rows.\n");
 }
 
@@ -133,7 +132,7 @@ my $sth1 = $dbh->prepare(qq(
     GROUP by a.type
     ORDER by c.name
 ));
-$sth1->execute or $support->throw($sth1->errstr);
+$sth1->execute;
 my @rows;
 while (my @r = $sth1->fetchrow_array) {
     push @rows, \@r;
@@ -145,7 +144,7 @@ $sql = "DELETE FROM chromosome";
 $support->log("Deleting old chromosomes...\n");
 $support->log("$sql\n", 1);
 unless ($support->param('dry_run')) {
-    my $c_rows = $dbh->do($sql) or $support->throw($dbh->errstr);
+    my $c_rows = $dbh->do($sql);
     $support->log("Done deleting $c_rows rows.\n", 1);
 }
 
@@ -161,7 +160,7 @@ foreach my $row (@rows) {
     $support->log("$sql2\n", 2);
     unless ($support->param('dry_run')) {
         my $sth2 = $dbh->prepare($sql2);
-        $sth2->execute or $support->throw($sth2->errstr);
+        $sth2->execute;
     }
 
     # update assembly table with new chromosome names
@@ -169,7 +168,7 @@ foreach my $row (@rows) {
     $support->log("$sql3\n", 2);
     unless ($support->param('dry_run')) {
         my $sth3 = $dbh->prepare($sql3);
-        $sth3->execute or $support->throw($sth3->errstr);
+        $sth3->execute;
     }
     
     $i++;
@@ -180,14 +179,14 @@ $sql = qq(UPDATE assembly SET type = 'VEGA');
 $support->log("Setting assembly.type to VEGA...\n");
 $support->log("$sql\n", 1);
 unless ($support->param('dry_run')) {
-    my $a_rows = $dbh->do($sql) or $support->throw($dbh->errstr);
+    my $a_rows = $dbh->do($sql);
     $support->log("Done updating $a_rows rows.\n", 1);
 }
 
 # drop backup of chromosome table
 $support->log("Drop chromosome backup table...\n");
 unless ($support->param('dry_run')) {
-    $dbh->do("DROP TABLE chromosome_old") or $support->throw($dbh->errstr);
+    $dbh->do("DROP TABLE chromosome_old");
     $support->log("Done.\n");
 }
 
