@@ -8,21 +8,31 @@ add_vega_xrefs.pl - add xrefs to display gene, transcript and translation names
 
     add_vega_xrefs.pl [options]
 
-    Options:
-        -conffile
-        -host           host    host of mysql instance ($host)
-        -dbname         dbname  database ($dbname)
-        -port           port    port ($port)
-        -user           user    user ($user)
-        -pass           pass    password 
-        -assembly           path    path ($path)
-        -chromosomes    chr,[chr]
-        -store                  write xrefs to database
-        -gene_stable_id gsi[,gsi] (list or file containing list)
-        -h                      this help
+    General options:
+        --dbname, db_name=NAME              use database NAME
+        --host, --dbhost, --db_host=HOST    use database host HOST
+        --port, --dbport, --db_port=PORT    use database port PORT
+        --user, --dbuser, --db_user=USER    use database username USER
+        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
+        --conffile, --conf=FILE             read parameters from FILE
+        --logfile, --log=FILE               log to FILE (default: *STDOUT)
+        -i, --interactive                   run script interactively
+                                            (default: true)
+        -n, --dry_run, --dry                don't write results to database
+        -h, --help, -?                      print help (this message)
+
+    Specific options:
+        --chromosomes, --chr=LIST           only process LIST chromosomes
+        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                            (or read list from FILE)
+        --gene_type=TYPE                    only process genes of type TYPE
+        --start_gid=NUM                     start at gene with gene_id NUM
 
 =head1 DESCRIPTION
 
+This script retrieves annotated gene/transcript names and adds them as xrefs
+to genes/transcripts/translations, respectively, setting them as display_xrefs.
 
 =head1 LICENCE
 
@@ -82,7 +92,6 @@ $support->list_or_file('gene_stable_id');
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-#my $log = $support->log_filehandle('>>');
 $support->log_filehandle('>>');
 $support->log($support->init_log);
 
@@ -96,7 +105,6 @@ my $found = 0;
 my %gene_stable_ids = map { $_, 1 } $support->param('gene_stable_id');
 my $chr_length = $support->get_chrlength($dba);
 my @chr_sorted = $support->sort_chromosomes($chr_length);
-my @chr_sorted = $support->param('chromosomes');
 my @gene_stable_ids = $support->param('gene_stable_id');
 
 # loop over chromosomes
