@@ -104,7 +104,7 @@ $support->log($support->init_log);
 $support->log("Reading HUGO nomenclature file...\n");
 $support->check_required_params('nomeidfile');
 open (NOM, '<', $support->param('nomeidfile')) or $support->throw(
-    "Couldn't open ".$support->param('nomeidfile')."for reading: $!\n");
+    "Couldn't open ".$support->param('nomeidfile')." for reading: $!\n");
 my $line = <NOM>;
 chomp $line;
 my @fieldnames = split /\t/, $line;
@@ -226,7 +226,6 @@ foreach my $chr (@chr_sorted) {
                     $gene->add_DBEntry($dbentry);
                     unless ($support->param('dry_run')) {
                         $ea->store($dbentry, $gid, 'Gene');
-                        $sth->execute($dbentry->dbID, $gid);
                         $support->log("Stored ".$fieldnames[$i]." xref ".$dbentry->dbID." ($xid) for gene $gid.\n", 1);
                     }
                 }

@@ -1,376 +1,339 @@
 #!/usr/local/bin/perl
 
+=head1 NAME
+
+locuslink_to_xrefs.pl - adds xrefs from LL_tmpl input file
+
+=head1 SYNOPSIS
+
+    locuslink_to_xrefs.pl [options]
+
+    General options:
+        --dbname, db_name=NAME              use database NAME
+        --host, --dbhost, --db_host=HOST    use database host HOST
+        --port, --dbport, --db_port=PORT    use database port PORT
+        --user, --dbuser, --db_user=USER    use database username USER
+        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
+        --conffile, --conf=FILE             read parameters from FILE
+        --logfile, --log=FILE               log to FILE (default: *STDOUT)
+        -i, --interactive                   run script interactively
+                                            (default: true)
+        -n, --dry_run, --dry                don't write results to database
+        -h, --help, -?                      print help (this message)
+
+    Specific options:
+        --chromosomes, --chr=LIST           only process LIST chromosomes
+        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                            (or read list from FILE)
+        --lltmplfile, --lltmpl=FILE         read LL_tmpl from FILE
+
+=head1 DESCRIPTION
+
+This script parses a file downloaded from LocusLink
+(ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz) and adds xrefs to
+LocusLink and RefSeq_dna. LocusLink identifiers are set as the display name for
+the matching genes.
+
+=head1 LICENCE
+
+This code is distributed under an Apache style licence:
+Please see http://www.ensembl.org/code_licence.html for details
+
+=head1 AUTHOR
+
+Patrick Meidl <pm2@sanger.ac.uk>
+Original code by Tim Hubbard <th@sanger.ac.uk>
+
+=head1 CONTACT
+
+Post questions to the EnsEMBL development list ensembl-dev@ebi.ac.uk
+
+=cut
+
 use strict;
+use warnings;
+no warnings 'uninitialized';
 
-use Bio::Otter::DBSQL::DBAdaptor;
+use FindBin qw($Bin);
+use vars qw($SERVERROOT);
+
+BEGIN {
+    $SERVERROOT = "$Bin/../../../..";
+    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
+    unshift(@INC, "$SERVERROOT/ensembl/modules");
+    unshift(@INC, "$SERVERROOT/bioperl-live");
+}
+
 use Getopt::Long;
-
-my $host   = 'ecs4';
-my $user   = 'ensadmin';
-my $pass   = '';
-my $port   = 3352;
-my $dbname = 'mouse_vega040719_xref';
-
-my $lltmpl_file = "/acari/work2/th/work/vega/files/LL_tmpl.gz";
-
-my @chromosomes;
-my $path = 'VEGA';
-my $do_store = 0;
-my @gene_stable_ids;
-
-my $organism='human';
-
-my $opt_h;
-my $opt_v;
-my $opt_t;
-my $opt_o;
+use Pod::Usage;
+use Bio::EnsEMBL::Utils::ConversionSupport;
 
 $| = 1;
 
-&GetOptions(
-	    'host:s'              => \$host,
-	    'user:s'              => \$user,
-	    'dbname:s'            => \$dbname,
-	    'pass:s'              => \$pass,
-	    'path:s'              => \$path,
-	    'port:n'              => \$port,
-	    'chromosomes:s'       => \@chromosomes,
-	    'lltmpl_file:s'       => \$lltmpl_file,
-	    'organism:s'          => \$organism,
-	    'gene_stable_id:s'    => \@gene_stable_ids,
-	    'store'               => \$do_store,
-	    'h'                   => \$opt_h,
-	    'v'                   => \$opt_v,
-	    't'                   => \$opt_t,
-	    'o:s'                 => \$opt_o,
+my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
+
+# parse options
+$support->parse_common_options(@_);
+$support->parse_extra_options(
+    'chromosomes|chr=s@',
+    'gene_stable_id|gsi=s@',
+    'lltmplfile|lltmpl=s',
 );
 
-if($opt_h){
-    print<<ENDOFTEXT;
-locuslink_to_xrefs.pl
-
-  -host           host    host of mysql instance ($host)
-  -dbname         dbname  database ($dbname)
-  -port           port    port ($port)
-  -user           user    user ($user)
-  -pass           pass    password 
-
-  -path           path    path ($path)
-  -organism       org     organism ($organism)
-  -store                  write xrefs to database
-  -chromosomes    chr,[chr]
-
-  -h                      this help
-  -v                      verbose
-ENDOFTEXT
-    exit 0;
+if ($support->param('help') or $support->error) {
+    warn $support->error if $support->error;
+    pod2usage(1);
 }
 
-if (scalar(@chromosomes)) {
-  @chromosomes = split (/,/, join (',', @chromosomes));
-}
+$support->comma_to_list('chromosomes');
+$support->list_or_file('gene_stable_id');
 
-my %gene_stable_ids;
-if (scalar(@gene_stable_ids)) {
-  my $gene_stable_id=$gene_stable_ids[0];
-  if(scalar(@gene_stable_ids)==1 && -e $gene_stable_id){
-    # 'gene' is a file
-    @gene_stable_ids=();
-    open(IN,$gene_stable_id) || die "cannot open $gene_stable_id";
-    while(<IN>){
-      chomp;
-      push(@gene_stable_ids,$_);
-    }
-    close(IN);
-  }else{
-    @gene_stable_ids = split (/,/, join (',', @gene_stable_ids));
-  }
-  print "Using list of ".scalar(@gene_stable_ids)." gene stable ids\n";
-  %gene_stable_ids = map {$_,1} @gene_stable_ids;
-}
+# ask user to confirm parameters to proceed
+$support->confirm_params;
 
-# translate organism to correct name used by LLtmpl file
-my $org;
-{
-  my %org;
-  %org=(
-	'human'=>'Homo sapiens',
-	'mouse'=>'Mus musculus',
-	'zebrafish'=>'Danio rerio',
-	);
-  if($org{$organism}){
-    $org=$org{$organism};
-  }else{
-    print "ERR organism \'$organism\' not recognised\n";
-    exit 0;
-  }
-}
+# make sure add_vega_xrefs.pl has been run
+print "This script must run after add_vega_xrefs.pl. Have you run it?\n";
+$support->user_confirm;
 
-my $db = new Bio::Otter::DBSQL::DBAdaptor(
-  -host   => $host,
-  -user   => $user,
-  -port   => $port,
-  -pass   => $pass,
-  -dbname => $dbname
-);
-$db->assembly_type($path);
+# get log filehandle and print heading and parameters to logfile
+$support->log_filehandle('>>');
+$support->log($support->init_log);
 
-my $sa  = $db->get_SliceAdaptor();
-my $aga = $db->get_GeneAdaptor();
-my $adx = $db->get_DBEntryAdaptor();
+# connect to database and get adaptors (caching features on one slice only)
+# get an ensembl database for better performance (no otter tables are needed)
+my $dba = $support->get_database('ensembl');
+$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
+my $sa = $dba->get_SliceAdaptor();
+my $ga = $dba->get_GeneAdaptor();
+my $ea = $dba->get_DBEntryAdaptor();
+# statement handle for display_xref_id update
+my $sth = $dba->dbc->prepare("UPDATE gene SET display_xref_id=? WHERE gene_id=?");
 
-my $chrhash = get_chrlengths($db,$path);
+my @gene_stable_ids = $support->param('gene_stable_id');
+my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
+my $chr_length = $support->get_chrlength($dba);
+my @chr_sorted = $support->sort_chromosomes($chr_length);
 
-#filter to specified chromosome names only
-if (scalar(@chromosomes)) {
-  foreach my $chr (@chromosomes) {
-    my $found = 0;
-    foreach my $chr_from_hash (keys %$chrhash) {
-      if ($chr_from_hash =~ /^${chr}$/) {
-        $found = 1;
-        last;
-      }
-    }
-    if (!$found) {
-      print "Didn't find chromosome named $chr in database $dbname\n";
-    }
-  }
-  HASH: foreach my $chr_from_hash (keys %$chrhash) {
-    foreach my $chr (@chromosomes) {
-      if ($chr_from_hash =~ /^${chr}$/) { next HASH; }
-    }
-    delete($chrhash->{$chr_from_hash});
-  }
-}
+# get species name
+#my $species = $support->get_species_scientific_name($dba);
+my $species = 'Canis familiaris';
 
-my %locus;
-my %seqname;
+# read LL_tmpl file
+my ($ll, $lcmap) = &parse_lltmpl($support);
 
-# parse and index LLtmpl file:
-# pos -> set to >>
-# index off OFFICIAL_SYMBOL
-if($opt_o){
-  open(OUT,">$opt_o") || die "cannot open $opt_o";
-}
-if($lltmpl_file=~/\.gz$/){
-  open(FPLLT,"gzip -d -c $lltmpl_file |") or die "cannot open $lltmpl_file";
-}else{
-  open(FPLLT,$lltmpl_file) or die "cannot open $lltmpl_file";
-}
-my %lltmp;
-my %lcmap;
-{
-  my $nok=0;
-  my $nworg=0;
-  my $nmorg=0;
-  my $nmsym=0;
-  my $locus_id;
-  my $pos=0;
-  my $flag_found=0;
-  my $flag_org=0;
-  my $nm='';
-  my $np='';
-  my $desc='';
-  my $gene_name='';
-  while(<FPLLT>){
-    if(/^SUMMARY: (.*)/){
-      $desc = $1;
-    }elsif(/^NM: (.*)/){
-      $nm = $1;
-      $nm =~ s/\|.*//;
-    }elsif(/^NP: (.*)/){
-      $np = $1;
-      $np =~ s/\|.*//;
-    }elsif(/^ORGANISM: (.*)/){
-      my $org2=$1;
-      if($org eq $org2){
-	$flag_org=1;
-      }else{
-	$flag_org=2;
-      }
-    }elsif(/^OFFICIAL_SYMBOL: (\w+)/){
-      if($flag_org==1){
-	$gene_name=$1;
-	my $lc_gene_name=lc($gene_name);
-	push(@{$lcmap{$lc_gene_name}},$gene_name);
-	$nok++;
-      }elsif($flag_org==2){
-	# skip - wrong organism
-	$nworg++;
-      }elsif($flag_org==0){
-	print "WARN: organism not found for $locus_id\n";
-	$nmorg++;
-      }
-      $flag_org=0;
-      $flag_found=0;
-    }elsif(/\>\>(\d+)/){
-      if($gene_name){
-      	$lltmp{$gene_name}=[$nm,$np,$locus_id,$desc];
-	print OUT "$gene_name\t$nm\t$np\t$locus_id\t$desc\n" if $opt_o;
-	$nm='';
-	$np='';
-	$desc='';
-      }
-      if($flag_found){
-	$nmsym++;
-	print "WARN: OFFICIAL_SYMBOL for $locus_id not found\n" if $opt_v;
-      }
-      $flag_found=1;
-      $locus_id=$1;
-    }
-  }
-  print "$nok entries indexed ok\n";
-  print "$nworg entries skipped - not \'$organism\'\n";
-  print "$nmorg entries skipped - no organism label\n";
-  print "$nmsym entries skipped - no official symbol\n";
-}
+# loop over chromosomes
+$support->log("Looping over chromosomes: @chr_sorted\n\n");
+foreach my $chr (@chr_sorted) {
+    $support->log("> Chromosome $chr (".$chr_length->{$chr}
+               ."bp). ".$support->date_and_mem."\n\n");
+    
+    # fetch genes from db
+    $support->log("Fetching genes...\n");
+    my $slice = $sa->fetch_by_region('chromosome', $chr);
+    my $genes = $ga->fetch_all_by_Slice($slice);
+    $support->log("Done fetching ".scalar @$genes." genes. " .
+                   $support->date_and_mem."\n\n");
 
-foreach my $chr (reverse sort bychrnum keys %$chrhash) {
-  print STDERR "Chr $chr from 1 to " . $chrhash->{$chr} . " on " . $path . "\n";
-  my $chrstart = 1;
-  my $chrend   = $chrhash->{$chr};
+    # loop over genes
+    my $num_ll = 0;
+    my $num_refseq = 0;
+    my $num_case = 0;
+    my $num_clone = 0;
+    my $num_missing = 0;
+    my $gnum = 0;
+    foreach my $gene (@$genes) {
+        my $gsi = $gene->stable_id;
+        my $gid = $gene->dbID;
+        my $gene_name = $gene->display_xref->display_id;
+        my $lc_gene_name = lc($gene_name);
 
-  my $slice = $sa->fetch_by_chr_start_end($chr, 1, $chrhash->{$chr});
+        # filter to user-specified gene_stable_ids
+        if (scalar(@gene_stable_ids)){
+            next unless $gene_stable_ids{$gsi};
+        }
 
-  print "Fetching genes\n";
-  my $genes = $aga->fetch_by_Slice($slice);
-  print "Fetched (".scalar(@$genes).") genes\n";
-  my $nfound=0;
-  my $ncase=0;
-  my $nclone=0;
-  my $nmiss=0;
-  foreach my $gene (@$genes) {
-    my $gsi=$gene->stable_id;
-    if(scalar(@gene_stable_ids)){
-      next unless $gene_stable_ids{$gsi};
-    }
-    my $gene_name;
-    if ($gene->gene_info->name && $gene->gene_info->name->name) {
-      $gene_name = $gene->gene_info->name->name;
-    } else {
-      die "Failed finding gene name for " .$gene->stable_id . "\n";
-    }
-    my $lc_gene_name=lc($gene_name);
+        $gnum++;
+        $support->log("Gene $gene_name ($gid, $gsi)...\n");
 
-    # lookup this gene name
-    if($lltmp{$gene_name}){
-
-      print "  Found locuslink match for $gene_name\n";
-      $nfound++;
-      my($nm,$np,$locus_id,$desc)=@{$lltmp{$gene_name}};
-
-      my $dbentry=Bio::EnsEMBL::DBEntry->new(-primary_id=>$locus_id,
-                                             -display_id=>$gene_name,
-                                             -version=>1,
-                                             -release=>1,
-                                             -dbname=>"LocusLink",
-                                            );
-      print "   locus link = " .$locus_id . "\n" if $opt_v;
-      $dbentry->status('KNOWN');
-      $gene->add_DBEntry($dbentry);
-      $adx->store($dbentry,$gene->dbID,'Gene') if $do_store;
-
-      # Display xref id update
-      my $sth = $db->prepare("update gene set display_xref_id=" . 
-                             $dbentry->dbID . " where gene_id=" . $gene->dbID);
-      print "    ". $sth->{Statement} . "\n" if $opt_v;
-      $sth->execute if $do_store;
-
-      if ($nm) {
-	print "   RefSeq NM = " .$nm . "\n" if $opt_v;
-        my $dbentry=Bio::EnsEMBL::DBEntry->new(-primary_id=>$nm,
-                                               -display_id=>$nm,
-                                               -version=>1,
-                                               -release=>1,
-                                               -dbname=>"RefSeq",
-                                              );
-        $dbentry->status('KNOWNXREF');
-        $gene->add_DBEntry($dbentry);
-        $adx->store($dbentry,$gene->dbID,'Gene') if $do_store;
-      }
-    }elsif($lcmap{$lc_gene_name}){
-      # check if case in database might be wrong, by doing lc comparision
-	print "  WARN: Possible case error for $gene_name: ".
-	    join(',',(@{$lcmap{$lc_gene_name}}))."\n";
-	$ncase++;
-    }elsif($gene_name=~/^\w+\.\d+$/ || $gene_name=~/^\w+\-\w+\.\d+$/){
-      # probably a clone based genename - ok
-      print "  No locuslink match for $gene_name\n" if $opt_v;
-      $nclone++;
-    }else{
-      # doesn't look like a clone name, so perhaps mistyped 
-      print "  WARN: No locuslink match for $gene_name\n";
-      $nmiss++;
-    }
-  }
-  print " Locuslink information for $nfound genes added\n";
-  print " $ncase names mismatch because of possible wrong case\n";
-  print " $nclone names appear to be based on clonename - no match expected\n";
-  print " $nmiss other names - match expected\n";
-}
-close(FPLLT);
-
-sub get_chrlengths{
-  my $db = shift;
-  my $type = shift;
-
-  if (!$db->isa('Bio::EnsEMBL::DBSQL::DBAdaptor')) {
-    die "get_chrlengths should be passed a Bio::EnsEMBL::DBSQL::DBAdaptor\n";
-  }
-
-  my %chrhash;
-
-  my $q = qq( SELECT chrom.name,max(chr_end) FROM assembly as ass, chromosome as chrom
-              WHERE ass.type = '$type' and ass.chromosome_id = chrom.chromosome_id
-              GROUP BY chrom.name
+        if ($ll->{$gene_name}) {
+            # LocusLink xref
+            $num_ll++;
+            my $dbentry = Bio::EnsEMBL::DBEntry->new(
+                    -primary_id => $ll->{$gene_name}->{'LOCUSLINK'},
+                    -display_id => $gene_name, 
+                    -version    => 1,
+                    -release    => 1,
+                    -dbname     => 'LocusLink',
             );
+            $dbentry->status('KNOWN');
+            $gene->add_DBEntry($dbentry);
+            unless ($support->param('dry_run')) {
+                $ea->store($dbentry, $gid, 'Gene');
+                $sth->execute($dbentry->dbID, $gid);
+                $support->log("Stored LocusLink xref ".$dbentry->dbID." for gene $gid.\n", 1);
+            }
 
-  my $sth = $db->prepare($q) || $db->throw("can't prepare: $q");
-  my $res = $sth->execute || $db->throw("can't execute: $q");
+            # RefSeq xref
+            if ($ll->{$gene_name}->{'NM'}) {
+                $num_refseq++;
+                my $dbentry = Bio::EnsEMBL::DBEntry->new(
+                        -primary_id => $ll->{$gene_name}->{'NM'},
+                        -display_id => $ll->{$gene_name}->{'NM'},
+                        -version=>1,
+                        -release=>1,
+                        -dbname=>"RefSeq_dna",
+                );
+                $dbentry->status('KNOWNXREF');
+                $gene->add_DBEntry($dbentry);
+                unless ($support->param('dry_run')) {
+                    $ea->store($dbentry, $gid, 'Gene');
+                    $support->log("Stored RefSeq_dna xref ".$dbentry->dbID." for gene $gid.\n", 1);
+                }
+            }
+        } elsif ($lcmap->{$lc_gene_name}) {
+            # check if case in database might be wrong, by doing lc comparision
+            $support->log_warning("Possible case error for $gene_name: ".
+                join(',',(@{ $lcmap->{$lc_gene_name} })).".\n", 1);
+            $num_case++;
+        } elsif ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
+            # probably a clone based genename - ok
+            $support->log("No LocusLink match for $gene_name (but has clonename based name).\n", 1);
+            $num_clone++;
+        } else {
+            # doesn't look like a clone name, so perhaps mistyped 
+            $support->log_warning("No LocusLink match for $gene_name.\n", 1);
+            $num_missing++;
+        }
+    }
 
-  while( my ($chr, $length) = $sth->fetchrow_array) {
-    $chrhash{$chr} = $length;
-  }
-  return \%chrhash;
+    $support->log("\nProcessed $gnum genes (of ".scalar @$genes." on this chromosome).\n");
+    $support->log("OK:\n");
+    $support->log("LocusLink $num_ll, RefSeq_dna $num_refseq.\n", 1);
+    $support->log("WARNINGS:\n");
+    $support->log("Genes with possible case mismatch: $num_case.\n", 1);
+    $support->log("Genes with apparently clonename based names: $num_clone.\n", 1);
+    $support->log("Other genes without match: $num_missing.\n", 1);
+    $support->log("Done with chromosome $chr. ".$support->date_and_mem."\n\n");
 }
 
+# finish log
+$support->log($support->finish_log);
 
-sub bychrnum {
+### end main ###
 
-  my @awords = split /_/, $a;
-  my @bwords = split /_/, $b;
+=head2 parse_lltmpl
 
-  my $anum = $awords[0];
-  my $bnum = $bwords[0];
+  Arg[1]      : Bio::EnsEMBL::Utils::ConversionSupport object $support
+  Example     : my $ll = &parse_lltmpl($support);
+                foreach my $gene (keys %$ll) {
+                    my ($nm, $np, $locus_id, $desc) = @{ $ll->{$gene} };
+                }
+  Description : Parses a LL_tmpl file from LocusLink. File can optionally be
+                gzipped.
+  Return type : list of hashrefs:
+                1.  keys: gene_names
+                    values: arrayref of NM, NP, OFFICIAL_SYMBOL, SUMMARY
+                2.  keys: lowercase gene_names
+                    values: list of gene_names (with case preserved)
+  Exceptions  : thrown if input file can't be read
+  Caller      : internal
 
-  #  if ($anum !~ /^chr/ || $bnum !~ /^chr/) {
-  #    die "Chr name doesn't begin with chr for $a or $b";
-  #  }
+=cut
 
-  $anum =~ s/chr//;
-  $bnum =~ s/chr//;
+sub parse_lltmpl {
+    my $support = shift;
 
-  if ($anum !~ /^[0-9]*$/) {
-    if ($bnum !~ /^[0-9]*$/) {
-      return $anum cmp $bnum;
+    # read LL_tmpl input file
+    $support->log("Reading LL_tmpl file... ".$support->date_and_mem."\n");
+    $support->check_required_params('lltmplfile');
+    my $lltmpl = $support->param('lltmplfile');
+    my $fh_expr;
+    if($lltmpl =~ /\.gz$/) {
+        $fh_expr = "gzip -d -c $lltmpl |";
     } else {
-      return 1;
+        $fh_expr = "< $lltmpl";
     }
-  }
-  if ($bnum !~ /^[0-9]*$/) {
-    return -1;
-  }
+    open(LL, $fh_expr)
+        or $support->throw("Couldn't open $lltmpl for reading: $!\n");
 
-  if ($anum <=> $bnum) {
-    return $anum <=> $bnum;
-  } else {
-    if ($#awords == 0) {
-      return -1;
-    } elsif ($#bwords == 0) {
-      return 1;
-    } else {
-      return $awords[1] cmp $bwords[1];
+    my %ll;
+    my %lcmap;
+    my $num_total = 1;
+    my $num_ok = 0;
+    my $num_wrong_org = 0;
+    my $num_missing_org = 0;
+    my $num_missing_symbol = 0;
+    my $locus_id;
+    my $flag_found = 1;
+    my $flag_org = 0;
+    my $nm = '';
+    my $np = '';
+    my $desc = '';
+    my $gene_name = '';
+
+    while(<LL>){
+        if (/^SUMMARY: (.*)/) {
+            $desc = $1;
+        } elsif (/^NM: (.*)/) {
+            $nm = $1;
+            $nm =~ s/\|.*//;
+        } elsif (/^NP: (.*)/) {
+            $np = $1;
+            $np =~ s/\|.*//;
+        } elsif (/^ORGANISM: (.*)/) {
+            my $org = $1;
+            if ($species eq $org) {
+                $flag_org = 1;
+            } else {
+                $flag_org = 2;
+            }
+        } elsif (/^OFFICIAL_SYMBOL: (\w+)/) {
+            if ($flag_org == 1) {
+                $gene_name = $1;
+                push @{ $lcmap{lc($gene_name)} }, $gene_name;
+                $num_ok++;
+            } elsif($flag_org == 2) {
+                # wrong organism
+                $num_wrong_org++;
+            } elsif($flag_org == 0) {
+                # missing organism
+                $support->log_warning("ORGANISM not found for $locus_id.\n", 1);
+                $num_missing_org++;
+            }
+            $flag_org = 0;
+            $flag_found = 1;
+        } elsif (/\>\>(\d+)/) {
+            if ($gene_name) {
+                $ll{$gene_name} = {
+                    NM          => $nm,
+                    NP          => $np,
+                    LOCUSLINK   => $locus_id,
+                    DESC        => $desc
+                };
+                #$support->log("$gene_name\t$nm\t$np\t$locus_id\t$desc\n", 1);
+                $nm = '';
+                $np = '';
+                $desc = '';
+            }
+            unless ($flag_found) {
+                $num_missing_symbol++;
+                #$support->log_warning("OFFICIAL_SYMBOL for $locus_id not found.\n", 1);
+            }
+            $flag_found = 0;
+            $locus_id = $1;
+            $num_total++;
+        }
     }
-  }
+    close(LL);
+
+    $support->log("Done processing $num_total entries. ".$support->date_and_mem."\n");
+    $support->log("OK: $num_ok.\n");
+    $support->log("SKIPPED:\n");
+    $support->log("Not \'$species\': $num_wrong_org.\n", 1);
+    $support->log("No organism label: $num_missing_org.\n", 1);
+    $support->log("No official symbol: $num_missing_symbol.\n\n", 1);
+    
+    return \%ll, \%lcmap;
 }
 
