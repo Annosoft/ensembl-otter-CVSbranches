@@ -9,25 +9,6 @@ use vars qw(@ISA);
 @ISA = qw ( Bio::EnsEMBL::DBSQL::RawContigAdaptor);
 
 
-# This is assuming the otter info and the ensembl genes are in the same database 
-# and so have the same adaptor
-
-sub new {
-    my ($class,$dbobj) = @_;
-
-    my $self = {};
-    bless $self,$class;
-
-    if( !defined $dbobj || !ref $dbobj ) {
-        $self->throw("Don't have a db [$dbobj] for new adaptor");
-    }
-
-    $self->db($dbobj);
-
-    return $self;
-}
-
-
 # Need to override fetch_filled_by_dbIDs in Bio::EnsEMBL::DBSQL::RawContigAdaptor
 # because it makes Clones without going throught the CloneAdaptor
 
