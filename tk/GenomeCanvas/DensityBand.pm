@@ -5,6 +5,7 @@ package GenomeCanvas::DensityBand;
 
 use strict;
 use Carp;
+use Tk::PNG;
 use GenomeCanvas::GD_StepMap;
 use GenomeCanvas::Band;
 
@@ -48,6 +49,16 @@ sub strip_padding {
     $pad = 2 if $pad < 2;
     return $pad;
 }
+
+sub pixels_per_band {
+    my( $self, $pixels_per_band ) = @_;
+    
+    if ($pixels_per_band) {
+        $self->{'_pixels_per_band'} = $pixels_per_band;
+    }
+    return $self->{'_pixels_per_band'} || 1;
+}
+
 
 sub strip_y_map {
     my( $band ) = @_;
@@ -111,18 +122,21 @@ sub draw_density_segment {
     my $height = $band->strip_height;
     my $y = ($band->strip_y_map)[$level];
     my $rpp = $band->residues_per_pixel;
+    my $band_length = $rpp * $band->pixels_per_band;
     my $canvas = $band->canvas;
     my @tags = $band->tags;
 
-    my $tile_count = int($vc_length / $rpp);
-    $tile_count += 1 if $vc_length % $rpp;
-    my $stepmap = GenomeCanvas::GD_StepMap->new($tile_count, $height);
+    my $tile_count = int($vc_length / $band_length);
+    $tile_count += 1 if $vc_length % $band_length;
+    my $stepmap = GenomeCanvas::GD_StepMap->new(
+        $tile_count, $height, $band->pixels_per_band);
     $stepmap->color($band->band_color);
 
     my( @values );
     for (my ($i,$j) = (0,0); $i < $tile_count; $i++) {
-        my $start = $i * $rpp;
-        my $end = $start + $rpp - 1;
+        my $start = $i * $band_length;
+        my $end = $start + $band_length - 1;
+        #warn "tile from $start to $end\n";
 
         my $covered_length = 0;
 
@@ -160,11 +174,11 @@ sub draw_density_segment {
     }
     $stepmap->values(@values);
 
-    # Add the gif to the image
+    # Add the png to the image
     my $x = $x_offset / $rpp;
     my $image = $canvas->Photo(
-        '-format'   => 'gif',
-        -data       => $stepmap->base64_gif,
+        '-format'   => 'png',
+        -data       => $stepmap->base64_png,
         );
     $canvas->createImage(
         $x, $y->[0] + 0.5,    # Off-by-1 error when placing images?

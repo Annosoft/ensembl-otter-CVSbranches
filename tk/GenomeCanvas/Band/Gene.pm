@@ -16,6 +16,17 @@ sub render {
     $band->draw_gene_features_on_vc($band->virtual_contig, 0);
 }
 
+
+sub make_title_case {
+    my( $self, $make_title_case ) = @_;
+    
+    if (defined $make_title_case) {
+        $self->{'_make_title_case'} = $make_title_case ? 1 : 0;
+    }
+    return $self->{'_make_title_case'} || 0;
+}
+
+
 sub draw_titles {
     my( $band ) = @_;
     
@@ -42,6 +53,7 @@ sub draw_titles {
     my $x2 = 0 - (2 * $font_size);
     my $x1 = $x2 - $square_side;
     my $label_type = $band->label_type_list;
+    my $title_case_flag = $band->make_title_case;
     for (my $i = 0; $i < @$label_type; $i++) {
         my($label, $type) = @{$label_type->[$i]};
         my $y1 = $y_offset + (2.5 * $font_size * $i) + $font_size;
@@ -155,12 +167,13 @@ sub get_gene_span_data {
 sub draw_gene_features_on_vc {
     my( $band, $vc, $x_offset ) = @_;
 
-    my $y_dir       = $band->tiling_direction;
-    my $rpp         = $band->residues_per_pixel;
-    my $y_offset    = $band->y_offset;
-    my @tags        = $band->tags;
-    my $canvas      = $band->canvas;
-    my $font_size   = $band->font_size;
+    my $y_dir           = $band->tiling_direction;
+    my $rpp             = $band->residues_per_pixel;
+    my $y_offset        = $band->y_offset;
+    my @tags            = $band->tags;
+    my $canvas          = $band->canvas;
+    my $font_size       = $band->font_size;
+    my $title_case_flag = $band->make_title_case;
 
     my $rectangle_height = $font_size;
     my $nudge_distance = $rectangle_height * $y_dir;
@@ -205,6 +218,9 @@ sub draw_gene_features_on_vc {
             my $group = "gene_group-$id-$vc";
             #warn "[$x_offset] $id: $start -> $end\n";
 
+            if ($title_case_flag and ($id eq uc $id)) {
+                $id = ucfirst lc $id;
+            }
 
             my $x1 = $start / $rpp;
             my $x2 = $end   / $rpp;

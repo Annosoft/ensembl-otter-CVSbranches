@@ -8,11 +8,8 @@ use strict;
 use Carp;
 use Tk;
 use GenomeCanvas::Band;
-use GenomeCanvas::State;
+use base qw{ GenomeCanvas::State CanvasWindow };
 use CanvasWindow;
-
-use vars qw{@ISA};
-@ISA = ('CanvasWindow', 'GenomeCanvas::State');
 
 sub new {
     my( $pkg, $tk ) = @_;
@@ -57,7 +54,7 @@ sub render {
     my @band_list = $gc->band_list;
     for (my $i = 0; $i < @band_list; $i++) {
         my $band = $band_list[$i];
-        
+                
         #print STDERR scalar(localtime), " Rendering a ", ref($band), "\n";
         
         my $tag = "$band-$i";

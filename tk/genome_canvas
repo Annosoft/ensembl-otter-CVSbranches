@@ -1,3 +1,4 @@
+#!/usr/local/bin/perl5.8.0 -w
 #!/nfs/humace2/hum/bin/perl5.6.1 -w
 
 ### genome_canvas
@@ -36,6 +37,7 @@ use Hum::EnsCmdLineDB;
     my $show_snps       = 0;
     my $show_cpg        = 1;
     my $big_picture     = 0;
+    my $gene_title_case = 0;
     my( $span_file );
     Hum::EnsCmdLineDB::do_getopt(
         'fpc=s'         => \$fpc,
@@ -50,6 +52,7 @@ use Hum::EnsCmdLineDB;
         'landscape!'    => \$landscape,
         'portrait!'     => \$portrait,
         'gene_labels!'  => \$gene_labels,
+        'title_case!'   => \$gene_title_case,
         'genes!'        => \$show_genes,
         'repeats!'      => \$show_repeats,
         'snps!'         => \$show_snps,
@@ -136,6 +139,7 @@ use Hum::EnsCmdLineDB;
             my $repeat = GenomeCanvas::DensityBand::RepeatFeature->new;
             $repeat->virtual_contig($vc);
             $repeat->title('Repeats');
+            $repeat->pixels_per_band(5);
             $repeat->repeat_classifier(\&repeat_class);
             $gc->add_Band($repeat);
         }
@@ -149,7 +153,7 @@ use Hum::EnsCmdLineDB;
         $gc->add_Band($plot);
 
         my $pos_1 = GenomeCanvas::Band::Plot->new;
-        $pos_1->title('RSF Scores');
+        $pos_1->title("Simplicity /\nRSF Scores");
         $pos_1->band_color('#9600d7');
         $pos_1->plot_method('pos_value');
         $pos_1->pos_value_file('/nfs/team71/analysis/jgrg/work/mouse/del36h/position_rsf.txt');
@@ -160,13 +164,13 @@ use Hum::EnsCmdLineDB;
         $gc->add_Band($pos_1);
 
         my $pos_2 = GenomeCanvas::Band::Plot->new;
-        $pos_2->title('Cumulative Scores');
+        $pos_2->title("Simplicity /\nCumulative\nScores");
         $pos_2->band_color('#6959cf');
         $pos_2->plot_method('pos_value');
         $pos_2->pos_value_file('/nfs/team71/analysis/jgrg/work/mouse/del36h/position_cumulative_signs.txt');
         $pos_2->virtual_contig($vc);
         $pos_2->range(-1.0, 1.0);
-        $pos_2->x_major(0.25);
+        $pos_2->x_major(0.5);
         $gc->add_Band($pos_2);
 
         my $reg = GenomeCanvas::Band::RegionFeatures->new;
@@ -183,6 +187,7 @@ use Hum::EnsCmdLineDB;
         if ($show_genes) {
             my $gene_names = GenomeCanvas::Band::Gene->new;
             $gene_names->show_labels($gene_labels);
+            $gene_names->make_title_case($gene_title_case);
             $gene_names->label_type_color_list(
                 [ 'Known',              'HUMACE-Known',             '#4169e7' ],
                 [ 'Novel CDS',          'HUMACE-Novel_CDS',         '#86ceff' ],

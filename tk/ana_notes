@@ -396,7 +396,7 @@ sub default_cursor {
             return 1;
         }
         elsif (defined $pid) {
-           my @lace = ('lace', '-path', $lace_dir);
+           my @lace = ('lace', '-noana', '-path', $lace_dir);
             push(@lace, '-ns') if $nospangle;
             if ($annotator) {
                 push(@lace, '-user', $user);

@@ -10,12 +10,15 @@ use GenomeCanvas::FadeMap;
 use MIME::Base64 'encode_base64';
 
 sub new {
-    my $pkg = shift;
+    my( $pkg, $tiles, $y, $tile_length ) = @_;
+    
+    $tile_length ||= 1;
     my $self = bless {
         _values     => [],
         _dimensions => [],
         }, $pkg;
-    $self->dimensions(@_);
+    $self->dimensions($tiles * $tile_length, $y);
+    $self->tile_length($tile_length);
     return $self;
 }
 
@@ -33,6 +36,16 @@ sub dimensions {
     }
     return @{$self->{'_dimensions'}};
 }
+
+sub tile_length {
+    my( $self, $tile_length ) = @_;
+    
+    if ($tile_length) {
+        $self->{'_tile_length'} = $tile_length;
+    }
+    return $self->{'_tile_length'};
+}
+
 
 sub color {
     my( $self, $color ) = @_;
@@ -78,7 +91,7 @@ sub values {
     return @{$self->{'_values'}};
 }
 
-sub gif {
+sub png {
     my( $self ) = @_;
     
     # Make a graduated color scale
@@ -86,7 +99,7 @@ sub gif {
     my $fader = GenomeCanvas::FadeMap->new;
     $fader->fade_color($color);
     
-    # Make a GIF image object
+    # Make a PNG image object
     my ($x,$y) = $self->dimensions;
     confess "Missing dimensions (x='$x', y='$y')"
         unless $x and $y;
@@ -109,30 +122,34 @@ sub gif {
     # Get the data to be plotted on the image
     my @values = $self->values;
     my $value_count = @values;
+    my $tile_length = $self->tile_length;
+    my $tile_count = int($x / $tile_length);
     confess "Number of values '$value_count' doesn't match image length '$x'"
-        unless $x == $value_count;
+        unless $tile_count == $value_count;
     
     # Plot the data
     my ($min, $max) = $self->range;
     my $range = $max - $min;
     my $y_max = $y - 1;
-    for (my $i = 0; $i < $x; $i++) {
+    for (my $i = 0; $i < $tile_count; $i++) {
         my $v = $values[$i];
+        my $x1 = $i * $tile_length;
+        my $x2 = $x1 + $tile_length;
         my $color_i = int((($v - $min) / $range) * @rgb_scale);
         $color_i-- if $color_i == @rgb_scale;
-        $img->filledRectangle($i,0,$i,$y_max, $color_i);
+        $img->filledRectangle($x1,0,$x2,$y_max, $color_i);
     }
     
-    return $img->gif;
+    return $img->png;
 }
 
 # To pass to the Canvas' "-data" parameter, the
-# gif image has to be base64 encoded.
+# png image has to be base64 encoded.
 
-sub base64_gif {
+sub base64_png {
     my( $self ) = @_;
     
-    return encode_base64($self->gif);
+    return encode_base64($self->png);
 }
 
 1;
