@@ -42,6 +42,7 @@ Please see http://www.ensembl.org/code_licence.html for details
 =head1 AUTHOR
 
 Patrick Meidl <pm2@sanger.ac.uk>
+Original code by Tim Hubbard <th@sanger.ac.uk>
 
 =head1 CONTACT
 

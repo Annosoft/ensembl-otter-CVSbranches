@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-accession_to_support.pl -
+accession_to_support.pl - script to add supporting evidence to a Vega database
 
 =head1 SYNOPSIS
 
@@ -29,12 +29,27 @@ accession_to_support.pl -
 
 =head1 DESCRIPTION
 
-#Fetch slice for whole chromosome
-#For each gene
-#Fetch
-#check for overlap with any exon in transcript
-#create a supporting feature
-#write
+This script adds the supporting evidence for Vega. It does so by comparing
+accesions between annotated evidence and similarity features from the protein
+pipeline run. If a match is found, it is added to the supporting_feature
+table.
+
+Pseudocode:
+
+    foreach gene
+        get all similarity features, store in datastructure
+        foreach transcript
+            get all annotated evidenc
+            foreach evidence
+                foreach similarity feature
+                    accession matches?
+                        foreach exon
+                            similarity feature overlaps exon?
+                                store supporting evidence
+
+There are occasions where no match for annotated evidence can be found.
+Possible reasons for this are: spelling mistake by annotator; feature not found
+by protein pipeline run (e.g. removed from external database, renamed)
 
 =head1 LICENCE
 
@@ -44,6 +59,7 @@ Please see http://www.ensembl.org/code_licence.html for details
 =head1 AUTHOR
 
 Patrick Meidl <pm2@sanger.ac.uk>
+Original code by Tim Hubbard <th@sanger.ac.uk>
 
 =head1 CONTACT
 
@@ -131,6 +147,7 @@ foreach my $chr (@chr_sorted) {
     $support->log("Done fetching ".scalar @$genes." genes. " .
                    $support->date_and_mem."\n\n");
 
+    # loop over genes
     my $gnum = 0;
     my $tnum = 0;
     my $enum = 0;
@@ -159,6 +176,8 @@ foreach my $chr (@chr_sorted) {
                        $gene->slice->name."... ".
                        $support->date_and_mem."\n");
 
+        # fetch similarity features from db and store required information in
+        # lightweight datastructure (name => [ start, end, dbID, type ])
         $support->log("Fetching similarity features... ".
                        $support->date_and_mem."\n", 1);
         my $similarity = $gene_slice->get_all_SimilarityFeatures;
@@ -176,7 +195,7 @@ foreach my $chr (@chr_sorted) {
             $tnum++;
             $support->log("Transcript ".$trans->stable_id."...\n", 1);
 
-            # loop over evidence for this transcript
+            # loop over evidence added by annotators for this transcript
             my @evidence = $trans->transcript_info->evidence;
             my @exons = @{ $trans->get_all_Exons };
             $enum += scalar(@exons);
@@ -186,14 +205,18 @@ foreach my $chr (@chr_sorted) {
                 $acc =~ s/\.[0-9]*$//;
                 my $ana = $analysis{$evi->type . "_evidence"};
                 $support->log("Evidence $acc...\n", 2);
-                # loop over similarity features on the slice
+                # loop over similarity features on the slice, compare name with
+                # evidence
                 my $match = 0;
                 foreach my $hitname (keys %$sf) {
                     if ($hitname eq $acc) {
                         foreach my $hit (@{ $sf->{$hitname} }) {
+                            # loop over exons and look for overlapping
+                            # similarity features
                             foreach my $exon (@exons) {
                                 if ($exon->end >= $hit->[0] && $exon->start <= $hit->[1]) {
                                     $support->log("Matches similarity feature with dbID ".$hit->[2].".\n", 3);
+                                    # store unique evidence identifier in hash
                                     $se_hash{$exon->dbID.":".$hit->[2].":".$hit->[3]} = 1;
                                     
                                     $match = 1;
@@ -209,6 +232,8 @@ foreach my $chr (@chr_sorted) {
 
         $support->log("Found $gene_has_support matches (".
                        scalar(keys %se_hash)." unique).\n", 1);
+
+        # store supporting evidence in db
         if ($gene_has_support and !$support->param('dry_run')) {
             $support->log("Storing supporting evidence... ".
                            $support->date_and_mem."\n", 1);
