@@ -180,7 +180,7 @@ sub initialize {
         my $current_method = $sub->GeneMethod->name;
         $self->method_name_var(\$current_method);
 
-        my $method_menu = $self->make_menu('Gene Type');
+        my $method_menu = $self->make_menu('Type');
         my $redraw_tr = sub { $self->draw_translation_region };
         foreach my $method_name (@allowed_methods ) {
             $method_menu->add('radiobutton',
@@ -421,6 +421,7 @@ sub add_subseq_exons {
             foreach my $exon_id (map $_->[2], @del) {
                 $canvas->delete($exon_id);
             }
+            $self->decrement_exon_counter($length);
         } else {
             confess "No pairs to trim";
         }
@@ -1424,6 +1425,7 @@ sub set_tk_strand {
         my @tags = grep $_ ne $del_tag, $canvas->gettags($obj);
         $canvas->delete($obj);
         my ($i) = map /exon_id-(\d+)/, @tags;
+        #warn "Drawing strand indicator for exon $i\n";
         my( $size, $half, $pad,
             $x1, $y1, $x2, $y2 ) = $self->exon_holder_coords($i - 1);
         $self->$draw_method($x1 + $half, $y1, $size, @tags);
@@ -1766,8 +1768,10 @@ sub strand_from_tk {
         if ($sub) {
             @trans = $sub->translation_region;
         } else {
-            @trans = $self->translation_region_from_tk ||
-                $self->SubSeq->translation_region;
+            @trans = $self->translation_region_from_tk;
+            unless (@trans) {
+                @trans = $self->SubSeq->translation_region;
+            }
         }
 
         # Delete the existing translation region
@@ -1988,6 +1992,13 @@ sub next_exon_number {
     
     $self->{'_max_exon_number'}++;
     return $self->{'_max_exon_number'};
+}
+
+sub decrement_exon_counter {
+    my( $self, $count ) = @_;
+    
+    confess "No count given" unless defined $count;
+    $self->{'_max_exon_number'} -= $count;
 }
 
 sub DESTROY {
