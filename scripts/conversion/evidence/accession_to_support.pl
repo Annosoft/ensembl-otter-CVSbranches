@@ -112,7 +112,6 @@ $support->log_filehandle('>>');
 $support->log($support->init_log);
 
 # connect to database and get adaptors (caching features on one slice only)
-# get an ensembl database for better performance (no otter tables are needed)
 my $dba = $support->get_database('otter');
 $Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
