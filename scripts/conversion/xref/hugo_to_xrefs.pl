@@ -15,23 +15,69 @@ my @chromosomes;
 my $path = 'VEGA';
 my $do_store = 0;
 my $nomeid_file = undef;
+my @gene_stable_ids;
+
+my $opt_h;
 
 $| = 1;
 
 &GetOptions(
-  'host:s'        => \$host,
-  'user:s'        => \$user,
-  'dbname:s'      => \$dbname,
-  'pass:s'        => \$pass,
-  'path:s'        => \$path,
-  'port:n'        => \$port,
-  'chromosomes:s' => \@chromosomes,
-  'nomeidfile:s'  => \$nomeid_file,
-  'store'         => \$do_store,
+	    'host:s'              => \$host,
+	    'dbname:s'            => \$dbname,
+	    'port:n'              => \$port,
+	    'user:s'              => \$user,
+	    'pass:s'              => \$pass,
+	    'path:s'              => \$path,
+	    'chromosomes:s'       => \@chromosomes,
+	    'nomeidfile:s'        => \$nomeid_file,
+	    'gene_stable_id:s'    => \@gene_stable_ids,
+	    'store'               => \$do_store,
+	    'h'                   => \$opt_h,
 );
+
+if($opt_h){
+  print<<ENDOFTEXT;
+hugo_to_xrefs.pl
+
+  -host           host    host of mysql instance ($host)
+  -dbname         dbname  database ($dbname)
+  -port           port    port ($port)
+  -user           user    user ($user)
+  -pass           pass    password 
+
+  -path           path    path ($path)
+  -chromosomes    chr,[chr]
+  -nomeidfile     file    HUGO nomenclature file
+  -store                  write xrefs to database
+
+  -gene_stable_id gsi[,gsi] (list or file containing list)
+
+  -h                      this help
+ENDOFTEXT
+  exit 0;
+}
 
 if (scalar(@chromosomes)) {
   @chromosomes = split (/,/, join (',', @chromosomes));
+}
+
+my %gene_stable_ids;
+if (scalar(@gene_stable_ids)) {
+  my $gene_stable_id=$gene_stable_ids[0];
+  if(scalar(@gene_stable_ids)==1 && -e $gene_stable_id){
+    # 'gene' is a file
+    @gene_stable_ids=();
+    open(IN,$gene_stable_id) || die "cannot open $gene_stable_id";
+    while(<IN>){
+      chomp;
+      push(@gene_stable_ids,$_);
+    }
+    close(IN);
+  }else{
+    @gene_stable_ids = split (/,/, join (',', @gene_stable_ids));
+  }
+  print "Using list of ".scalar(@gene_stable_ids)." gene stable ids\n";
+  %gene_stable_ids = map {$_,1} @gene_stable_ids;
 }
 
 my $db = new Bio::Otter::DBSQL::DBAdaptor(
@@ -96,10 +142,10 @@ while (<FPNOM>) {
 }
 
 my %convhash;
-$convhash{MIM} = "MIM";
-$convhash{"Ref Seq"} = "RefSeq";
-$convhash{"Locus Link"},"LocusLink";
-$convhash{"SWISSPROT"},"SWISSPROT";
+$convhash{MIM}="MIM";
+$convhash{"Ref Seq"}="RefSeq";
+$convhash{"Locus Link"}="LocusLink";
+$convhash{"SWISSPROT"}="SWISSPROT";
 
 foreach my $chr (reverse sort bychrnum keys %$chrhash) {
   print STDERR "Chr $chr from 1 to " . $chrhash->{$chr} . " on " . $path . "\n";
@@ -112,7 +158,12 @@ foreach my $chr (reverse sort bychrnum keys %$chrhash) {
   my $genes = $aga->fetch_by_Slice($slice);
   print "Done fetching genes\n";
 
+  my $nhugo=0;
   foreach my $gene (@$genes) {
+    my $gsi=$gene->stable_id;
+    if(scalar(@gene_stable_ids)){
+      next unless $gene_stable_ids{$gsi};
+    }
     my $gene_name;
     if ($gene->gene_info->name && $gene->gene_info->name->name) {
       $gene_name = $gene->gene_info->name->name;
@@ -131,6 +182,7 @@ foreach my $chr (reverse sort bychrnum keys %$chrhash) {
 
     if (defined($hugohash{$uc_gene_name})) {
       print "Found hugo match for $gene_name\n";
+      $nhugo++;
       my $dbentry=Bio::EnsEMBL::DBEntry->new(-primary_id=>$hugohash{$uc_gene_name}->[0],
                                              -display_id=>$gene_name, 
                                              -version=>1,
@@ -138,13 +190,13 @@ foreach my $chr (reverse sort bychrnum keys %$chrhash) {
                                              -dbname=>"HUGO",
                                             );
       $dbentry->status('KNOWN');
-      $gene->add_DBLink($dbentry);
+      $gene->add_DBEntry($dbentry);
       $adx->store($dbentry,$gene->dbID,'Gene') if $do_store;
-  # Display xref id update
-      my $sth = $db->prepare("update gene set display_xref_id=" . 
-                             $dbentry->dbID . " where gene_id=" . $gene->dbID);
-      print $sth->{Statement} . "\n";
-      $sth->execute;
+
+      # Display xref id update
+      my $sth = $db->prepare("update gene set display_xref_id=?". 
+			     " where gene_id=?");
+      $sth->execute($dbentry->dbID,$gene->dbID) if $do_store;
 
       for (my $i=4;$i<13;$i++) {
         my $xid = $hugohash{$uc_gene_name}->[$i];
@@ -160,7 +212,7 @@ foreach my $chr (reverse sort bychrnum keys %$chrhash) {
           } else {
             $dbentry->status('KNOWNXREF');
           }
-          $gene->add_DBLink($dbentry);
+          $gene->add_DBEntry($dbentry);
           #print "Would have added $convhash{$fieldnames[$i]} with $xid\n"
           $adx->store($dbentry,$gene->dbID,'Gene') if $do_store;
         }
@@ -169,6 +221,7 @@ foreach my $chr (reverse sort bychrnum keys %$chrhash) {
       print "No hugo match for $gene_name\n";
     }
   }
+  print "$nhugo HUGO names found for chromosome $chr\n";
 }
 
 sub get_chrlengths{

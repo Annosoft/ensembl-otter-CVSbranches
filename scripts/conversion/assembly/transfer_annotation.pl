@@ -6,60 +6,87 @@ use Getopt::Long;
 use Bio::Otter::DBSQL::DBAdaptor;
 
 
-my $host    = 'ecs2a';
-my $user    = 'ensro';
+my $host    = '';
+my $user    = '';
 my $pass    = '';
-my $dbname  = 'steve_otter_merged_chrs';
-my $port    = 3306;
+my $dbname  = '';
+my $port;
 
-my $c_host    = 'ecs2a';
-my $c_user    = 'ensro';
+my $c_host    = '';
+my $c_user    = '';
 my $c_pass    = '';
-my $c_port    = 3306;
-my $c_dbname  = 'steve_otter_merged_chrs';
+my $c_port;
+my $c_dbname  = '';
 
-my $t_host    = 'ecs2a';
-my $t_user    = 'ensadmin';
-my $t_pass    = 'ensembl';
-my $t_port    = 3306;
-my $t_dbname  = 'steve_ensembl_vega_ncbi31_2';
+my $t_host    = '';
+my $t_user    = '';
+my $t_pass    = '';
+my $t_port;
+my $t_dbname  = '';
 
-my $chr      = '14';
+my $chr      = '';
 my $chrstart = 1;
 my $chrend   = 300000000;
-my $path     = 'GENOSCOPE';
-my $c_path   = 'NCBI31';
-my $t_path   = 'NCBI31';
+my $path     = '';
+my $c_path   = '';
+my $t_path   = '';
 
 my $filter_gd;
 my $filter_obs;
+my $filter_anno;
+my $gene_type;
+my @gene_stable_ids;
+my $opt_t;
+my $opt_o;
 
-&GetOptions( 'host:s'    => \$host,
-             'user:s'    => \$user,
-             'pass:s'    => \$pass,
-             'port:s'    => \$port,
-             'dbname:s'  => \$dbname,
-             'c_host:s'    => \$c_host,
-             'c_user:s'    => \$c_user,
-             'c_pass:s'    => \$c_pass,
-             'c_port:s'    => \$c_port,
-             'c_dbname:s'  => \$c_dbname,
-             't_host:s'    => \$t_host,
-             't_user:s'    => \$t_user,
-             't_pass:s'    => \$t_pass,
-             't_port:s'    => \$t_port,
-             't_dbname:s'  => \$t_dbname,
-             'chr:s'       => \$chr,
-             'chrstart:n'  => \$chrstart,
-             'chrend:n'    => \$chrend,
-             'path:s'      => \$path,
-             'c_path:s'    => \$c_path,
-             't_path:s'    => \$t_path,
-	     'filter_gd'   => \$filter_gd,
-	     'filter_obs'  => \$filter_obs,
+&GetOptions( 'host:s'           => \$host,
+             'user:s'           => \$user,
+             'pass:s'           => \$pass,
+             'port:s'           => \$port,
+             'dbname:s'         => \$dbname,
+             'c_host:s'         => \$c_host,
+             'c_user:s'         => \$c_user,
+             'c_pass:s'         => \$c_pass,
+             'c_port:s'         => \$c_port,
+             'c_dbname:s'       => \$c_dbname,
+             't_host:s'         => \$t_host,
+             't_user:s'         => \$t_user,
+             't_pass:s'         => \$t_pass,
+             't_port:s'         => \$t_port,
+             't_dbname:s'       => \$t_dbname,
+             'chr:s'            => \$chr,
+             'chrstart:n'       => \$chrstart,
+             'chrend:n'         => \$chrend,
+             'path:s'           => \$path,
+             'c_path:s'         => \$c_path,
+             't_path:s'         => \$t_path,
+	     'filter_gd'        => \$filter_gd,
+	     'filter_obs'       => \$filter_obs,
+	     'gene_type:s'      => \$gene_type,
+	     'gene_stable_id:s' => \@gene_stable_ids,
+	     't'                => \$opt_t,
+	     'o:s'              => \$opt_o,
+             'filter_annotation'=> \$filter_anno,
             );
 
-
+my %gene_stable_ids;
+if (scalar(@gene_stable_ids)) {
+  my $gene_stable_id=$gene_stable_ids[0];
+  if(scalar(@gene_stable_ids)==1 && -e $gene_stable_id){
+    # 'gene' is a file
+    @gene_stable_ids=();
+    open(IN,$gene_stable_id) || die "cannot open $gene_stable_id";
+    while(<IN>){
+      chomp;
+      push(@gene_stable_ids,$_);
+    }
+    close(IN);
+  }else{
+    @gene_stable_ids = split (/,/, join (',', @gene_stable_ids));
+  }
+  print "Using list of ".scalar(@gene_stable_ids)." gene stable ids\n";
+  %gene_stable_ids = map {$_,1} @gene_stable_ids;
+}
 
 my $sdb = new Bio::Otter::DBSQL::DBAdaptor(-host => $host,
                                            -user => $user,
@@ -87,13 +114,16 @@ $tdb->assembly_type($t_path);
 
 my $sgp = $sdb->get_SliceAdaptor;
 my $aga = $sdb->get_GeneAdaptor;
+my $sfa = $sdb->get_SimpleFeatureAdaptor;
+my $exa = $sdb->get_ExonAdaptor;
 
 my $c_sgp = $cdb->get_SliceAdaptor;
 my $c_aga = $cdb->get_GeneAdaptor;
+my $c_sfa = $cdb->get_SimpleFeatureAdaptor;
 
 my $t_sgp = $tdb->get_SliceAdaptor;
 my $t_aga = $tdb->get_GeneAdaptor;
-
+my $t_sfa = $tdb->get_SimpleFeatureAdaptor;
 
 my $vcontig = $sgp->fetch_by_chr_start_end($chr,$chrstart,$chrend);
 print "Fetched slice\n";
@@ -107,31 +137,103 @@ print "Fetched target vcontig\n";
 my $genes = $aga->fetch_by_Slice($vcontig);
 print "Fetched ".scalar(@$genes)." genes\n";
 
+
+# find genes that have at least one exon in a clone with the remark 'annotated'
+my %okay_genes;
+my %parentclone;
+my $okaycount;
+if ($filter_anno) {
+    my $sthx = $sdb->prepare(q{
+         select distinct gsi.stable_id, cl.name from 
+         gene g, gene_stable_id gsi, transcript t, exon_transcript et, exon e, contig c, clone cl, clone_info ci, clone_remark cr 
+         where gsi.gene_id = g.gene_id 
+         and g.gene_id = t.gene_id 
+         and t.transcript_id = et.transcript_id 
+         and et.exon_id = e.exon_id 
+         and e.contig_id = c.contig_id 
+         and c.clone_id = cl.clone_id 
+         and cl.clone_id = ci.clone_id 
+         and ci.clone_info_id = cr.clone_info_id 
+         and cr.remark like '%annotated%';
+    });
+    $sthx->execute();
+    while (my @row = $sthx->fetchrow_array) {
+        $okay_genes{$row[0]}++;
+        $parentclone{$row[0]} = $row[1];
+        $okaycount++;
+    }
+}
+print "$okaycount genes were marked as annotated\n";
+
+
+# get the genes
 my %genehash;
 my $ngd=0;
 my $nobs=0;
+my $nskipped=0;
+my $not_okay=0;
+open(OUT,">$opt_o") || die "cannot open $opt_o" if $opt_o;
 foreach my $gene (@$genes) {
     my $gsi=$gene->stable_id;
+    my $version=$gene->version;
+    if(scalar(@gene_stable_ids)){
+      next unless $gene_stable_ids{$gsi};
+    }
     if($filter_gd){
 	my $name=$gene->gene_info->name->name;
-	if($name=~/\.GD$/){
+	if($name=~/\.GD$/ || $name=~/^GD:/){
 	    print "GD gene $gsi $name was ignored\n";
 	    $ngd++;
 	    next;
 	}
     }
+    my $type=$gene->type;
     if($filter_obs){
-	my $type=$gene->type;
 	if($type eq 'obsolete'){
 	    print "Gene $gsi is type obsolete\n";
 	    $nobs++;
 	    next;
 	}
     }
+    if($gene_type){
+      if($type ne $gene_type){
+	print "Gene $gsi skipped - not of type $gene_type\n";
+	$nskipped++;
+	next;
+      }
+    }
+    
+    
+    # filter out genes that don't have at least one exon in a clone marked as 'annotated'
+    if ($filter_anno) {
+        if (exists $okay_genes{$gsi}) {
+            print "Gene $gsi is fine and will be taken\n";
+        }
+        else {
+            if ($parentclone{$gsi}) {
+                print "Gene $gsi from clone(s) ",$parentclone{$gsi}," is not in clone marked as 'annotated' - skipping\n";
+            }
+            else {
+                print "Gene $gsi is not in clone marked as 'annotated' - skipping\n";
+            }
+            $not_okay++;            
+            next;
+        }
+    }
+    
+    
+    
     $genehash{$gsi} = $gene;
+    print OUT "$gsi\t$version\n" if $opt_o;
 }
+close(OUT) if $opt_o;
+print "$ngd GD genes removed, $nobs obsolete genes removed, $nskipped skipped as incorrect type, $not_okay skipped as not in annotated part\n";
+print scalar(keys %genehash)." genes to transfer\n";
 
-print "$ngd GD genes removed, $nobs obsolete genes removed\n";
+exit 0 if $opt_t;
+
+
+
 
 my $c_genes = $c_aga->fetch_by_Slice($c_vcontig);
 print "Fetched comparison genes\n";
