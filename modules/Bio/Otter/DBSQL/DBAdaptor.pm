@@ -13,7 +13,7 @@ sub new {
   my ($class,@args) = @_;
   my $self = $class->SUPER::new(@args);
   my ($dataset)  = $self->rearrange([qw(DATASET)],@args);
-  $self->dataset($dataset) if $dataset;
+  #$self->dataset($dataset) if $dataset;
   return $self;
 }
 
