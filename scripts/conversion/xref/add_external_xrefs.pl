@@ -378,8 +378,6 @@ sub parse_locuslink {
     my $flag_found = 1;
     my $flag_org = 0;
     my $nm = '';
-    my $np = '';
-    my $desc = '';
     my $gene_name = '';
 
     while(<LL>){
@@ -406,7 +404,6 @@ sub parse_locuslink {
                 $support->log_warning("ORGANISM not found for $locus_id.\n", 1);
                 $stats{'missing_org'}++;
             }
-            $flag_org = 0;
             $flag_found = 1;
         } elsif (/\>\>(\d+)/) {
             if ($gene_name) {
@@ -414,16 +411,19 @@ sub parse_locuslink {
                     RefSeq_dna  => $nm,
                     LocusLink   => $locus_id,
                 };
-                #$support->log("$gene_name\t$nm\t$np\t$locus_id\t$desc\n", 1);
-                $nm = '';
+                $support->log("Gene $gene_name: LocusLink ID $locus_id\n", 1);
             }
             unless ($flag_found) {
                 $stats{'missing_symbol'}++;
                 #$support->log_warning("OFFICIAL_SYMBOL for $locus_id not found.\n", 1);
             }
-            $flag_found = 0;
             $locus_id = $1;
             $stats{'total'}++;
+
+            $nm = '';
+            $gene_name = '';
+            $flag_found = 0;
+            $flag_org = 0;
         }
     }
     close(LL);
