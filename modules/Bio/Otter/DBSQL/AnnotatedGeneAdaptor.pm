@@ -476,6 +476,49 @@ sub fetch_all_by_Slice_and_author {
     return $self->fetch_all_by_Slice_constraint($slice, $constraint, $logic_name);
 }
 
+=head2 set_transcript_type
+
+  Arg[1]      : arrayref $genes
+                list of Bio::EnsEMBL::Gene objects
+  Example     : my $genes = $gene_adaptor->get_all_Genes;
+                $gene_adaptor->set_transcript_type($genes);
+  Description : Sets the transcript type based on gene type in transcript class
+  Return type : none
+  Exceptions  : thrown when no gene list is provided
+  Caller      : general
+
+=cut
+
+sub set_transcript_type {
+    my ($self, $genes) = @_;
+    if (! defined($genes)) {
+        $self->throw("You must provide a listref of genes to set the transcript type");
+    }
+
+    my $sth = $self->prepare("
+        SELECT  tc.name
+        FROM
+                transcript_info ti,
+                transcript_class tc
+        WHERE   ti.transcript_class_id = tc.transcript_class_id
+        AND     ti.transcript_stable_id = ?
+    ");
+
+    foreach my $gene (@$genes) {
+        my $gt = $gene->type;
+        foreach my $tr (@{$gene->get_all_Transcripts}) {
+            $sth->execute($tr->stable_id);
+            while (my ($tr_class) = $sth->fetchrow_array) {
+                if ($gt eq 'Novel_CDS' and $tr_class ne 'Coding') {
+                    $tr->type('Novel_Transcript');
+                } else {
+                    $tr->type($gt);
+                }
+            }
+        }
+    }
+}
+
 # _tables
 #  Arg [1]    : (optional) string $table
 #               table name to add
