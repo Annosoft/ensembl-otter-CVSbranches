@@ -9,7 +9,7 @@ package CanvasWindow::SequenceNotes::SearchedSequenceNotes;
 use strict;
 use Carp;
 use base 'CanvasWindow::SequenceNotes';
-use CanvasWindow::SequenceNotes::SearchHistory ;
+use CanvasWindow::SequenceNotes::History;
 use Data::Dumper ;
 
 sub ResultSet {
@@ -46,6 +46,21 @@ sub _refresh_SequenceSet{
         $self->{'_SequenceSet'} = undef ;
     }
 
+}
+
+sub save_sequence_notes{
+    my ($self, $comment) = @_;
+    my ($ss , $index) = $self->get_SequenceSet_index_list_of_selected();
+    return unless $ss;
+    $self->SequenceSet($ss);
+    $self->SUPER::save_sequence_notes($comment);
+    $self->{'_SequenceSet'} = undef;
+    # this is really slow 
+    # SUPER::save_sequence_notes calls draw, 
+    # so we draw everything only to refresh the column hmm.
+    # Has to be done to re get the sequence notes for other 
+    # sequence sets which contain the same clone.
+    $self->refresh_column(6);
 }
 
 sub _write_access{
@@ -267,11 +282,8 @@ sub popup_ana_seq_history{
         if (@$clone_list){
             my $top = $self->canvas->Toplevel();
             $top->transient($self->canvas->toplevel);
-            use CanvasWindow::SequenceNotes::History;
-            #my $hp  = CanvasWindow::SequenceNotes::SearchHistory->new($top, 550 , 50);  
             my $hp  = CanvasWindow::SequenceNotes::History->new($top, 650 , 50);  
             $hp->SequenceSet($ss);
-            #$hp->ResultSet($self->ResultSet);
             $hp->SequenceSetChooser($self->SequenceSetChooser);
             $hp->name($cs->contig_name);
             $hp->clone_index($index) ;
@@ -331,6 +343,8 @@ sub get_SequenceSet_index_of_current{
 
         warn "Found type '$name' and index $adjusted_idx \n";
         return ($ss, $adjusted_idx);
+    }else{
+        warn "$self->get_current_CloneSequence_index found nothing\n";
     }
     return ();
 }
