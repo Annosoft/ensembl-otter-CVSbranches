@@ -14,24 +14,6 @@ use vars qw(@ISA);
 @ISA = qw ( Bio::EnsEMBL::DBSQL::GeneAdaptor);
 
 
-# This is assuming the otter info and the ensembl genes are in the same database 
-# and so have the same adaptor
-
-sub new {
-    my ($class,$dbobj) = @_;
-
-    my $self = {};
-    bless $self,$class;
-
-    if( !defined $dbobj || !ref $dbobj ) {
-        $self->throw("Don't have a db [$dbobj] for new adaptor");
-    }
-
-    $self->db($dbobj);
-
-    return $self;
-}
-
 =head2 fetch_by_stable_id
 
  Title   : fetch_by_stable_id
