@@ -493,6 +493,10 @@ sub _tables {
     my @tables = $self->SUPER::_tables;
     $self->{'_tables'} ||= \@tables;
     if (defined($table)) {
+        # return if the alias already exists
+        foreach (@{ $self->{'_tables'} }) {
+            return if ($_->[0] eq $table and $_->[1] eq $alias);
+        }
         push @{$self->{'_tables'}}, [$table, $alias];
     }
     return @{$self->{'_tables'}};
@@ -515,6 +519,10 @@ sub _left_join {
     my @left = $self->SUPER::_left_join;
     $self->{'_left_join'} ||= \@left;
     if (defined($table)) {
+        # return if the condition already exists
+        foreach (@{ $self->{'_left_join'} }) {
+            return if ($_->[0] eq $table and $_->[1] eq $condition);
+        }
         push @{$self->{'_left_join'}}, [$table, $condition];
     }
     return @{$self->{'_left_join'}};
