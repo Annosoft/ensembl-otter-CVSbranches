@@ -103,8 +103,8 @@ $support->log($support->init_log);
 # read HUGO data from file
 $support->log("Reading HUGO nomenclature file...\n");
 $support->check_required_params('nomeidfile');
-open (NOM, '<', $support->param('nomeidfile')) or die
-    "Couldn't open ".$support->param('nomeidfile')."for reading: $!\n";
+open (NOM, '<', $support->param('nomeidfile')) or $support->throw(
+    "Couldn't open ".$support->param('nomeidfile')."for reading: $!\n");
 my $line = <NOM>;
 chomp $line;
 my @fieldnames = split /\t/, $line;
