@@ -144,11 +144,10 @@ my $ea = $dba->get_DBEntryAdaptor();
 # statement handle for display_xref_id update
 my $sth = $dba->dbc->prepare("update gene set display_xref_id=?  where gene_id=?");
 
-my $found = 0;
-my %gene_stable_ids = map { $_, 1 } $support->param('gene_stable_id');
+my @gene_stable_ids = $support->param('gene_stable_id');
+my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
 my $chr_length = $support->get_chrlength($dba);
 my @chr_sorted = $support->sort_chromosomes($chr_length);
-my @gene_stable_ids = $support->param('gene_stable_id');
 
 # loop over chromosomes
 $support->log("Looping over chromosomes: @chr_sorted\n\n");
