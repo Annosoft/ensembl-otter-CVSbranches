@@ -30,7 +30,7 @@ accession_to_support.pl - script to add supporting evidence to a Vega database
 =head1 DESCRIPTION
 
 This script adds the supporting evidence for Vega. It does so by comparing
-accesions between annotated evidence and similarity features from the protein
+accessions between annotated evidence and similarity features from the protein
 pipeline run. If a match is found, it is added to the supporting_feature
 table.
 
@@ -39,7 +39,7 @@ Pseudocode:
     foreach gene
         get all similarity features, store in datastructure
         foreach transcript
-            get all annotated evidenc
+            get all annotated evidence
             foreach evidence
                 foreach similarity feature
                     accession matches?
