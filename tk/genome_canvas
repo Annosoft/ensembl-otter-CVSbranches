@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl -w
+#!/nfs/humace2/hum/bin/perl5.6.1 -w
 
 ### genome_canvas
 
@@ -12,6 +12,7 @@ use GenomeCanvas::DensityBand::Gene;
 use GenomeCanvas::Band::Gene;
 use GenomeCanvas::Band::SNP;
 use GenomeCanvas::Band::CpG;
+use GenomeCanvas::Band::RegionFeatures;
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
 use Hum::Submission 'prepare_statement'; # For Sanger sequence names
 use Getopt::Long 'GetOptions';
@@ -146,6 +147,32 @@ use Hum::EnsCmdLineDB;
         $plot->range(0.3,0.7);
         $plot->x_major(0.2);
         $gc->add_Band($plot);
+
+        my $pos_1 = GenomeCanvas::Band::Plot->new;
+        $pos_1->title('RSF Scores');
+        $pos_1->band_color('#a6cf59');
+        $pos_1->plot_method('pos_value');
+        $pos_1->pos_value_file('/nfs/team71/analysis/jgrg/work/mouse/del36h/position_rsf.txt');
+        $pos_1->virtual_contig($vc);
+        $pos_1->range(1.0, 2.5);
+        $pos_1->x_major(0.5);
+        $pos_1->show_midline(0);
+        $gc->add_Band($pos_1);
+
+        my $pos_2 = GenomeCanvas::Band::Plot->new;
+        $pos_2->title('Cumulative Scores');
+        $pos_2->band_color('#6959cf');
+        $pos_2->plot_method('pos_value');
+        $pos_2->pos_value_file('/nfs/team71/analysis/jgrg/work/mouse/del36h/position_cumulative_signs.txt');
+        $pos_2->virtual_contig($vc);
+        $pos_2->range(-1.0, 1.0);
+        $pos_2->x_major(0.25);
+        $gc->add_Band($pos_2);
+
+        my $reg = GenomeCanvas::Band::RegionFeatures->new;
+        $reg->title('Regions');
+        $reg->virtual_contig($vc);
+        $gc->add_Band($reg);
 
         if ($show_cpg) {
             my $cpg = GenomeCanvas::Band::CpG->new;

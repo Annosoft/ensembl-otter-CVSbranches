@@ -115,6 +115,16 @@ sub draw_cpg_islands {
 }
 
 
+sub band_color {
+    my( $self, $band_color ) = @_;
+    
+    if ($band_color) {
+        $self->{'_band_color'} = $band_color;
+    }
+    return $self->{'_band_color'} || 'red';
+}
+
+
 sub create_plot {
     my( $band ) = @_;
     
@@ -137,6 +147,7 @@ sub create_plot {
 
     my( $low, $high ) = $band->range;
     my $scale = $height / ($high - $low);
+    my $fill = $band->band_color;
     for (my $i = 0; $i < @seq_coord; $i += 2) {
         my( $start, $end ) = @seq_coord[$i, $i+1];
 
@@ -157,7 +168,8 @@ sub create_plot {
             my $x2 = $end   / $rpp;
             $canvas->createLine(
                 $x1, $y_middle, $x2, $y_middle,
-                -fill       => '#ff6666',
+                #-fill       => '#ff6666',
+                -fill       => '#666666',
                 -width      => 1,
                 -tags       => [@tags],
                 );
@@ -166,7 +178,7 @@ sub create_plot {
         # Draw plot
         $canvas->createLine(
             @plot,
-            -fill       => 'red',
+            -fill       => $fill,
             -width      => 2,
             -tags       => [@tags],
             );
