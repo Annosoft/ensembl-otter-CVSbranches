@@ -211,9 +211,9 @@ sub draw_gene_features_on_vc {
 
             $band->draw_gene_arrow($x1, $x2, $strand, $rectangle_height, @tags, $group);
 
-            #if ($i <= 1 and $band->show_labels) {
-            if ($band->show_labels) {
-                #warn "Hack to only show labels for certain classes of gene";
+            warn "Hack to only show labels for certain classes of gene";
+            if ($i == 0 and $band->show_labels) {
+            #if ($band->show_labels) {
                 
                 my( $anchor, $y1 );
                 if ($y_dir == 1) {

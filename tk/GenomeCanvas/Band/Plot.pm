@@ -290,7 +290,7 @@ sub draw_plot_axes {
 
     # Y axis ticks
     for (my $i = $low; $i <= $high; $i += $major) {
-        $i = sprintf("%.1f", $i);
+        #$i = sprintf("%.1f", $i);
         my $y = $y_max - (($i - $low) * $scale);
         # Left axis
         $band->tick_label($i, 'w', 0,      $y);

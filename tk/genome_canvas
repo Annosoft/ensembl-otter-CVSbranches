@@ -150,7 +150,7 @@ use Hum::EnsCmdLineDB;
 
         my $pos_1 = GenomeCanvas::Band::Plot->new;
         $pos_1->title('RSF Scores');
-        $pos_1->band_color('#a6cf59');
+        $pos_1->band_color('#9600d7');
         $pos_1->plot_method('pos_value');
         $pos_1->pos_value_file('/nfs/team71/analysis/jgrg/work/mouse/del36h/position_rsf.txt');
         $pos_1->virtual_contig($vc);
