@@ -2,6 +2,7 @@
 
 =head1 NAME
 
+hugo_to_xrefs.pl - adds xrefs from HUGO input file
 
 =head1 SYNOPSIS
 
@@ -29,6 +30,10 @@
 
 =head1 DESCRIPTION
 
+This script parses a file downloaded from HUGO
+(http://www.gene.ucl.ac.uk/nomenclature/) and adds xrefs to HUGO, LocusLink,
+Swissprot, RefSeq, OMIM and others. HUGO names are set as the display name for
+the matching genes.
 
 =head1 LICENCE
 
@@ -86,6 +91,10 @@ $support->list_or_file('gene_stable_id');
 # ask user to confirm parameters to proceed
 $support->confirm_params;
 
+# make sure add_vega_xrefs.pl has been run
+print "This script must run after add_vega_xrefs.pl. Have you run it?\n";
+$support->user_confirm;
+
 # get log filehandle and print heading and parameters to logfile
 $support->log_filehandle('>>');
 $support->log($support->init_log);
@@ -119,7 +128,7 @@ while (<NOM>) {
 $support->log("Done reading ".(scalar keys %hugohash)." entries. ".$support->date_and_mem."\n");
 
 my %convhash = (
-    'MIM'           => 'MIM',
+    'MIM'           => 'OMIM',
     'Ref Seq'       => 'RefSeq',
     'Locus Link'    => 'LocusLink',
     'SWISSPROT'     => 'SWISSPROT',
@@ -156,7 +165,7 @@ foreach my $chr (@chr_sorted) {
 
     # loop over genes
     my $n_hugo = 0;
-    my $n_other = 0;
+    my %n_other = map { $convhash{$_}, 0 } keys %convhash;
     my $gnum = 0;
     foreach my $gene (@$genes) {
         my $gsi = $gene->stable_id;
@@ -201,7 +210,7 @@ foreach my $chr (@chr_sorted) {
             for (my $i = 4; $i < 13; $i++) {
                 my $xid = $hugohash{$uc_gene_name}->[$i];
                 if (exists($convhash{$fieldnames[$i]}) and $xid ne "") {
-                    $n_other++;
+                    $n_other{$fieldnames[$i]}++;
                     my $dbentry = Bio::EnsEMBL::DBEntry->new(
                             -primary_id => $xid,
                             -display_id => $xid, 
@@ -228,7 +237,8 @@ foreach my $chr (@chr_sorted) {
     }
     $support->log("\nProcessed $gnum genes (of ".scalar @$genes." on this chromosome).\n");
     $support->log("Genes with no HUGO match: ".($gnum - $n_hugo).".\n");
-    $support->log("Matches: HUGO $n_hugo, other $n_other.\n");
+    my $matches = join ", ", map { "$convhash{$_} $n_other{$_}" } sort keys %convhash;
+    $support->log("Matches: HUGO $n_hugo, $matches.\n");
     $support->log("Done with chromosome $chr. ".$support->date_and_mem."\n\n");
 }
 

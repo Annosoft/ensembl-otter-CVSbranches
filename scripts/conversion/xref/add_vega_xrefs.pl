@@ -95,11 +95,16 @@ $support->confirm_params;
 $support->log_filehandle('>>');
 $support->log($support->init_log);
 
-# connect to database and get adaptors
+# connect to database and get adaptors (caching features on one slice only)
 my $dba = $support->get_database('otter');
+$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $ea = $dba->get_DBEntryAdaptor();
+# statement handles for display_xref_id updates
+my $sth_gene = $dba->dbc->prepare("update gene set display_xref_id=? where gene_id=?");
+my $sth_trans = $dba->dbc->prepare("update transcript set display_xref_id=? where transcript_id=?");
+
 
 my $found = 0;
 my %gene_stable_ids = map { $_, 1 } $support->param('gene_stable_id');
@@ -135,10 +140,11 @@ foreach my $chr (@chr_sorted) {
         if ($gene->gene_info->name && $gene->gene_info->name->name) {
             $gene_name = $gene->gene_info->name->name;
         } else {
+            $support->log_warning("Gene $gid ($gsi) has no gene_name.name.\n");
             $gene_name = $gsi;
         }
 
-        $support->log("Gene $gene_name ($gid)...\n");
+        $support->log("Gene $gene_name ($gid, $gsi)...\n");
 
         # filter to user-specified gene_type
         my $gene_type = $support->param('gene_type');
@@ -171,23 +177,22 @@ foreach my $chr (@chr_sorted) {
         $gene->add_DBEntry($dbentry);
         unless ($support->param('dry_run')) {
             $ea->store($dbentry, $gid, 'Gene');
-            my $sth = $dba->prepare("update gene set display_xref_id=" .      
-                      $dbentry->dbID . " where gene_id=" . $gid);
-            $sth->execute;
+            $sth_gene->execute($dbentry->dbID, $gid);
             $support->log("Stored xref ".$dbentry->dbID." for gene $gid.\n", 1);
         }
 
         # loop over transcripts
         foreach my $trans (@{$gene->get_all_Transcripts}){
             my $tid = $trans->dbID;
+            my $tsi = $trans->stable_id;
             my $trans_name;
             if ($trans->transcript_info->name) {
                 $trans_name = $trans->transcript_info->name;
             } else {
-                $trans_name = $trans->stable_id;
+                $trans_name = $tsi;
             }
             
-            $support->log("Transcript $trans_name ($tid)...\n", 1);
+            $support->log("Transcript $trans_name ($tid, $tsi)...\n", 1);
 
             # add transcript name as an xref to db
             $tnum++;
@@ -201,9 +206,7 @@ foreach my $chr (@chr_sorted) {
             $dbentry->status('KNOWN');
             unless ($support->param('dry_run')) {
                 $ea->store($dbentry, $tid, 'Transcript');
-                my $sth = $dba->prepare("update transcript set display_xref_id="
-                          . $dbentry->dbID . " where transcript_id=$tid");
-                $sth->execute;
+                $sth_trans->execute($dbentry->dbID, $tid);
                 $support->log("Stored xref ".$dbentry->dbID." for transcript $tid.\n", 2);
             }
 
@@ -234,6 +237,6 @@ foreach my $chr (@chr_sorted) {
 }
 
 # finish log
-$support->log("All done. ".$support->date_and_mem."\n");
+$support->log($support->finish_log);
 
 
