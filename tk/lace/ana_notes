@@ -45,16 +45,16 @@ use Getopt::Long 'GetOptions';
     my $chooser = GenomeCanvas::Band::SeqChooser->new;
     $gc->add_Band($chooser);
     $chooser->chooser_map(make_chooser_map($set_id));
-    $gc->render;
-    $gc->fix_window_min_max_sizes;
     
     my $canvas = $gc->canvas;
     $canvas->configure(-selectbackground => 'gold');
     $canvas->CanvasBind('<Button-1>', sub {
+        return if $gc->delete_message;
         deselect_all_selected_not_current($gc);
         toggle_current($gc);
         });
     $canvas->CanvasBind('<Shift-Button-1>', sub {
+        return if $gc->delete_message;
         toggle_current($gc);
         });
     
@@ -154,8 +154,22 @@ use Getopt::Long 'GetOptions';
             $mw->bind('<Control-E>', $do_embl_dump);
         }
         
+        my $print_to_file = sub {
+            $gc->page_width(591);
+            $gc->page_height(841);
+            my @files = $gc->print_postscript($set_name);
+            warn "Printed to files:\n",
+                map "  $_\n", @files;
+          };
+        $mw->bind('<Control-p>', $print_to_file);
+        $mw->bind('<Control-P>', $print_to_file);
+                    
+
+        
         make_button($button_frame2, 'Quit', sub{ $mw->destroy }, 0);
     }
+    $gc->render;
+    $gc->fix_window_min_max_sizes;
     
     ###############
     Tk::MainLoop();
