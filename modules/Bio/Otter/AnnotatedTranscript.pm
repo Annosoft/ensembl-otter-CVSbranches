@@ -83,7 +83,7 @@ sub truncate_to_Slice {
         my $exon = $ex_list->[$i];
         my $exon_start = $exon->start;
         my $exon_end   = $exon->end;
-        if ($exon->contig != $slice or $exon_end < 1 or $exon_start > $slice_length) {
+        if ($exon->slice != $slice or $exon_end < 1 or $exon_start > $slice_length) {
             #warn "removing exon that is off slice";
             ### This won't work if get_all_Exons() ceases to return
             ### a ref to the actual array of exons in the transcript.
