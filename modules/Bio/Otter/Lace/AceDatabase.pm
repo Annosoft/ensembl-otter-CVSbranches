@@ -42,11 +42,15 @@ sub home {
         $self->{'_home'} = $home;
     }
     elsif (! $self->{'_home'}) {
-	my $readonly_tag = $self->Client->write_access ? '' : '.ro';
+	my $readonly_tag = $self->Client->write_access ? '' : $self->readonly_tag();
 	# warn "readonly_tag '$readonly_tag'\n";
         $self->{'_home'} = "/var/tmp/lace.${$}${readonly_tag}";
     }
     return $self->{'_home'};
+}
+sub readonly_tag{
+    my ($self) = @_;
+    return '.ro';
 }
 
 sub title {
@@ -414,6 +418,7 @@ sub unlock_otter_slice{
     my $xml_file = Bio::Otter::Lace::PersistentFile->new;
     $xml_file->root($self->home);
     $xml_file->name(".${slice_name}${dataset_name}${LOCK_REGION_XML_FILE}");
+    return unless -e $xml_file->full_name();
     my $xml = '';
     my $read = $xml_file->read_file_handle;
     while(<$read>){
@@ -672,14 +677,16 @@ sub make_AceDataFactory {
 	    # warn " AceDatabase.pm: requiring $file \n";
 	    eval{  require "$file"  };
 	    if($@){
-		delete $logic_to_load->{$_};
-		warn "Couldn't find file $file $@ \n";
+		delete $logic_to_load->{$s};
+		warn "AceDatabase couldn't find file $file\n";
+                warn $@ if $self->Client->debug();
 	    }
 	}
     }
 
     # If we aren't fetching all the analysis, we only need the DNA
-    my $submitcontig = $self->Client->option_from_array([qw!client dna!]) || 'submitcontig';
+    my $submitcontig = $self->Client->option_from_array([qw!client dna!]) 
+        || ( $fetch_all_pipeline_data ? 'SubmitContig' : 'otter' );
     $logic_to_load->{$submitcontig} = 1;
     $module_options->{$submitcontig}->{'module'} = 'Bio::EnsEMBL::Ace::Filter::DNA';
 
@@ -723,14 +730,14 @@ sub make_AceDataFactory {
 sub write_ensembl_data {
     my( $self, $ss ) = @_;
 
-    ### Analysis logic name should not be hard coded
-    foreach my $key_logic (
-        #    Key in meta table      Analysis logic_name
-        [qw{ ensembl_core_db        ensembl    }],
-        [qw{ ensembl_estgene_db     genomewise }],
-        )
-    {
-        $self->write_ensembl_data_for_key($ss, @$key_logic);
+    my $dataset = $self->Client->get_DataSet_by_name($ss->dataset_name);
+    my $species = $dataset->species();
+    my $ensembl_sources = $self->Client->option_from_array([$species, 'ensembl_sources']);
+    ### Analysis logic name should not be hard coded, so now they're not.
+    foreach my $key(keys(%$ensembl_sources)){
+        my $logic = $ensembl_sources->{$key};
+        warn "I'm gonna fetch using key '$key' in meta table and set logic to '$logic'\n";
+        $self->write_ensembl_data_for_key($ss, $key, $logic);
     }
 }
 
@@ -985,7 +992,7 @@ sub DESTROY {
     }
     my $client = $self->Client;
     if($client){
-        $self->unlock_all_slices() if $client->write_access;
+        $self->unlock_all_slices();# if $client->write_access;
     }
     rmtree($home);
 }
