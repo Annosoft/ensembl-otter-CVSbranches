@@ -164,7 +164,7 @@ my %extdb_def = (
     MarkerSymbol        => [ 'KNOWNXREF', $primary{'locuslink'} ],
     RefSeq_dna          => [ 'KNOWN', 0 ],
     MIM                 => [ 'KNOWNXREF', 0 ],
-    'Uniport/SWISSPROT' => [ 'KNOWN', 0 ],
+    'Uniprot/SWISSPROT' => [ 'KNOWN', 0 ],
 );
 
 # loop over chromosomes
