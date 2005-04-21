@@ -4,12 +4,12 @@ package ZMap::Connect;
 
 =head1 NAME 
 
- ZMap::Connect
+ZMap::Connect
 
 =head1 DESCRIPTION
 
- For  connecting  to ZMap  and  makes  the  X11::XRemote modules  more
- useable as a server.
+For  connecting  to ZMap  and  makes  the  X11::XRemote module  more
+useable as a server.
 
 =cut
 
@@ -18,16 +18,37 @@ use warnings;
 use X11::XRemote;
 use Tk::X;
 
-=head1 METHODS
-
-=head2 new()
-
- Creates a new ZMap::Connect Object.
-
-=cut
-
 my $DEBUG_CALLBACK = 0;
 my $DEBUG_EVENTS   = 0;
+
+=head1 METHODS
+
+=head2 new([-option => "value"])
+
+Creates a  new ZMap::Connect Object  of the style  requested.  Control
+the style with the following options (defaults in []).
+
+=over 10
+
+=item I<-server> '0|1' [1]
+
+ Whether to create a server.
+
+=item I<-request_name> name [_PERL_REQUEST_NAME]
+
+ The atom name.
+
+=item I<-response_name> atom name for response [_PERL_RESPONSE_NAME]
+
+ The atom name.
+
+=item I<-debug> '0|1' [0]
+
+ Show debugging messages when set to 1
+
+=back
+
+=cut
 
 sub new{
     my ($pkg, @args) = @_;
@@ -44,9 +65,31 @@ sub new{
 }
 
 
-=head1 init(Tk, handler, data)
+=head2 init(Tk, [handler, [data]])
 
- Initialises the new object so it is useable. Requires the Tk object.
+Initialises  the new  object  so  it is  useable.  Requires the  B<Tk>
+object.  The  B<handler> is  the callback which  gets called  when the
+window is sent a message via an  atom.  It is called by THIS module as
+C<<< $callback->($self, $request, @data) >>>.  Note the data supplied as
+a  list ref  to this  function gets  dereferenced when  passed  to the
+callback.   The request  string  is  supplied free  of  charge so  the
+callback does  not have to  navigate its way  to it from  this module
+(supplied as $self above).
+
+ Usage:
+ my $fruits = [qw(apples pears bananas)];
+ my $veg    = [qw(carrots potatoes)];
+ my $callback = sub{ 
+     my ($zmap, $req, $f, $v) = @_;
+     if($req =~ /fruits/){
+        print "I know about these fruits: " . join(", ", @$f) . "\n";
+     }elsif($req =~ /veg/){
+        print "I know about these vegetables: " . join(", ", @$v) . "\n";
+     }
+     return (200, "printed my knowledge.");
+ };
+ my $zmap = ZMap::Connect->new();
+ $zmap->init($tk, $callback, [$fruits, $veg]);
 
 =cut
 
@@ -61,6 +104,15 @@ sub init{
     $self->respond_handler($callback, $data);
 }
 
+=head2 connect_request( )
+
+This maybe  used to  get the  string for registering  the server  as a
+remote window  of the  zmap client.  ZMap  should honour  this request
+creating a  client with  the window  id of the  request widget  as its
+remote window.
+
+=cut
+
 sub connect_request{
     my ($self) = @_;
     my $req = $self->requestWidget();
@@ -74,11 +126,24 @@ sub connect_request{
                    );
 }
 
+=head2 server_window_id( )
+
+Just the window id of the request widget.
+
+=cut
+
+
 sub server_window_id{
     my ($self) = @_;
     return undef unless $self->_is_server();
     return $self->requestWidget->id();
 }
+
+=head2 xremote( )
+
+The xremote Object [C<<< X11::XRemote >>>].
+
+=cut
 
 sub xremote{
     my ($self, $id) = @_;
@@ -96,10 +161,18 @@ sub xremote{
     return $xr;
 }
 
-sub _is_server{
-    my ($self) = @_;
-    return ($self->{'_server'} ? 1 : 0);
-}
+
+=head1 SETUP METHODS
+
+It is  recommended that these methods  are not used  directly to setup
+the object (as  setters), but feel free to call  with no arguments (as
+getters).
+
+=head2 request_name( )
+
+Set/Get the atom name for the request.
+
+=cut
 
 # ======================================================== #
 # SETUP STUFF: Easier just to call $self->init(@args);     #
@@ -111,6 +184,13 @@ sub request_name{
     }
     return $self->{'_request_name'};
 }
+
+=head2 response_name( )
+
+Set/Get the atom name for the response.
+
+=cut
+
 sub response_name{
     my ($self, $name) = @_;
     if($name && !$self->responseWidget()){
@@ -118,6 +198,13 @@ sub response_name{
     }
     return $self->{'_response_name'};
 }
+
+=head2 requestWidget( )
+
+Set/Get the request widget.
+
+=cut
+
 sub requestWidget{
     my ($self, $tk) = @_;
     my $label = $self->{'_requestWidget'};
@@ -135,6 +222,13 @@ sub requestWidget{
     }
     return $label;
 }
+
+=head2 responseWidget( )
+
+Set/Get the response widget.
+
+=cut
+
 sub responseWidget{
     my ($self, $tk) = @_;
     my $label = $self->{'_responseWidget'};
@@ -153,6 +247,13 @@ sub responseWidget{
     }
     return $self->{'_responseWidget'};
 }
+
+=head2 respond_handler( )
+
+Set/Get the callback which will get called.
+
+=cut
+
 sub respond_handler{
     my ($self, $callback, $data) = @_;
     $self->__callback($callback);
@@ -166,6 +267,7 @@ sub respond_handler{
             "\$c->init(\$tk, \$callback, \$callback_data);\n";
     }
 }
+
 # ======================================================== #
 #                      INTERNALS                           #
 # ======================================================== #
@@ -219,7 +321,10 @@ sub __callback{
     $self->{'_callback'} = $codeRef if ($codeRef && ref($codeRef) eq 'CODE');
     return $self->{'_callback'} || sub { warn "@_\nNo callback set.\n"; return (500,"") };
 }
-
+sub _is_server{
+    my ($self) = @_;
+    return ($self->{'_server'} ? 1 : 0);
+}
 # ======================================================== #
 # DESTROY: Hopefully won't need to do anything             #
 # ======================================================== #
@@ -229,3 +334,15 @@ sub DESTROY{
 }
 
 1;
+
+__END__
+
+=head1 AUTHOR
+
+R.Storey <rds@sanger.ac.uk>
+
+=head1 SEE ALSO
+
+L<X11::XRemote>, L<perl>.
+
+=cut
