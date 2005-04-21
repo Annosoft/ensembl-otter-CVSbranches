@@ -131,7 +131,7 @@ print "$ass_to_keep\n";
 $support->user_confirm;
 
 # delete from assembly
-my $ass_to_keep = join(", ", map { $_ =~ s/\s+//g; $dbh->quote($_) } split(",", $ass_to_keep));
+$ass_to_keep = join(", ", map { $_ =~ s/\s+//g; $dbh->quote($_) } split(",", $ass_to_keep));
 $sql = qq(DELETE FROM assembly WHERE type NOT IN ($ass_to_keep));
 $support->log("Deleting unwanted assemblies...\n");
 $support->log("$sql\n", 1);
@@ -279,6 +279,15 @@ $support->log("$sql\n", 1);
 unless ($support->param('dry_run')) {
     my $a_rows = $dbh->do($sql);
     $support->log("Done updating $a_rows rows.\n", 1);
+}
+
+# add assembly.default value to meta table
+$sql = qq(INSERT INTO meta (meta_key, meta_value) VALUES ('assembly.default', 'VEGA'));
+$support->log("Adding assembly.default to meta table...\n");
+$support->log("$sql\n", 1);
+unless ($support->param('dry_run')) {
+    my $a_rows = $dbh->do($sql);
+    $support->log("Done.\n", 1);
 }
 
 # drop backup of chromosome table
