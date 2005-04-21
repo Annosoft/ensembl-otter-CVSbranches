@@ -138,7 +138,7 @@ sub zmap_connect{
 
 #=======================================================================
 # just some utility methods to make the module work, not essential to
-# other implementations, but possibly useful.
+# other implementations, but possibly useful, at least as examples.
 #=======================================================================
 
 sub getZMap2CreateClient{
@@ -146,7 +146,8 @@ sub getZMap2CreateClient{
     my $id = $self->current_window_id();
     my $cnnct = $self->{'_connectedTo'}->{$id};
     if(!$cnnct){
-        $self->xclient($id)->send_commands($self->zmap_connect->connect_request);
+        my $req = $self->zmap_connect->connect_request;
+        $self->make_request($req);
         $self->{'_connectedTo'}->{$id} = 1;
     }
 }
