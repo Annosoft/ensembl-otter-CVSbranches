@@ -96,7 +96,7 @@ callback does  not have to  navigate its way  to it from  this module
 sub init{
     my ($self, $tk, $callback, $data) = @_;
     unless($tk){
-        warn "usage: ".__PACKAGE__."->init(Tk_Object, [SubRoutine_Ref, Data_Array_Ref]);\n"; 
+        warn "usage: ".__PACKAGE__."->init(Tk_Object, [SubRoutine_Ref, [Data_Array_Ref]]);\n"; 
         return;
     }
     $self->requestWidget($tk);
