@@ -107,15 +107,17 @@ $support->log("Reading assembly_tag and storing as MiscFeature...\n");
 my $sth = $dbh->prepare("SELECT * FROM assembly_tag");
 $sth->execute;
 my $i;
-while my $row ($sth->fetchrow_hashref) {
+while (my $row = $sth->fetchrow_hashref) {
     # create a slice
-    my $slice = $sa->fetch_by_seq_region_id($row->{'SEQ_REGION_ID'});
+    my $slice = $sa->fetch_by_seq_region_id($row->{'seq_region_id'});
+    # hack to skip assembly_tag entries for non-existing contigs
+    next unless $slice;
     
     # create MiscFeature and add MiscSet
     my $mfeat = Bio::EnsEMBL::MiscFeature->new(
-            -START  => $row->{'SEQ_REGION_START'},
-            -END    => $row->{'SEQ_REGION_END'},
-            -STRAND => $row->{'SEQ_REGION_STRAND'},
+            -START  => $row->{'seq_region_start'},
+            -END    => $row->{'seq_region_end'},
+            -STRAND => $row->{'seq_region_strand'},
             -SLICE  => $slice,
     );
     $mfeat->add_MiscSet($mset);
@@ -123,13 +125,13 @@ while my $row ($sth->fetchrow_hashref) {
     # create Attribute and add to MiscFeature
     my $attrib = Bio::EnsEMBL::Attribute->new(
             -CODE   => 'assembly_tag',
-            -NAME   => $row->{'TAG_TYPE'},
-            -VALUE  => $row->{'TAG_INFO'},
+            -NAME   => $row->{'tag_type'},
+            -VALUE  => $row->{'tag_info'},
     );
     $mfeat->add_Attribute($attrib);
 
     # store MiscFeature
-    $mfa->store($misc_feature) unless $support->param('dry_run');
+    $mfa->store($mfeat) unless $support->param('dry_run');
 
     # stats
     $i++;
@@ -138,7 +140,7 @@ $support->log("Done storing $i assembly tags.\n");
 
 # drop now obsolete table assembly_tag
 $support->log("Dropping table assembly_tag...\n");
-$dbh->do("DROP TABLE assembly_tag");
+#$dbh->do("DROP TABLE assembly_tag");
 $support->log("Done.\n");
 
 # finish log
