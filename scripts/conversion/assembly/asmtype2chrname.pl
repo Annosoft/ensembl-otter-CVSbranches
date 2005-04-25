@@ -288,7 +288,7 @@ unless ($support->param('dry_run')) {
 }
 
 # add assembly.default value to meta table
-$sql = qq(INSERT INTO meta ('meta_key', 'meta_value') VALUES ('assembly.default', 'VEGA'));
+$sql = qq(INSERT INTO meta (meta_key, meta_value) VALUES ('assembly.default', 'VEGA'));
 $support->log("Adding assembly.default to meta table...\n");
 $support->log("$sql\n", 1);
 unless ($support->param('dry_run')) {
