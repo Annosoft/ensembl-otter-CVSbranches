@@ -116,7 +116,7 @@ my $author_def = {
 # determine species from database
 my $tid = $support->get_taxonomy_id($dba);
 my $chromosomes = $author_def->{$tid};
-$support->throw("Unknown taxonomy_id. Please update the definition hash in this script.") unless $chomosomes;
+$support->throw("Unknown taxonomy_id. Please update the definition hash in this script.") unless $chromosomes;
 
 # ask user to confirm author lookup hash
 print "These author settings will be used:\n\n";
