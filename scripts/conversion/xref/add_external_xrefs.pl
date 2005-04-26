@@ -107,8 +107,7 @@ $support->list_or_file('gene_stable_id');
 $support->confirm_params;
 
 # make sure add_vega_xrefs.pl has been run
-print "This script must run after add_vega_xrefs.pl. Have you run it?\n";
-$support->user_confirm;
+exit unless $support->user_proceed("This script must run after add_vega_xrefs.pl. Have you run it?");
 
 # get log filehandle and print heading and parameters to logfile
 $support->log_filehandle('>>');

@@ -127,7 +127,7 @@ foreach my $chr (sort keys %{ $chromosomes->{'other'} } ) {
     printf "    %-20s%-12s%-34s\n", $chr, @{ $chromosomes->{'other'}->{$chr} };
 }
 print "\n";
-$support->user_confirm;
+exit unless $support->user_proceed("Continue?");
 
 if ($support->param('dry_run')) {
     $support->log("There is nothing else to do for dry_run. Aborting.\n");

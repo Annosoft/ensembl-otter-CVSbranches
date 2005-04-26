@@ -106,12 +106,15 @@ $support->log("Done.\n");
 $support->log("Reading assembly_tag and storing as MiscFeature...\n");
 my $sth = $dbh->prepare("SELECT * FROM assembly_tag");
 $sth->execute;
-my $i;
+my %stats;
 while (my $row = $sth->fetchrow_hashref) {
     # create a slice
     my $slice = $sa->fetch_by_seq_region_id($row->{'seq_region_id'});
     # hack to skip assembly_tag entries for non-existing contigs
-    next unless $slice;
+    unless ($slice) {
+        $stats{'skipped'}++;
+        next;
+    }
     
     # create MiscFeature and add MiscSet
     my $mfeat = Bio::EnsEMBL::MiscFeature->new(
@@ -134,14 +137,18 @@ while (my $row = $sth->fetchrow_hashref) {
     $mfa->store($mfeat) unless $support->param('dry_run');
 
     # stats
-    $i++;
+    $stats{'ok'}++;
 }
-$support->log("Done storing $i assembly tags.\n");
+$support->log("Stored $stats{ok} assembly tags.\n", 1);
+$support->log("Skipped $stats{skipped} assembly tags.\n", 1);
+$support->log("Done.\n");
 
 # drop now obsolete table assembly_tag
-$support->log("Dropping table assembly_tag...\n");
-#$dbh->do("DROP TABLE assembly_tag");
-$support->log("Done.\n");
+if ($support->user_proceed("Would you like to drop the assembly_tag table?")) {
+    $support->log("Dropping table assembly_tag...\n");
+    $dbh->do("DROP TABLE assembly_tag") unless $support->param('dry_run');
+    $support->log("Done.\n");
+}
 
 # finish log
 $support->log($support->finish_log);

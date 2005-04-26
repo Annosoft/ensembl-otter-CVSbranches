@@ -133,7 +133,7 @@ my $ass_to_keep = <>;
 chomp $ass_to_keep;
 print "\nYou chose to to delete ALL EXCEPT these assemblies from the db:\n";
 print "$ass_to_keep\n";
-$support->user_confirm;
+exit unless $support->user_proceed("Continue?");
 
 # delete from assembly
 my $ass_to_keep = join(", ", map { $_ =~ s/\s+//g; $dbh->quote($_) } split(",", $ass_to_keep));
