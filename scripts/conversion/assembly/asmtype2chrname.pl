@@ -24,11 +24,16 @@ asmtype2chrname.pl - convert assembly type to fake chromosome names
 
 =head1 DESCRIPTION
 
-Otter uses multiple 'type' entries on assembly table. VEGA requires a single
+This script does 2 (slightly related) things:
+
+1. Unwanted chromosomes (with all clones, contigs and dangling features) are
+deleted from the database.
+
+2. Otter uses multiple 'type' entries on assembly table. VEGA requires a single
 type 'VEGA' instead.
 
 However, its dangerous just to change the type as in cases where there are
-multiple regions from a single chromsome in otter, this would cause them to
+multiple regions from a single chromosome in otter, this would cause them to
 overlap. One solution is to create a separate chromosome for each type - that's
 what this script does.
 
@@ -128,7 +133,7 @@ my $ass_to_keep = <>;
 chomp $ass_to_keep;
 print "\nYou chose to to delete ALL EXCEPT these assemblies from the db:\n";
 print "$ass_to_keep\n";
-$support->user_confirm;
+exit unless $support->user_proceed("Continue?");
 
 # delete from assembly
 $ass_to_keep = join(", ", map { $_ =~ s/\s+//g; $dbh->quote($_) } split(",", $ass_to_keep));
@@ -205,7 +210,7 @@ $sth->execute;
 my ($unique) = $sth->fetchrow_array;
 $sth->finish;
 unless ($all == $unique) {
-    $support->log("ERROR:\nThere are contigs shared between chromosomes/assemblies in the assembly table. You have to fix this before running this script.\nAborting.\n");
+    $support->log("ERROR:\nThere are contigs shared between chromosomes/assemblies in the assembly table. You'll have to run assembly_exception.pl to fix this before running this script.\nAborting.\n");
     exit(0);
 }
 
@@ -236,6 +241,15 @@ while (my @r = $sth1->fetchrow_array) {
     push @rows, \@r;
 }
 $support->log("Done fetching ".(scalar @rows)." rows.\n");
+$support->log("These new chromosome names will be used\n");
+$support->log("(unless you choose to keep the old ones):\n\n");
+$txt = sprintf "    %-20s%-40s\n", "OLD NAME", "NEW NAME";
+$txt .= "    " . "-"x70 . "\n";
+foreach my $row (@rows) {
+    my ($chr, $ass_type) = @$row;
+    $txt .= sprintf "    %-20s%-40s\n", $chr, "$chr-$ass_type";
+}
+$support->log("$txt\n");
 
 # delete old chromosomes
 $sql = "DELETE FROM chromosome";
@@ -253,8 +267,14 @@ foreach my $row (@rows) {
     my ($chr, $ass_type, $length) = @$row;
     $support->log("Chr $chr, assembly.type $ass_type...\n", 1);
 
+    # ask user if he wants to rename chromosome
+    my $chr_new = $chr;
+    if ($support->user_proceed("\nRename $chr to $chr-$ass_type?")) {
+        $chr_new = "$chr-$ass_type";
+    }
+
     # create fake chromosome
-    my $sql2 = "INSERT into chromosome values ($i, '$chr-$ass_type', $length)";
+    my $sql2 = "INSERT into chromosome values ($i, '$chr_new', $length)";
     $support->log("$sql2\n", 2);
     unless ($support->param('dry_run')) {
         my $sth2 = $dbh->prepare($sql2);
