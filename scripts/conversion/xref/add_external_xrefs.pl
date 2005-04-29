@@ -42,7 +42,8 @@ appropriate, display name of genes is set accordingly.
 
 Currently, these input formats are supported:
     
-    hugo        => http://www.gene.ucl.ac.uk/nomenclature/nomeids.txt
+    hugo        => http://www.gene.ucl.ac.uk/nomenclature/data/gdlw_index.html
+                   ('All data' in text format)
     locuslink   => ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz
     refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
 
@@ -309,10 +310,11 @@ sub parse_hugo {
     my $line = <NOM>;
     chomp $line;
     my %convhash = (
-        'HGNC'          => 'HUGO',
-        'SWISSPROT'     => 'Uniprot/SWISSPROT',
-        'Ref Seq'       => 'RefSeq_dna',
-        'Locus Link'    => 'EntrezGene',
+        'HGNC ID'                   => 'HUGO',
+        'UniProt ID (mapped data)'  => 'Uniprot/SWISSPROT',
+        'RefSeq (mapped data)'      => 'RefSeq_dna',
+        'Entrez Gene ID'            => 'EntrezGene',
+        'OMIM ID (mapped data)'     => 'MIM',
     );
     my @fieldnames = map { $convhash{$_} || $_ } split /\t/, $line;
     my $num_fields = scalar(@fieldnames);
