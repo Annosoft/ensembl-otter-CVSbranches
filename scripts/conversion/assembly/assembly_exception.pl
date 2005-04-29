@@ -25,8 +25,8 @@ assembly_exception.pl - determine and resolve assembly exceptions
 =head1 DESCRIPTION
 
 This script checks a schema 19 database for contigs shared between different
-chromosomes and optionally resolves the problem. It must be run before
-asmtype2chrname.pl.
+chromosomes and optionally resolves the problem by creating appropriate
+assembly_exception entries. It must be run before asmtype2chrname.pl.
 
 =head1 LICENCE
 
@@ -273,6 +273,17 @@ foreach my $pair (keys %pairs) {
         my ($ref_start, $ref_end) = @{ $shared[$i]->{$ref} };
         my ($nonref_start, $nonref_end, @nonref_contigs) = @{ $shared[$i]->{$nonref} };
         $support->log("REGION ".($i+1)." ($nonref:$nonref_start-$nonref_end):\n", 1);
+        # check for exceptions with non-matching lengths
+        my $nonref_length = $nonref_end - $nonref_start + 1;
+        my $ref_length = $ref_end - $ref_start + 1;
+        unless ($nonref_length == $ref_length) {
+            $support->log_warning("Non-matching length in assembly_exception mapping:\n", 2);
+            $support->log("seq_region: $chr_ids{$nonref}:$nonref_start-$nonref_end\n", 3);
+            $support->log("exc_seq_region: $chr_ids{$ref}:$ref_start-$ref_end\n", 3);
+            $support->log("Please fix manually by investigating assembly_backup.\n", 2);
+        }
+        
+        # store assembly_exception data
         $support->log("Storing assembly_exception data...\n", 2);
         unless ($support->param('dry_run')) {
             my $num = $sth2->execute(
@@ -285,6 +296,12 @@ foreach my $pair (keys %pairs) {
         }
 
         # delete entries from assembly for non-reference
+        $support->log("Making backup copy of assembly table...\n", 2);
+        unless ($support->param('dry_run')) {
+            $dbh->do('DROP TABLE IF EXISTS assembly_backup');
+            $dbh->do('CREATE TABLE assembly_backup SELECT * FROM assembly');
+            $support->log("Done.\n", 2);
+        }
         $support->log("Deleting from assembly...\n", 2);
         my $contig_list = join("', '", @nonref_contigs);
         unless ($support->param('dry_run')) {
@@ -298,6 +315,8 @@ foreach my $pair (keys %pairs) {
         }
     }
 }
+
+$support->log("Please delete assembly_backup once you've investigated any errors.\n");
 
 # finish log
 $support->log($support->finish_log);
