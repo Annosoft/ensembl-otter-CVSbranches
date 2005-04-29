@@ -29,8 +29,8 @@ annotator how created the object. On the Vega website, we display the
 annotation group who annotated a particular chromsosome/dataset as the author.
 Furthermore, the author is used as a key to group genesets in contigview.
 
-This script set the correct author for genes/transcripts. It uses a lookup hash
-to determine which group to use for a chromsome.
+This script sets the correct author for genes/transcripts. It uses a lookup
+hash to determine which group to use for a chromsome.
 
 =head1 LICENCE
 
@@ -96,6 +96,9 @@ my $author_def = {
         'other'     => {
             '7'         => [ 'Washu', 'jspieth@watson.wust' ],
             '14'        => [ 'Genoscope', 'ralph@genoscope.cns.fr' ],
+            '16'        => [ 'JGI', 'vega@sanger.ac.uk' ],
+            '18'        => [ 'Broad', 'vega@sanger.ac.uk' ],
+            '19'        => [ 'JGI', 'vega@sanger.ac.uk' ],
             '22'        => [ 'Sanger', 'chr22@sanger.ac.uk' ],
         },
     },
