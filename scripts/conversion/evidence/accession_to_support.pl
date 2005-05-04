@@ -17,6 +17,7 @@ accession_to_support.pl - script to add supporting evidence to a Vega database
         --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
         --conffile, --conf=FILE             read parameters from FILE
         --logfile, --log=FILE               log to FILE (default: *STDOUT)
+        -v, --verbose                       verbose logging
         -i, --interactive                   run script interactively
                                             (default: true)
         -n, --dry_run, --dry                don't write results to database
@@ -171,14 +172,18 @@ foreach my $chr (@chr_sorted) {
         $gnum++;
         my %se_hash = ();
         my $gene_has_support = 0;
-        $support->log("Gene $gene_name ($gid, $gsi) on slice ".
-                       $gene->slice->name."... ".
-                       $support->date_and_mem."\n");
+        if ($support->param('verbose')) {
+            $support->log("Gene $gene_name ($gid, $gsi) on slice ".
+                           $gene->slice->name."... ".
+                           $support->date_and_mem."\n");
+        }
 
         # fetch similarity features from db and store required information in
         # lightweight datastructure (name => [ start, end, dbID, type ])
-        $support->log("Fetching similarity features... ".
-                       $support->date_and_mem."\n", 1);
+        if ($support->param('verbose')) {
+            $support->log("Fetching similarity features... ".
+                           $support->date_and_mem."\n", 1);
+        }
         my $similarity = $gene_slice->get_all_SimilarityFeatures;
         my $sf = {};
         foreach my $f (@$similarity) {
@@ -186,13 +191,15 @@ foreach my $chr (@chr_sorted) {
             push @{ $sf->{$hitname} },
                  [ $f->start, $f->end, $f->dbID, $ftype{ref($f)} ];
         }
-        $support->log("Done fetching ".(scalar @$similarity)." features.".
-                       $support->date_and_mem."\n", 1);
+        if ($support->param('verbose')) {
+            $support->log("Done fetching ".(scalar @$similarity)." features.".
+                           $support->date_and_mem."\n", 1);
+        }
 
         # loop over transcripts
         foreach my $trans (@{ $gene->get_all_Transcripts }) {
             $tnum++;
-            $support->log("Transcript ".$trans->stable_id."...\n", 1);
+            $support->log("Transcript ".$trans->stable_id."...\n", 1) if ($support->param('verbose'));
 
             # loop over evidence added by annotators for this transcript
             my @evidence = $trans->transcript_info->evidence;
@@ -203,7 +210,7 @@ foreach my $chr (@chr_sorted) {
                 $acc =~ s/.*://;
                 $acc =~ s/\.[0-9]*$//;
                 my $ana = $analysis{$evi->type . "_evidence"};
-                $support->log("Evidence $acc...\n", 2);
+                $support->log("Evidence $acc...\n", 2) if ($support->param('verbose'));
                 # loop over similarity features on the slice, compare name with
                 # evidence
                 my $match = 0;
@@ -214,7 +221,7 @@ foreach my $chr (@chr_sorted) {
                             # similarity features
                             foreach my $exon (@exons) {
                                 if ($exon->end >= $hit->[0] && $exon->start <= $hit->[1]) {
-                                    $support->log("Matches similarity feature with dbID ".$hit->[2].".\n", 3);
+                                    $support->log("Matches similarity feature with dbID ".$hit->[2].".\n", 3) if ($support->param('verbose'));
                                     # store unique evidence identifier in hash
                                     $se_hash{$exon->dbID.":".$hit->[2].":".$hit->[3]} = 1;
                                     
@@ -229,18 +236,24 @@ foreach my $chr (@chr_sorted) {
             }
         }
 
-        $support->log("Found $gene_has_support matches (".
-                       scalar(keys %se_hash)." unique).\n", 1);
+        if ($support->param('verbose')) {
+            $support->log("Found $gene_has_support matches (".
+                           scalar(keys %se_hash)." unique).\n", 1);
+        }
 
         # store supporting evidence in db
         if ($gene_has_support and !$support->param('dry_run')) {
-            $support->log("Storing supporting evidence... ".
-                           $support->date_and_mem."\n", 1);
+            if ($support->param('verbose')) {
+                $support->log("Storing supporting evidence... ".
+                               $support->date_and_mem."\n", 1);
+            }
             foreach my $se (keys %se_hash) {
                 $sth->execute(split(":", $se));
             }
-            $support->log("Done storing evidence. ".
-                           $support->date_and_mem."\n", 1);
+            if ($support->param('verbose')) {
+                $support->log("Done storing evidence. ".
+                               $support->date_and_mem."\n", 1);
+            }
         }
     }
     $support->log("\nProcessed $gnum genes (of ".scalar @$genes." on this chromosome), $tnum transcripts, $enum exons.\n");
