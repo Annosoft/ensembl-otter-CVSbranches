@@ -127,22 +127,24 @@ print "Chromosomes/assemblies currently in the db:\n\n";
 print "$txt\n";
 
 # ask user to nominate the ones to delete
-print "Which assemblies would you like to KEEP?\n";
+print "Which assemblies would you like to DELETE?\n";
 print "Enter comma-separated list of assembly_types:\n";
-my $ass_to_keep = <>;
-chomp $ass_to_keep;
-print "\nYou chose to to delete ALL EXCEPT these assemblies from the db:\n";
-print "$ass_to_keep\n";
-$support->user_confirm;
+my $ass_to_delete = <>;
+chomp $ass_to_delete;
+print "\nYou chose to delete these assemblies from the db:\n";
+print "$ass_to_delete\n";
+exit unless $support->user_proceed("Continue?");
 
 # delete from assembly
-my $ass_to_keep = join(", ", map { $_ =~ s/\s+//g; $dbh->quote($_) } split(",", $ass_to_keep));
-$sql = qq(DELETE FROM assembly WHERE type NOT IN ($ass_to_keep));
-$support->log("Deleting unwanted assemblies...\n");
-$support->log("$sql\n", 1);
-unless ($support->param('dry_run')) {
-    my $rows = $dbh->do($sql);
-    $support->log("Done deleting $rows rows.\n", 1);
+if ($ass_to_delete) {
+    $ass_to_delete = join(", ", map { $_ =~ s/\s+//g; $dbh->quote($_) } split(",", $ass_to_delete));
+    $sql = qq(DELETE FROM assembly WHERE type IN ($ass_to_delete));
+    $support->log("Deleting unwanted assemblies...\n");
+    $support->log("$sql\n", 1);
+    unless ($support->param('dry_run')) {
+        my $rows = $dbh->do($sql);
+        $support->log("Done deleting $rows rows.\n", 1);
+    }
 }
 
 # delete orphaned chromosomes
@@ -194,11 +196,10 @@ $support->log("Deleting ".scalar(@clone_ids)." orphaned clones...\n");
 
 foreach my $clone_id (@clone_ids){
     my $clone = $ca->fetch_by_dbID($clone_id);
-    $support->log("Deleting clone ".$clone->embl_id.".".$clone->embl_version, 1);
+    $support->log("Deleting clone ".$clone->embl_id.".".$clone->embl_version."\n", 1);
     $ca->remove($clone) unless ($support->param('dry_run'));
 }
 $support->log("Done.\n");
-exit;
 
 # sanity check: make sure you don't have contigs which are shared between
 # chromosomes/assemblies
@@ -211,7 +212,7 @@ $sth->execute;
 my ($unique) = $sth->fetchrow_array;
 $sth->finish;
 unless ($all == $unique) {
-    $support->log("ERROR:\nThere are contigs shared between chromosomes/assemblies in the assembly table. You have to fix this before running this script.\nAborting.\n");
+    $support->log("ERROR:\nThere are contigs shared between chromosomes/assemblies in the assembly table. You'll have to run assembly_exception.pl to fix this before running this script.\nAborting.\n");
     exit(0);
 }
 
@@ -226,9 +227,10 @@ unless ($support->param('dry_run')) {
 $support->log("Fetching chromosome.name, assembly.type, chr_length...\n");
 my $sth1 = $dbh->prepare(qq(
     SELECT
-        c.name          AS chr_name,
-        a.type          AS ass_type,
-        max(a.chr_end)  AS length
+        c.name,
+        c.chromosome_id,
+        a.type,
+        max(a.chr_end)
     FROM
         assembly a,
         chromosome c
@@ -242,6 +244,15 @@ while (my @r = $sth1->fetchrow_array) {
     push @rows, \@r;
 }
 $support->log("Done fetching ".(scalar @rows)." rows.\n");
+$support->log("These new chromosome names will be used\n");
+$support->log("(unless you choose to keep the old ones):\n\n");
+$txt = sprintf "    %-20s%-40s\n", "OLD NAME", "NEW NAME";
+$txt .= "    " . "-"x70 . "\n";
+foreach my $row (@rows) {
+    my ($chr, $chr_id, $ass_type) = @$row;
+    $txt .= sprintf "    %-20s%-40s\n", $chr, "$chr-$ass_type";
+}
+$support->log("$txt\n");
 
 # delete old chromosomes
 $sql = "DELETE FROM chromosome";
@@ -254,13 +265,25 @@ unless ($support->param('dry_run')) {
 
 # loop over assembly types
 $support->log("Looping over chromosomes/assemblies...\n");
-my $i = 1;
 foreach my $row (@rows) {
-    my ($chr, $ass_type, $length) = @$row;
+    my ($chr, $chr_id, $ass_type, $length) = @$row;
     $support->log("Chr $chr, assembly.type $ass_type...\n", 1);
 
+    # ask user if he wants to rename chromosome
+    my $chr_new = $chr;
+    my $input = $support->read_user_input(
+        "\nRename $chr to $chr-$ass_type? [y/N/enter other name]"
+    );
+    if ($input) {
+        if ($input eq 'y') {
+            $chr_new = "$chr-$ass_type";
+        } else {
+            $chr_new = $input;
+        }
+    }
+
     # create fake chromosome
-    my $sql2 = "INSERT into chromosome values ($i, '$chr-$ass_type', $length)";
+    my $sql2 = "INSERT into chromosome values ($chr_id, '$chr_new', $length)";
     $support->log("$sql2\n", 2);
     unless ($support->param('dry_run')) {
         my $sth2 = $dbh->prepare($sql2);
@@ -268,14 +291,12 @@ foreach my $row (@rows) {
     }
 
     # update assembly table with new chromosome names
-    my $sql3 = "UPDATE assembly SET chromosome_id = $i WHERE type = '$ass_type'";
+    my $sql3 = "UPDATE assembly SET chromosome_id = $chr_id WHERE type = '$ass_type'";
     $support->log("$sql3\n", 2);
     unless ($support->param('dry_run')) {
         my $sth3 = $dbh->prepare($sql3);
         $sth3->execute;
     }
-    
-    $i++;
 }
 
 # set assembly.type to VEGA for all chromosomes
@@ -288,7 +309,7 @@ unless ($support->param('dry_run')) {
 }
 
 # add assembly.default value to meta table
-$sql = qq(INSERT INTO meta ('meta_key', 'meta_value') VALUES ('assembly.default', 'VEGA'));
+$sql = qq(INSERT INTO meta (meta_key, meta_value) VALUES ('assembly.default', 'VEGA'));
 $support->log("Adding assembly.default to meta table...\n");
 $support->log("$sql\n", 1);
 unless ($support->param('dry_run')) {

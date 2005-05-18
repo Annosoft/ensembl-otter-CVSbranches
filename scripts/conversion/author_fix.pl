@@ -29,8 +29,8 @@ annotator how created the object. On the Vega website, we display the
 annotation group who annotated a particular chromsosome/dataset as the author.
 Furthermore, the author is used as a key to group genesets in contigview.
 
-This script set the correct author for genes/transcripts. It uses a lookup hash
-to determine which group to use for a chromsome.
+This script sets the correct author for genes/transcripts. It uses a lookup
+hash to determine which group to use for a chromsome.
 
 =head1 LICENCE
 
@@ -96,6 +96,9 @@ my $author_def = {
         'other'     => {
             '7'         => [ 'Washu', 'jspieth@watson.wust' ],
             '14'        => [ 'Genoscope', 'ralph@genoscope.cns.fr' ],
+            '16'        => [ 'JGI', 'vega@sanger.ac.uk' ],
+            '18'        => [ 'Broad', 'daved@broad.mit.edu' ],
+            '19'        => [ 'JGI', 'UHellsten@lbl.gov' ],
             '22'        => [ 'Sanger', 'chr22@sanger.ac.uk' ],
         },
     },
@@ -116,7 +119,7 @@ my $author_def = {
 # determine species from database
 my $tid = $support->get_taxonomy_id($dba);
 my $chromosomes = $author_def->{$tid};
-$support->throw("Unknown taxonomy_id. Please update the definition hash in this script.") unless $chomosomes;
+$support->throw("Unknown taxonomy_id. Please update the definition hash in this script.") unless $chromosomes;
 
 # ask user to confirm author lookup hash
 print "These author settings will be used:\n\n";
@@ -127,7 +130,7 @@ foreach my $chr (sort keys %{ $chromosomes->{'other'} } ) {
     printf "    %-20s%-12s%-34s\n", $chr, @{ $chromosomes->{'other'}->{$chr} };
 }
 print "\n";
-$support->user_confirm;
+exit unless $support->user_proceed("Continue?");
 
 if ($support->param('dry_run')) {
     $support->log("There is nothing else to do for dry_run. Aborting.\n");

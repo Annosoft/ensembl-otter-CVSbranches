@@ -30,6 +30,9 @@ of input files
         --xreffile FILE                     read input from FILE
         --xrefformat FORMAT                 input file format FORMAT
                                             (hugo|locuslink|refseq)
+        --mismatch                          correct case mismatches in the db
+                                            (NOTE: this option overrides
+                                            dry_run!)
 
 =head1 DESCRIPTION
 
@@ -39,7 +42,8 @@ appropriate, display name of genes is set accordingly.
 
 Currently, these input formats are supported:
     
-    hugo        => http://www.gene.ucl.ac.uk/nomenclature/nomeids.txt
+    hugo        => http://www.gene.ucl.ac.uk/nomenclature/data/gdlw_index.html
+                   ('All data' in text format)
     locuslink   => ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz
     refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
 
@@ -89,6 +93,7 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'xreffile=s',
     'xrefformat=s',
+    'mismatch=s',
 );
 
 if ($support->param('help') or $support->error) {
@@ -103,12 +108,17 @@ $support->list_or_file('gene_stable_id');
 $support->confirm_params;
 
 # make sure add_vega_xrefs.pl has been run
-print "This script must run after add_vega_xrefs.pl. Have you run it?\n";
-$support->user_confirm;
+exit unless $support->user_proceed("This script must run after add_vega_xrefs.pl. Have you run it?");
 
 # get log filehandle and print heading and parameters to logfile
 $support->log_filehandle('>>');
 $support->log($support->init_log);
+
+# check that --mismatch is combined with --dry_run
+if ($support->param('mismatch')) {
+    $support->log("--mismatch is set, therefore setting --dry_run to 1...\n");
+    $support->param('dry_run', 1);
+}
 
 # connect to database and get adaptors (caching features on one slice only)
 # get an ensembl database for better performance (no otter tables are needed)
@@ -117,8 +127,13 @@ $Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $ea = $dba->get_DBEntryAdaptor();
+
 # statement handle for display_xref_id update
-my $sth = $dba->dbc->prepare("UPDATE gene SET display_xref_id=? WHERE gene_id=?");
+my $sth_display_xref = $dba->dbc->prepare("UPDATE gene SET display_xref_id=? WHERE gene_id=?");
+
+# statement handles for fixing case errors
+my $sth_case1 = $dba->dbc->prepare("UPDATE gene_name set name = ? WHERE name = ?");
+my $sth_case2 = $dba->dbc->prepare("UPDATE xref set display_label = ? WHERE display_label = ?");
 
 my @gene_stable_ids = $support->param('gene_stable_id');
 my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
@@ -145,10 +160,11 @@ my ($xrefs, $lcmap) = &$parser($support);
 my %primary = ( $support->param('xrefformat') => 1 );
 my %extdb_def = (
     HUGO                => [ 'KNOWN', $primary{'hugo'} ],
-    LocusLink           => [ 'KNOWNXREF', $primary{'locuslink'} ],
+    EntrezGene          => [ 'KNOWNXREF', $primary{'locuslink'} ],
+    MarkerSymbol        => [ 'KNOWNXREF', $primary{'locuslink'} ],
     RefSeq_dna          => [ 'KNOWN', 0 ],
     MIM                 => [ 'KNOWNXREF', 0 ],
-    'Uniport/SWISSPROT' => [ 'KNOWN', 0 ],
+    'Uniprot/SWISSPROT' => [ 'KNOWN', 0 ],
 );
 
 # loop over chromosomes
@@ -188,7 +204,9 @@ foreach my $chr (@chr_sorted) {
 
         # we have a match
         if ($xrefs->{$gene_name}) {
-            foreach my $extdb (keys %extdb_def) {
+            # the sort if important so that MarkerSymbol superseeds EntrezGene
+            # when setting display_xrefs
+            foreach my $extdb (sort keys %extdb_def) {
                 if (my $xid = $xrefs->{$gene_name}->{$extdb}) {
                     $stats{$extdb}++;
                     my $display_id;
@@ -211,7 +229,7 @@ foreach my $chr (@chr_sorted) {
                     } else {
                         $ea->store($dbentry, $gid, 'Gene');
                         if ($extdb_def{$extdb}->[1]) {
-                            $sth->execute($dbentry->dbID, $gid);
+                            $sth_display_xref->execute($dbentry->dbID, $gid);
                         }
                         $support->log("Stored $extdb xref $xid (dbID ".$dbentry->dbID.") for gene $gid.\n", 1);
                     }
@@ -223,6 +241,12 @@ foreach my $chr (@chr_sorted) {
             # possible case error
             $support->log_warning("Possible case error for $gene_name: ".
                 join(',',(@{ $lcmap->{$lc_gene_name} })).".\n", 1);
+            if ($support->param('mismatch')) {
+                # fix case mismatch in db
+                $support->log("Fixing case mismatch...\n", 1);
+                $sth_case1->execute($lcmap->{$lc_gene_name}->[0], $gene_name);
+                $sth_case2->execute($lcmap->{$lc_gene_name}->[0], $gene_name);
+            }
             $warnings{'wrong_case'}++;
         } elsif ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
             # probably a clone-based genename - ok
@@ -286,10 +310,11 @@ sub parse_hugo {
     my $line = <NOM>;
     chomp $line;
     my %convhash = (
-        'HGNC'          => 'HUGO',
-        'SWISSPROT'     => 'Uniprot/SWISSPROT',
-        'Ref Seq'       => 'RefSeq_dna',
-        'Locus Link'    => 'LocusLink',
+        'HGNC ID'                   => 'HUGO',
+        'UniProt ID (mapped data)'  => 'Uniprot/SWISSPROT',
+        'RefSeq (mapped data)'      => 'RefSeq_dna',
+        'Entrez Gene ID'            => 'EntrezGene',
+        'OMIM ID (mapped data)'     => 'MIM',
     );
     my @fieldnames = map { $convhash{$_} || $_ } split /\t/, $line;
     my $num_fields = scalar(@fieldnames);
@@ -378,12 +403,15 @@ sub parse_locuslink {
     my $flag_found = 1;
     my $flag_org = 0;
     my $nm = '';
+    my $mgi = '';
     my $gene_name = '';
 
     while(<LL>){
         if (/^NM: (.*)/) {
             $nm = $1;
             $nm =~ s/\|.*//;
+        } elsif (/http:\/\/www.informatics.jax.org\/searches\/accession_report.cgi\?id=MGI:(\d+)/) {
+            $mgi = $1;
         } elsif (/^ORGANISM: (.*)/) {
             my $org = $1;
             if ($species eq $org) {
@@ -408,10 +436,11 @@ sub parse_locuslink {
         } elsif (/\>\>(\d+)/) {
             if ($gene_name) {
                 $xrefs{$gene_name} = {
-                    RefSeq_dna  => $nm,
-                    LocusLink   => $locus_id,
+                    RefSeq_dna      => $nm,
+                    EntrezGene      => $locus_id,
+                    MarkerSymbol    => $mgi,
                 };
-                $support->log("Gene $gene_name: LocusLink ID $locus_id\n", 1);
+                $support->log("Gene $gene_name: EntrezGene ID $locus_id\n", 1);
             }
             unless ($flag_found) {
                 $stats{'missing_symbol'}++;
@@ -421,6 +450,7 @@ sub parse_locuslink {
             $stats{'total'}++;
 
             $nm = '';
+            $mgi = '';
             $gene_name = '';
             $flag_found = 0;
             $flag_org = 0;
