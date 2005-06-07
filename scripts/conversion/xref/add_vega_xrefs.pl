@@ -28,6 +28,9 @@ add_vega_xrefs.pl - add xrefs to display gene, transcript and translation names
                                             (or read list from FILE)
         --gene_type=TYPE                    only process genes of type TYPE
         --start_gid=NUM                     start at gene with gene_id NUM
+        --prune                             delete all xrefs and
+                                            gene.display_xref_ids before
+                                            running the script
 
 =head1 DESCRIPTION
 
@@ -106,6 +109,15 @@ my $ea = $dba->get_DBEntryAdaptor();
 my $sth_gene = $dba->dbc->prepare("update gene set display_xref_id=? where gene_id=?");
 my $sth_trans = $dba->dbc->prepare("update transcript set display_xref_id=? where transcript_id=?");
 
+# delete all xrefs if --force option is used
+if ($support->param('prune') and $support->user_proceed('Would you really like to delete all xrefs before running this script?')) {
+    $support->log("Deleting all xrefs...\n");
+    $dba->dbc->do(qq(DELETE FROM xref));
+    $support->log("Done.\n");
+    $support->log("Resetting gene.display_xref_id...\n");
+    $dba->dbc->do(qq(UPDATE gene set display_xref_id = 0));
+    $support->log("Done.\n");
+}
 
 my $found = 0;
 my @gene_stable_ids = $support->param('gene_stable_id');
