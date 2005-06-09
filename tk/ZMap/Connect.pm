@@ -34,11 +34,11 @@ the style with the following options (defaults in []).
 
  Whether to create a server.
 
-=item I<-request_name> name [_PERL_REQUEST_NAME]
+=item I<-request_name> name [_CLIENT_REQUEST_NAME]
 
  The atom name.
 
-=item I<-response_name> atom name for response [_PERL_RESPONSE_NAME]
+=item I<-response_name> atom name for response [_CLIENT_RESPONSE_NAME]
 
  The atom name.
 
@@ -56,8 +56,8 @@ sub new{
     $p = { @args } if(!(scalar(@args) % 2));
     my $self = {_server        => 1,
                 _debug         => 0,
-                _request_name  => '_PERL_REQUEST_NAME',
-                _response_name => '_PERL_RESPONSE_NAME',
+                _request_name  => undef,
+                _response_name => undef,
                 map { "_".lc(substr($_,1)) => $p->{$_} } keys(%$p)
                 };
     bless($self, $pkg);
@@ -182,6 +182,7 @@ sub request_name{
     if($name && !$self->requestWidget()){
         $self->{'_request_name'} = $name;
     }
+    $self->{'_request_name'} ||= X11::XRemote::client_request_name();
     return $self->{'_request_name'};
 }
 
@@ -196,6 +197,7 @@ sub response_name{
     if($name && !$self->responseWidget()){
         $self->{'_response_name'} = $name;
     }
+    $self->{'_response_name'} ||= X11::XRemote::client_response_name();
     return $self->{'_response_name'};
 }
 
@@ -215,7 +217,6 @@ sub requestWidget{
                                )->pack(-side => 'left');
         # This actually sets up the XREMOTE.
         my $xr = $self->xremote($label->id());
-        #$xr->request_name($label->atomname($label->atom($label->PathName)));
         $xr->request_name($aName);
         $label->packForget();
         $self->{'_requestWidget'} = $label;
@@ -239,10 +240,14 @@ sub responseWidget{
                                )->pack(-side => 'left');
 
         my $xr = $self->xremote();
-        #$xr->response_name($label->atomname($label->atom($label->PathName)));
         $xr->response_name($aName);
 
         $label->packForget();
+        # in case callback data has circular properties.
+        $label->bind('<Destroy>', sub{ 
+            $self->{'_callback_data'} = undef; 
+            $self = undef;
+        } );
         $self->{'_responseWidget'} = $label;
     }
     return $self->{'_responseWidget'};
@@ -262,7 +267,7 @@ sub respond_handler{
     if(my $widget = $self->requestWidget){
         $widget->Tk::bind('<Property>', [ $handler , $self ] );
     }else{
-        warn "Sugested usage:\n" . 
+        warn "Suggested usage:\n" . 
             "my \$c = ".__PACKAGE__."->new([options]);\n" .
             "\$c->init(\$tk, \$callback, \$callback_data);\n";
     }
@@ -287,7 +292,7 @@ sub _do_callback{
                 " method '$m' - ". $ev->$m() . " \n" if $ev->$m();
         }
     }
-    unless($ev->T eq 'PropertyNotify'){ warn "Not a propertyNotify\n"; }
+    unless($ev->T eq 'PropertyNotify'){ warn "Odd Not a propertyNotify\n"; }
     unless($ev->d eq $reqnm){
         warn "Event was NOT for this ".($self->is_server ? "server" : "client").
             "\n" if $DEBUG_CALLBACK;
@@ -325,16 +330,16 @@ sub _is_server{
     my ($self) = @_;
     return ($self->{'_server'} ? 1 : 0);
 }
+
 # ======================================================== #
 # DESTROY: Hopefully won't need to do anything             #
 # ======================================================== #
 sub DESTROY{
     my ($self) = @_;
-    warn "Destroying";
+    warn "Destroying $self";
 }
 
 1;
-
 __END__
 
 =head1 AUTHOR
