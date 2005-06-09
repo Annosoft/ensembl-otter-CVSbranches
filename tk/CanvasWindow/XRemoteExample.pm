@@ -46,11 +46,20 @@ sub new{
                                        -font         => ['Helvetica', 12, 'normal'],
                                        )->pack(-side => 'left');
     # Setup some buttons to do things.
+    my $open = $button_frame->Button(
+                                       -text       => 'open',
+                                       -command    => sub { 
+                                           my $a = ${$self->set_note_ref};
+                                           $self->current_window_id($a);
+                                           my ($chr,$start,$end) = split(/\.|\-/, "b0250");
+                                           $self->make_request("newZmap seq = b0250 ; start = 1 ; end = 0");
+                                       },
+                                       )->pack(-side => 'right');
     my $zoomIn = $button_frame->Button(
                                        -text       => 'Zoom In',
                                        -command    => sub { 
                                            my $a = ${$self->set_note_ref};
-                                           $self->current_window_id($a);
+                                           $self->current_window_id($a) if $a;
                                            $self->make_request('zoom_in');
                                        },
                                        )->pack(-side => 'right');
@@ -65,9 +74,10 @@ sub new{
     my $startTalking = $button_frame->Button(
                                         -text       => '"Connect"',
                                         -command    => sub { 
-                                            my $a = ${$self->set_note_ref};
-                                            $self->current_window_id($a);
-                                            $self->getZMap2CreateClient;
+                                            #my $a = ${$self->set_note_ref};
+                                            #$self->current_window_id($a);
+                                            #$self->getZMap2CreateClient;
+                                            $self->start_zmap();
                                         },
                                         )->pack(-side => 'right');
 
@@ -80,17 +90,24 @@ sub new{
     # data via a list ref as  the third argument to init (see below or
     # perldoc ZMap::Connect)
     my $callback = sub { 
-        my ($c,$r,$canvas) = @_;
-        my $rp = "txt was created on $canvas...";
-        $canvas->createText(rand(100),rand(100),
+        my ($c,$r,$canvas, $xRemoteExample) = @_;
+        my $rp = "txt was created on $canvas...$c";
+        $canvas->createText(rand(10),rand(10),
                             -text   => "req: $r\nrep: $rp",
                             -anchor => 'nw');
+        if($r =~ s/register_client//){
+            $xRemoteExample->register_client($r);
+        }elsif($r =~ s/DEBUG//){
+            $xRemoteExample->dump_to_stderr($r);
+        }else{
+            $xRemoteExample->unknown($r);
+        }
         return (200,$rp);
     };
     # Create a new Object
     my $zmapConnector = ZMap::Connect->new(-server => 1);
     # Initialise it Args: Tk_Widget, callback, list ref of data for the callback.
-    $zmapConnector->init($button_frame, $callback, [$self->canvas]);
+    $zmapConnector->init($button_frame, $callback, [$self->canvas, $self]);
     # store the new object for use later
     $self->zmap_connect($zmapConnector);
 
@@ -99,6 +116,17 @@ sub new{
 
     return $self;
 }
+sub start_zmap{
+    my ($self) = @_;
+    if(my $pid = fork()){
+        warn "forked ok";
+        return;
+    }else{
+        my @exe = qw(zmap --win_id);
+        exec(@exe, $self->zmap_connect()->server_window_id());
+    }
+}
+
 #=======================================================================
 # Implement something similar to these methods to keep hold of a couple 
 # of objects/properties...
@@ -171,9 +199,53 @@ sub make_request{
     print "Sent commands\n";
     for(my $i = 0; $i < @commands; $i++){
         print $commands[$i] . " resulted in " . $a[$i] . "\n";
+        my $n = $a[$i];
+        if($n =~ m!\<windowid\>(0x[0-9a-f]+)\</windowid\>!){
+            my $r = $self->set_note_ref;
+            $$r = $1;
+        }
     }
 }
 
+
+####
+sub register_client{
+    my ($self, $request) = @_;
+    my $p = $self->parse_request($request);
+    unless($p->{'id'} 
+           && $p->{'request'}
+           && $p->{'response'}){
+        warn "mismatched request for register_client:\n", 
+        "id, request and response required\n",
+        "Got '$request'\n";
+    }
+    # now we're all ok we can do the registering
+    my $client = $self->xclient($p->{'id'}->[0]);
+    $client->request_name( $p->{'request'}->[0] );
+    $client->response_name($p->{'response'}->[0]);
+
+    my $r = $self->set_note_ref;
+    $$r = $p->{'id'}->[0];#    $self->current_window_id($p->{'id'}->[0]);
+    return 1;
+}
+
+sub parse_request{
+    my($self, $request) = @_;
+    $request   =~ s/\s//g; # no spaces allowed.
+    my(@pairs) = split(/[;]/,$request);
+    my($param,$value, $out);
+    foreach (@pairs) {
+	($param,$value) = split('=',$_,2);
+	next unless defined $param;
+	next unless defined $value;
+	push (@{$out->{$param}},$value);
+    }
+    return $out;
+}
+sub DESTROY{
+    my $self = shift;
+    warn "Destroying $self";
+}
 
 1;
 # remove next line to use bindDump()
