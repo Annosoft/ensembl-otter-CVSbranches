@@ -1,12 +1,12 @@
-#!/usr/local/bin/perl -w
+#!/usr/local/bin/perl5.8.0 -w
 
 use strict;
 use warnings;
 use CanvasWindow::MainWindow;
-use CanvasWindow::XRemoteTest;
+use CanvasWindow::XRemoteExample;
 
 my $mw = CanvasWindow::MainWindow->new('X11 XRemote Testing');
-my $tw = CanvasWindow::XRemoteTest->new($mw);
+my $tw = CanvasWindow::XRemoteExample->new($mw);
 
 Tk::MainLoop();
 
