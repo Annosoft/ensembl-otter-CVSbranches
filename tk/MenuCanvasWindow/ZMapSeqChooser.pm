@@ -5,10 +5,51 @@ package MenuCanvasWindow::ZMapSeqChooser;
 use strict;
 use Carp qw{ cluck confess };
 use MenuCanvasWindow::SeqChooser;
+use ZMap::Connect;
 use Sys::Hostname;
+use Tie::Watch;
 
 our @ISA = qw(MenuCanvasWindow::SeqChooser);
 
+sub insert_zmap_connector{
+    my ($self) = @_;
+    my $justOneInstance = '_zmap_connector';
+    my $zc = $self->{$justOneInstance};
+    if(!$zc){
+        my $zmap = ZMap::Connect->new( -server => 1 );
+        $zmap->init($self->menu_bar(), \&RECEIVE_FILTER, [ $self ]);
+        my $id = $zmap->server_window_id();
+        $self->{'_xclients'}->{$id} = $zmap->xremote;
+        $zc = $self->{$justOneInstance} = $zmap;
+    }
+    return $zc;
+}
+
+sub xclient{
+    my ($self, $id) = @_;
+    unless ($id){ warn "usage: $self->xclient(id);\n"; return; }
+    my $client = $self->{'_xclients'}->{$id};
+    if(!$client){
+        # make a new client to send commands to a remote window
+        $client = X11::XRemote->new(-id     => $id, 
+                                    -server => 0,
+                                    -_DEBUG => 1
+                                    );
+        # keep a hash of clients hashed on window id of remote window.
+        $self->{'_xclients'}->{$id} = $client;
+    }
+    return $client;
+}
+sub xclient_with_name{
+    my ($self, $name, $id) = @_;
+    if(!$id){
+        $id = $self->{$name};
+    }else{ 
+        $self->{$name} = $id;
+    }
+    return unless $id;
+    return $self->xclient($id);
+}
 sub update_display{
     my ($self , $ace) = @_ ;
     my $xr = $self->remote  || $self->open_dialogue;
@@ -68,7 +109,8 @@ sub launch {
     my( $self ) = @_;
     
     $self->kill;
-
+    my $z = $self->insert_zmap_connector();
+    my $s_id = $z->server_window_id();
     if (my $path = $self->ace_path) {
         if($self->spawn_sgifaceserver){
             $self->write_dot_zmap();
@@ -76,13 +118,11 @@ sub launch {
             if (my $pid = fork) {
                 print STDERR " zmap forked\n";
                 $self->process_id_list($pid);
-                # need to do this as well
-#                $self->get_xwindow_id_from_zmapdir;
             }
             elsif (defined($pid)) {
                 my $c = $self->zmap_dir();
-                my @e = ('zmap', '--conf_dir', $c);
-                print STDERR "@e \n";
+                my @e = ('zmap', '--conf_dir', $c, '--win_id', $s_id);
+                print  "I ran '@e' \n";
                 exec( @e );
             }
             else {
@@ -104,8 +144,9 @@ sub kill {
         kill 9, $pid;
     }
 }
+
 # This will all need changing.........
-sub get_xwindow_id_from_readlock {
+sub get_xwindow_id_from_readlock__________________________________________________________ {
     my( $self ) = @_;
     
     local(*ZMAP_DIR, *ZMAP_FILE);
@@ -120,8 +161,11 @@ sub get_xwindow_id_from_readlock {
     for (my $i = 0; $i < $wait_seconds; $i++, sleep 1) {
         opendir ZMAP_DIR, $zmap_dir or confess "Can't opendir '$zmap_dir' : $!";
 
-	# This needs changing to search for correct filename which is XXXXX.winid
-        ($zmap_file) = grep ".win_id", readdir ZMAP_DIR;
+        print STDERR "I'm looking in $zmap_dir";
+
+        ($zmap_file) = grep /main\.win_id/, readdir ZMAP_DIR;
+
+        print STDERR "hmmm $zmap_file";
 
         closedir ZMAP_DIR;
 
@@ -151,8 +195,7 @@ sub get_xwindow_id_from_readlock {
         last if $xwid;
     }
     if ($xwid) {
-        my $xrem = Hum::Ace::XaceRemote->new($xwid);
-        $self->remote($xrem);
+        $self->xclient_with_name('main', $xwid);
 
         return 1;
     } else {
@@ -208,6 +251,8 @@ sub DESTROY {
     my( $self ) = @_;
     # need to undef AceDatabase for it's clean up.
     # warn "AceDatabase->unlock should now happen\n";
+    $self->kill(); # get rid of zmap
+    delete $self->{'_SGIF_LOCAL_SERVER'}; # shutdown server
     delete $self->{'_AceDatabase'}; # unlock will now happen
     # warn "AceDatabase->unlock should have happened\n";
     if (my $sn = $self->SequenceNotes){
@@ -219,10 +264,6 @@ sub DESTROY {
         delete $self->{'_sequence_notes'} ;
     }
     warn "Destroying ZmapSeqChooser for ", $self->ace_path, "\n";
-    if(my $sgif = $self->{'_SGIF_LOCAL_SERVER'}){
-        $sgif->kill_server();
-    }
-    $self->kill();
 }
 
 
@@ -242,6 +283,11 @@ sub spawn_sgifaceserver{
     return 1;
 }
 
+sub connector{
+    my ($self, $c) = @_;
+    $self->{'_zmap_connect'} = $c if $c;
+    return $self->{'_zmap_connect'};
+}
 
 #==============================================================================#
 #
@@ -318,6 +364,65 @@ sub zmap_dir {
     return $self->Client->option_from_array([qw( zmap zmap_dir )]) || "$ace_path/.ZMap";
 }
 
+
+
+
+my $watch;
+sub register_client{
+    my ($self, $request) = @_;
+
+    my $p  = parse_params($request);
+    my $xr = $self->xclient_with_name('main');
+
+    return if $xr;
+
+    unless($p->{'id'} 
+           && $p->{'request'}
+           && $p->{'response'}){
+        warn "mismatched request for register_client:\n", 
+        "id, request and response required\n",
+        "Got '$request'\n";
+        return (403, "<error>Bad request!</error>");
+    }
+ 
+    $xr = $self->xclient_with_name('main', $p->{'id'});
+    print "Here";
+    my @clones = $self->clone_list;
+    
+    local *open_clones = sub {
+        print "open_clones\n";
+        $xr = $self->xclient_with_name('main');
+        my ($chr, $st, $end) = split(/\.|\-/, $clones[0]);
+        my $cmd = "newZmap seq = @clones ; start = 1 ; end = 0";
+        print "I'm sending $cmd\n";
+        $xr->send_commands($cmd);
+    };
+
+    $watch = Tie::Watch->new(-variable => \$ZMap::ConnectUtils::WAIT_VARIABLE,
+                             -debug    => 1,
+                             -store    => \&open_clones,
+                             );
+
+    return (200, "<error>Bingo.</error>");
+}
+
+
+
+sub RECEIVE_FILTER{
+    my ($_connect, $_request, $self) = @_;
+    my ($_status, $_response) 
+        = (404, "<error>unknown command</error>");
+
+    if    ($_request =~ s/^register_client//){
+        ($_status, $_response) 
+            = $self->register_client($_request);
+    }elsif($_request =~ s/^simple//){
+        ($_status, $_response) 
+            = $self->simple($_request);
+    }
+
+    return ($_status, $_response) ;    
+}
 
 1;
 
