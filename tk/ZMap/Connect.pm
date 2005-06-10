@@ -307,7 +307,7 @@ sub _do_callback{
     my $fstr  = $self->xremote->format_string;
     eval{ 
         my ($status,$str) = $cb->($self, $req, @data);
-        $reply = sprintf($fstr, $status, sprintf("<xml>%s</xml>", $str));
+        $reply = sprintf($fstr, $status, sprintf("<xml>%s</xml>", $str||"<simplemessage>*** callback should return (status, message) ***</simplemessage>"));
     };
     if($@){
         $reply ||= sprintf($fstr, 500, "<xml><simplemessage>Internal Server Error $@</simplemessage></xml>");
