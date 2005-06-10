@@ -74,7 +74,7 @@ sub initialize {
     # take GeneMethods from Defaults.pm file
 #    $self->set_known_GeneMethods();
     
-#    $self->draw_clone_list;
+    $self->draw_clone_list;
     
     ## populate polyA menu here
     ## wasn't possible to do it at the same time as other menus, as AceDB object wasnt added at that point.    
