@@ -91,7 +91,7 @@ my $dbh = $dba->dbc->db_handle;
 # author lookup hash (uses taxonomy_id for species)
 my $author_def = {
     # Homo_sapiens
-    '9609'  => {
+    '9606'  => {
         'default'   => [ 'Havana', 'vega@sanger.ac.uk' ],
         'other'     => {
             '7'         => [ 'Washu', 'jspieth@watson.wust' ],
