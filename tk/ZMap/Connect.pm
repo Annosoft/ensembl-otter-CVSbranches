@@ -18,6 +18,12 @@ use warnings;
 use X11::XRemote;
 use Tk::X;
 
+# import and export ConnectUtils functions
+use ZMap::ConnectUtils;
+use Exporter;
+our @ISA    = qw(Exporter);
+our @EXPORT = (@ZMap::ConnectUtils::EXPORT);
+
 my $DEBUG_CALLBACK = 0;
 my $DEBUG_EVENTS   = 0;
 
@@ -306,6 +312,7 @@ sub _do_callback{
     my $reply;
     my $fstr  = $self->xremote->format_string;
     eval{ 
+        X11::XRemote::block(); # this gets automatically unblocked for us, besides we have no way to do that!
         my ($status,$str) = $cb->($self, $req, @data);
         $reply = sprintf($fstr, $status, sprintf("<xml>%s</xml>", $str||"<simplemessage>*** callback should return (status, message) ***</simplemessage>"));
     };
@@ -314,6 +321,7 @@ sub _do_callback{
     }
     $reply ||= sprintf($fstr, 500, "<xml><simplemessage>Internal Server Error</simplemessage></xml>");
     $self->xremote->send_reply($reply);
+    $WAIT_VARIABLE++;
 }
 
 sub __callback_data{
