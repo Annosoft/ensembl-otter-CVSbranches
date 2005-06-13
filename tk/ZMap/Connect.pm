@@ -350,12 +350,65 @@ sub DESTROY{
 1;
 __END__
 
+=head1 A WORD OF WARNING
+
+When  writing the callback to  be called  on receipt of a command, be
+careful not to  send the origin window of the  command a command. This
+will lead  to a race condition.   The original sender  will be waiting
+for the reply  from the callback, while your window  will be sending a
+command to a window which cannot respond.
+
+The prevention of this race condition has been coded into this module
+and the L<X11::XRemote> module and you will be warned of an C< Avoided 
+race condition >.  There are a couple of solutions to this common 
+problem.
+
+=head2 solution 1
+ 
+Firstly, the recommended solution is to send yourself a generated  
+event.  This is very easy using  L<Tk::event> and the C<<<
+$widget->eventGenerate('<EVENT>', -when => 'tail') >>> function 
+should be sufficient for most cases.  
+
+ Example:
+
+ my $callback = sub {
+    my ($this, $request, $obj) = @_;
+    if($request =~ /something_two_way/){
+      $obj->widget->eventGenerate('<ButtonPress>', -when => 'tail');
+    }
+    return (200, "everything went well");
+ };
+
+=head2 solution 2
+
+Secondly, it is possible to use the L<Tie::Watch> module to 
+provide a callback which happens when a variable is changed.
+To facilitate this method C<$WAIT_VARIABLE> is exported by 
+default which gets incremented every time a reply is sent in
+after your installed callback has been called.
+
+ Example:
+
+ my $callback = sub {
+    my ($this, $request, $obj) = @_;
+    if($request =~ /something_two_way/){
+      $watch = Tie::Watch->new(-variable => \$WAIT_VARIABLE,
+                               -debug    => 1,
+                               -store    => \&requestMore,
+                              );
+    }
+    return (200, "everything went well");
+ };
+
+
 =head1 AUTHOR
 
 R.Storey <rds@sanger.ac.uk>
 
 =head1 SEE ALSO
 
-L<X11::XRemote>, L<perl>.
+L<X11::XRemote>, L<Tk::event>, L<perl>.
 
 =cut
+    

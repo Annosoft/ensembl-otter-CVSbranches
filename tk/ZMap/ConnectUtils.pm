@@ -3,9 +3,13 @@ package ZMap::ConnectUtils;
 use strict;
 use warnings;
 use Exporter;
+use X11::XRemote;
+#use XML::Simple;
 
 our @ISA    = qw(Exporter);
-our @EXPORT = qw(parse_params $WAIT_VARIABLE);
+our @EXPORT = qw(parse_params 
+                 parse_response
+                 $WAIT_VARIABLE);
 our $WAIT_VARIABLE = 0;
 
 sub parse_params{
@@ -31,6 +35,17 @@ sub parse_params{
     return $out;
 }
 
+sub parse_response{
+    my $resposne = shift;
+    my $delimit  = X11::XRemote::delimiter();
+
+    my ($status, $xml) = split(/$delimit/, $resposne, 2);
+
+    my $parser = '';#XML::Simple->new();
+    my $hash   = $parser->XMLin($xml);
+    
+    return ($status, $hash);
+}
 
 1;
 __END__
