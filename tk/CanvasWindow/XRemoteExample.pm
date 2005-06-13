@@ -20,9 +20,10 @@ methods are found in that module which are used here.
 use strict;
 use warnings;
 use base 'CanvasWindow';
-use ZMap::Connect;
+use ZMap::Connect qw(:all);
+use Tie::Watch;
 use Tk;
-
+use Tk::BrowseEntry;
 
 #=======================================================================
 # Setup the object
@@ -41,42 +42,37 @@ sub new{
     my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
     # Add an Entry widget for the window ID
     my $label   = $button_frame->Label(-text => "Window ID:")->pack(-side => "left");
-    my $idEntry = $button_frame->Entry(-width        => 20,
-                                       -textvariable => $self->set_note_ref(),
-                                       -font         => ['Helvetica', 12, 'normal'],
-                                       )->pack(-side => 'left');
+    my $idEntry = $button_frame->BrowseEntry(-width    => 20,
+                                             -variable => $self->entry_ref(),
+                                             -font     => ['Helvetica', 12, 'normal'],
+                                             -listcmd  => sub {
+                                                 my $w = shift;
+                                                 $w->choices([ list_xclient_names() ])
+                                                 },
+#                                             -autolimitheight => 1,
+                                             )->pack(-side => 'left');
     # Setup some buttons to do things.
     my $open = $button_frame->Button(
                                        -text       => 'open',
                                        -command    => sub { 
-                                           my $a = ${$self->set_note_ref};
-                                           $self->current_window_id($a);
-                                           my ($chr,$start,$end) = split(/\.|\-/, "b0250");
                                            $self->make_request("newZmap seq = b0250 ; start = 1 ; end = 0");
                                        },
                                        )->pack(-side => 'right');
     my $zoomIn = $button_frame->Button(
                                        -text       => 'Zoom In',
                                        -command    => sub { 
-                                           my $a = ${$self->set_note_ref};
-                                           $self->current_window_id($a) if $a;
                                            $self->make_request('zoom_in');
                                        },
                                        )->pack(-side => 'right');
     my $zoomOut = $button_frame->Button(
                                         -text       => 'Zoom Out',
                                         -command    => sub { 
-                                            my $a = ${$self->set_note_ref};
-                                            $self->current_window_id($a);
                                             $self->make_request('zoom_out');
                                         },
                                         )->pack(-side => 'right');
     my $startTalking = $button_frame->Button(
-                                        -text       => '"Connect"',
+                                        -text       => 'start ZMap',
                                         -command    => sub { 
-                                            #my $a = ${$self->set_note_ref};
-                                            #$self->current_window_id($a);
-                                            #$self->getZMap2CreateClient;
                                             $self->start_zmap();
                                         },
                                         )->pack(-side => 'right');
@@ -95,6 +91,7 @@ sub new{
         $canvas->createText(rand(10),rand(10),
                             -text   => "req: $r\nrep: $rp",
                             -anchor => 'nw');
+        
         if($r =~ s/register_client//){
             $xRemoteExample->register_client($r);
         }elsif($r =~ s/DEBUG//){
@@ -112,12 +109,13 @@ sub new{
     $self->zmap_connect($zmapConnector);
 
     # just a message.
-    warn join(" ", $zmapConnector->server_window_id(), $zmapConnector->request_name, $zmapConnector->response_name) ;
+    warn join(" ", $zmapConnector->server_window_id(), $zmapConnector->request_name, $zmapConnector->response_name) . "\n" ;
 
     return $self;
 }
 sub start_zmap{
     my ($self) = @_;
+    return if xclient_with_name('main');
     if(my $pid = fork()){
         warn "forked ok";
         return;
@@ -131,21 +129,6 @@ sub start_zmap{
 # Implement something similar to these methods to keep hold of a couple 
 # of objects/properties...
 #=======================================================================
-sub xclient{
-    my ($self, $id) = @_;
-    unless ($id){ warn "usage: $self->xclient(id);\n"; return; }
-    my $client = $self->{'_xclients'}->{$id};
-    if(!$client){
-        # make a new client to send commands to a remote window
-        $client = X11::XRemote->new(-id     => $id, 
-                                    -server => 0,
-                                    -_DEBUG => 1
-                                    );
-        # keep a hash of clients hashed on window id of remote window.
-        $self->{'_xclients'}->{$id} = $client;
-    }
-    return $client;
-}
 sub zmap_connect{
     my ($self, $store) = @_;
     my $zmap = $self->{'_zmap'};
@@ -179,30 +162,45 @@ sub getZMap2CreateClient{
         $self->{'_connectedTo'}->{$id} = 1;
     }
 }
-sub set_note_ref{
-    my ($self, $search) = @_;
-    $self->{'_set_note'} = $search if $search;
+
+sub entry_ref{
+    my ($self) = @_;
     my $n = '';
-    $self->{'_set_note'} ||= \$n;
-    return $self->{'_set_note'};
+    $self->{'_entry_ref'} ||= \$n;
+    return $self->{'_entry_ref'};
 }
-sub current_window_id{
+sub set_entry_value{
+    my ($self, $value) = @_;
+    my $ref = $self->entry_ref();
+    $$ref   = $value;
+}
+sub current_xclient{
     my ($self, $id) = @_;
-    $self->{'_cid'} = $id if $id;
+    $self->{'_cid'} = xclient_with_name(${$self->entry_ref});
     return $self->{'_cid'};
 }
+
 sub make_request{
     my ($self, @commands) = @_;
-    my $xr = $self->xclient($self->current_window_id);
+    my $xr = $self->current_xclient;
+    unless($xr){
+        warn "No current window.";
+        return;
+    }
+
     push(@commands, 'zoom_in') unless @commands;
     my @a = $xr->send_commands(@commands);
     print "Sent commands\n";
     for(my $i = 0; $i < @commands; $i++){
         print $commands[$i] . " resulted in " . $a[$i] . "\n";
-        my $n = $a[$i];
-        if($n =~ m!\<windowid\>(0x[0-9a-f]+)\</windowid\>!){
-            my $r = $self->set_note_ref;
-            $$r = $1;
+        my ($status, $n) = parse_response($a[$i]);
+        my ($name, $id) = ($n->{zmapid}, $n->{windowid});
+        if($status == 412){
+            delete_xclient_with_id($n->{'error'}->{'windowid'});
+        }
+        if($name){
+            xclient_with_name($name, $id) if $id;
+            $self->set_entry_value($name);
         }
     }
 }
@@ -211,37 +209,42 @@ sub make_request{
 ####
 sub register_client{
     my ($self, $request) = @_;
-    my $p = $self->parse_request($request);
+
+    my $p = parse_params($request);
+
     unless($p->{'id'} 
            && $p->{'request'}
            && $p->{'response'}){
         warn "mismatched request for register_client:\n", 
         "id, request and response required\n",
         "Got '$request'\n";
+        return (333,333);
     }
     # now we're all ok we can do the registering
-    my $client = $self->xclient($p->{'id'}->[0]);
-    $client->request_name( $p->{'request'}->[0] );
-    $client->response_name($p->{'response'}->[0]);
+    my $client = xclient_with_name('main', $p->{'id'});
+    $client->request_name( $p->{'request'} );
+    $client->response_name($p->{'response'});
 
-    my $r = $self->set_note_ref;
-    $$r = $p->{'id'}->[0];#    $self->current_window_id($p->{'id'}->[0]);
+    my $watch = Tie::Watch->new(-variable => \$WAIT_VARIABLE,
+                                -debug    => 1,
+                                -store    => [ \&watching_sub, $self ],
+                                );
+
+    $self->set_entry_value('main');
+
     return 1;
 }
+sub watching_sub{
+    my ($watch, $value) = @_;
+    my ($self) = @{$watch->Args('-store')};
+    my $xr     = xclient_with_name('main');
+    my @clones = qw(b0250);
 
-sub parse_request{
-    my($self, $request) = @_;
-    $request   =~ s/\s//g; # no spaces allowed.
-    my(@pairs) = split(/[;]/,$request);
-    my($param,$value, $out);
-    foreach (@pairs) {
-	($param,$value) = split('=',$_,2);
-	next unless defined $param;
-	next unless defined $value;
-	push (@{$out->{$param}},$value);
-    }
-    return $out;
+    $self->make_request("newZmap seq = @clones ; start = 1 ; end = 0");
+
+    $watch->Unwatch;
 }
+
 sub DESTROY{
     my $self = shift;
     warn "Destroying $self";
