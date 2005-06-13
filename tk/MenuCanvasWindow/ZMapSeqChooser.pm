@@ -367,7 +367,6 @@ sub zmap_dir {
 
 
 
-my $watch;
 sub register_client{
     my ($self, $request) = @_;
 
@@ -387,26 +386,28 @@ sub register_client{
  
     $xr = $self->xclient_with_name('main', $p->{'id'});
     print "Here";
-    my @clones = $self->clone_list;
-    
-    local *open_clones = sub {
-        print "open_clones\n";
-        $xr = $self->xclient_with_name('main');
-        my ($chr, $st, $end) = split(/\.|\-/, $clones[0]);
-        my $cmd = "newZmap seq = @clones ; start = 1 ; end = 0";
-        print "I'm sending $cmd\n";
-        $xr->send_commands($cmd);
-    };
 
-    $watch = Tie::Watch->new(-variable => \$ZMap::ConnectUtils::WAIT_VARIABLE,
-                             -debug    => 1,
-                             -store    => \&open_clones,
-                             );
+    Tie::Watch->new(-variable => \$WAIT_VARIABLE,
+                    -debug    => 1,
+                    -store    => [ \&open_clones, $self ],
+                    );
 
     return (200, "<error>Bingo.</error>");
 }
 
+sub open_clones{
+    my ($watch) = @_;
+    my ($self)  = @{$watch->Args('-store')};
+    my $xr = $self->xclient_with_name('main');
 
+    my @clones = $self->clone_list;
+    my ($chr, $st, $end) = split(/\.|\-/, $clones[0]);
+    my $cmd = "newZmap seq = @clones ; start = 1 ; end = 0";
+    print "I'm sending $cmd\n";
+    $xr->send_commands($cmd);
+    
+    $watch->Unwatch;
+}
 
 sub RECEIVE_FILTER{
     my ($_connect, $_request, $self) = @_;
