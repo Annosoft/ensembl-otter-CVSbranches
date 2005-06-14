@@ -17,7 +17,7 @@ sub insert_zmap_connector{
     my $zc = $self->{$justOneInstance};
     if(!$zc){
         my $zmap = ZMap::Connect->new( -server => 1 );
-        $zmap->init($self->menu_bar(), \&RECEIVE_FILTER, [ $self ]);
+        $zmap->init($self->menu_bar(), \&RECEIVE_FILTER, [ $self, qw( register_client ) ]);
         my $id = $zmap->server_window_id();
         $self->{'_xclients'}->{$id} = $zmap->xremote;
         $zc = $self->{$justOneInstance} = $zmap;
@@ -410,16 +410,16 @@ sub open_clones{
 }
 
 sub RECEIVE_FILTER{
-    my ($_connect, $_request, $self) = @_;
+    my ($_connect, $_request, $_obj, @list) = @_;
     my ($_status, $_response) 
         = (404, "<error>unknown command</error>");
 
-    if    ($_request =~ s/^register_client//){
-        ($_status, $_response) 
-            = $self->register_client($_request);
-    }elsif($_request =~ s/^simple//){
-        ($_status, $_response) 
-            = $self->simple($_request);
+    foreach my $valid(@list){
+        if($_request =~ s/^$valid//){
+            ($_status, $_response) 
+                = $_obj->$valid($_request) if $_obj->can($valid);
+            last;
+        }
     }
 
     return ($_status, $_response) ;    
