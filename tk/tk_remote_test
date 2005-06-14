@@ -1,12 +1,46 @@
 #!/usr/local/bin/perl5.8.0 -w
 
+package OtherOne;
+
+use base 'CanvasWindow';
+use CanvasWindow::XRemoteExample;
+
+sub new{
+    my ($pkg, @args) = @_;
+    my $self = $pkg->SUPER::new(@args);
+    # Some setup for the User Interface....
+    my $close_window = sub{
+        $self->canvas->toplevel->destroy;
+        $self = undef;
+    };
+    $self->canvas->toplevel->protocol('WM_DELETE_WINDOW',  $close_window);
+
+    # Create a Button Frame for the buttons, etc...
+    my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
+    # Add an Entry widget for the window ID
+    my $open = $button_frame->Button(-text    => 'open',
+                                     -command => sub { 
+                                         $self->{'_x'} ||= CanvasWindow::XRemoteExample->new($self->canvas->Toplevel(-title => "withdrawable"));
+                                         $self->{'_x'}->canvas->toplevel->deiconify;
+                                         $self->{'_x'}->canvas->toplevel->raise;
+                                         }
+                                     )->pack(-side => 'left');
+    my $close = $button_frame->Button(-text   => 'close',
+                                     -command => $close_window
+                                     )->pack(-side => 'right');
+    return $self;
+}
+
+package main;
+
 use strict;
 use warnings;
 use CanvasWindow::MainWindow;
 use CanvasWindow::XRemoteExample;
 
 my $mw = CanvasWindow::MainWindow->new('X11 XRemote Testing');
-my $tw = CanvasWindow::XRemoteExample->new($mw);
+#my $tw = CanvasWindow::XRemoteExample->new($mw);
+my $tw = OtherOne->new($mw);
 
 Tk::MainLoop();
 
