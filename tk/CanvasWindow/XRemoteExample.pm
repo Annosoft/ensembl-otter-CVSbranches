@@ -43,7 +43,10 @@ sub new{
     my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
     # Add an Entry widget for the window ID
     my $kill = $button_frame->Button(-text => 'End Test',
-                                     -command => $close_window
+                                     -command => sub {
+                                         my $top = $self->canvas->toplevel;
+                                         $top->withdraw;
+                                     }
                                      )->pack(-side => 'left');
     my $idEntry = $button_frame->BrowseEntry(-label    => "Window ID:",
                                              -width    => 20,
