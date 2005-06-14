@@ -147,6 +147,7 @@ return the xclient with specified name, creating if id supplied.
                                             );
                 $CACHED_CLIENTS->{$id} = [ $client, $name ];
             }
+
             return $client;
         };
 
@@ -192,20 +193,10 @@ remove the xclient with specified name.
     }
 
     sub flush_bad_windows{
-        my @deletes = grep { !(ping($_)) } keys %$CACHED_CLIENTS;
-        foreach(@deletes){
-            delete_xclient_with_id($_);
+        foreach my $id(keys %$CACHED_CLIENTS){
+            my $obj = xclient_with_id($id);
+            $obj->ping || delete_xclient_with_id($id);
         }
-    }
-
-    sub ping{
-        my ($id) = @_;
-        my $x = xclient_with_id($id);
-        if(my @resp = $x->send_commands('ping')){
-            my ($status, $hash) = parse_response($resp[0]);
-            return 1 unless $status == 412;
-        }
-        return 0;
     }
 }
 
