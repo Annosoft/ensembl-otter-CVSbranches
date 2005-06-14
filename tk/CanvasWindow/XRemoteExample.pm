@@ -25,6 +25,7 @@ use Tie::Watch;
 use Tk;
 use Tk::BrowseEntry;
 
+my $WATCH_METHOD = 0;
 #=======================================================================
 # Setup the object
 #=======================================================================
@@ -41,147 +42,74 @@ sub new{
     # Create a Button Frame for the buttons, etc...
     my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
     # Add an Entry widget for the window ID
-    my $label   = $button_frame->Label(-text => "Window ID:")->pack(-side => "left");
-    my $idEntry = $button_frame->BrowseEntry(-width    => 20,
+    my $kill = $button_frame->Button(-text => 'End Test',
+                                     -command => $close_window
+                                     )->pack(-side => 'left');
+    my $idEntry = $button_frame->BrowseEntry(-label    => "Window ID:",
+                                             -width    => 20,
                                              -variable => $self->entry_ref(),
                                              -font     => ['Helvetica', 12, 'normal'],
                                              -listcmd  => sub {
                                                  my $w = shift;
                                                  $w->choices([ list_xclient_names() ])
                                                  },
-#                                             -autolimitheight => 1,
                                              )->pack(-side => 'left');
+
+    $self->canvas->Tk::bind('<Control-Button-1>', 
+                        sub {$self->make_request("newZmap seq = b0250 ; start = 1 ; end = 0")}) if !$WATCH_METHOD;
+
     # Setup some buttons to do things.
-    my $open = $button_frame->Button(
-                                       -text       => 'open',
-                                       -command    => sub { 
-                                           $self->make_request("newZmap seq = b0250 ; start = 1 ; end = 0");
-                                       },
-                                       )->pack(-side => 'right');
-    my $zoomIn = $button_frame->Button(
-                                       -text       => 'Zoom In',
-                                       -command    => sub { 
-                                           $self->make_request('zoom_in');
-                                       },
-                                       )->pack(-side => 'right');
-    my $zoomOut = $button_frame->Button(
-                                        -text       => 'Zoom Out',
-                                        -command    => sub { 
-                                            $self->make_request('zoom_out');
-                                        },
-                                        )->pack(-side => 'right');
-    my $startTalking = $button_frame->Button(
-                                        -text       => 'start ZMap',
-                                        -command    => sub { 
-                                            $self->start_zmap();
-                                        },
-                                        )->pack(-side => 'right');
-
-
-    # NOW THE INTERESTING BITS
-    # Callback which gets called when the window is sent a message via
-    # an atom.   The $c  and $r are  the ZMap::Connect object  and the
-    # Request String respectively and  are passed by the ZMap::Connect
-    # module to the callback.   Additional arguments maybe supplied as
-    # data via a list ref as  the third argument to init (see below or
-    # perldoc ZMap::Connect)
-    my $callback = sub { 
-        my ($c,$r,$canvas, $xRemoteExample) = @_;
-        my $rp = "txt was created on $canvas...$c";
-        $canvas->createText(rand(10),rand(10),
-                            -text   => "req: $r\nrep: $rp",
-                            -anchor => 'nw');
-        
-        if($r =~ s/register_client//){
-            $xRemoteExample->register_client($r);
-        }elsif($r =~ s/DEBUG//){
-            $xRemoteExample->dump_to_stderr($r);
-        }else{
-            $xRemoteExample->unknown($r);
-        }
-        return (200,$rp);
-    };
+    my $open = 
+        $button_frame->Button(-text       => 'open',
+                              -command    => sub { 
+                                  $self->make_request("newZmap seq = b0250 ; start = 1 ; end = 0");
+                              })->pack(-side => 'right');
+    my $zoomIn = 
+        $button_frame->Button(-text       => 'Zoom In',
+                              -command    => sub { 
+                                  $self->make_request('zoom_in');
+                              })->pack(-side => 'right');
+    my $zoomOut = 
+        $button_frame->Button(-text       => 'Zoom Out',
+                              -command    => sub { 
+                                  $self->make_request('zoom_out');
+                              })->pack(-side => 'right');
+    my $startTalking = 
+        $button_frame->Button(-text       => 'start ZMap',
+                              -command    => sub { 
+                                  $self->start_zmap();
+                              })->pack(-side => 'right');
     # Create a new Object
     my $zmapConnector = ZMap::Connect->new(-server => 1);
     # Initialise it Args: Tk_Widget, callback, list ref of data for the callback.
-    $zmapConnector->init($button_frame, $callback, [$self->canvas, $self]);
+    $zmapConnector->init($button_frame, \&RECEIVE_FILTER, [$self, qw(simpleton register_client simple default ping)]);
     # store the new object for use later
-    $self->zmap_connect($zmapConnector);
+    $self->zmapConnectObj($zmapConnector);
 
     # just a message.
-    warn join(" ", $zmapConnector->server_window_id(), $zmapConnector->request_name, $zmapConnector->response_name) . "\n" ;
+    print join(" ", $zmapConnector->server_window_id(), $zmapConnector->request_name, $zmapConnector->response_name) . "\n" ;
 
     return $self;
 }
+
+#=====================================================================
+# Button Functions
+#=====================================================================
 sub start_zmap{
     my ($self) = @_;
     return if xclient_with_name('main');
     if(my $pid = fork()){
-        warn "forked ok";
+        print "forked ok\n";
         return;
     }else{
         my @exe = qw(zmap --win_id);
-        exec(@exe, $self->zmap_connect()->server_window_id());
+        close STDERR if $^O eq 'linux';
+        exec(@exe, $self->zmapConnectObj()->server_window_id());
     }
 }
-
-#=======================================================================
-# Implement something similar to these methods to keep hold of a couple 
-# of objects/properties...
-#=======================================================================
-sub zmap_connect{
-    my ($self, $store) = @_;
-    my $zmap = $self->{'_zmap'};
-    if($store && !$zmap){
-        my $id = $store->server_window_id();
-        # keep the "client" with the others so we don't send ourself
-        # messages. N.B. It is a SERVER, NOT a client
-        $self->{'_xclients'}->{$id} = $store->xremote;
-        # keep the object for later use.
-        $self->{'_zmap'} = $store;
-    }
-    return $zmap;
-}
-
-
-
-
-
-#=======================================================================
-# just some utility methods to make the module work, not essential to
-# other implementations, but possibly useful, at least as examples.
-#=======================================================================
-
-sub getZMap2CreateClient{
-    my ($self) = @_;
-    my $id = $self->current_window_id();
-    my $cnnct = $self->{'_connectedTo'}->{$id};
-    if(!$cnnct){
-        my $req = $self->zmap_connect->connect_request;
-        $self->make_request($req);
-        $self->{'_connectedTo'}->{$id} = 1;
-    }
-}
-
-sub entry_ref{
-    my ($self) = @_;
-    my $n = '';
-    $self->{'_entry_ref'} ||= \$n;
-    return $self->{'_entry_ref'};
-}
-sub set_entry_value{
-    my ($self, $value) = @_;
-    my $ref = $self->entry_ref();
-    $$ref   = $value;
-}
-sub current_xclient{
-    my ($self, $id) = @_;
-    $self->{'_cid'} = xclient_with_name(${$self->entry_ref});
-    return $self->{'_cid'};
-}
-
 sub make_request{
     my ($self, @commands) = @_;
+
     my $xr = $self->current_xclient;
     unless($xr){
         warn "No current window.";
@@ -190,9 +118,9 @@ sub make_request{
 
     push(@commands, 'zoom_in') unless @commands;
     my @a = $xr->send_commands(@commands);
-    print "Sent commands\n";
+    my $canvasMessage = "Sent commands\n";
     for(my $i = 0; $i < @commands; $i++){
-        print $commands[$i] . " resulted in " . $a[$i] . "\n";
+        $canvasMessage .= " - cmd: '" . $commands[$i] . "',  result: '" . $a[$i] . "'\n";
         my ($status, $n) = parse_response($a[$i]);
         my ($name, $id) = ($n->{zmapid}, $n->{windowid});
         if($status == 412){
@@ -203,10 +131,54 @@ sub make_request{
             $self->set_entry_value($name);
         }
     }
+    $self->write_on_canvas($canvasMessage);
 }
 
+#=======================================================================
+# holds the ZMap::Connect object
+#=======================================================================
+sub zmapConnectObj{
+    my ($self, $store) = @_;
+    my $zmap = $self->{'_zmap'};
+    if($store && !$zmap){
+        # keep the object for later use.
+        $self->{'_zmap'} = $store;
+    }
+    return $zmap;
+}
+# and sends a register_client
+sub getZMap2CreateClient{
+    my ($self) = @_;
+    my $id = $self->current_xclient()->window_id();
+    my $cnnct = $self->{'_connectedTo'}->{$id};
+    if(!$cnnct){
+        my $req = $self->zmapConnectObj->connect_request;
+        $self->make_request($req);
+        $self->{'_connectedTo'}->{$id} = 1;
+    }
+}
 
-####
+#=====================================================================
+# RECEIVE_FILTER && functions it calls
+#=====================================================================
+sub RECEIVE_FILTER{ 
+    my ($_connect, $_request, $_obj, @valid_list) = @_; 
+    my ($_status, $_response) = (404, "<error>unknown command</error>");
+
+    foreach my $valid(@valid_list){
+        if($_request =~ s/^$valid//){
+            ($_status, $_response)
+                = $_obj->$valid($_request) if $_obj->can($valid);
+            last;
+        }
+    }
+
+    $_obj->write_on_canvas("req: $_request \nresp: $_response");
+
+    return ($_status, $_response) ;    
+
+}
+
 sub register_client{
     my ($self, $request) = @_;
 
@@ -225,14 +197,17 @@ sub register_client{
     $client->request_name( $p->{'request'} );
     $client->response_name($p->{'response'});
 
-    my $watch = Tie::Watch->new(-variable => \$WAIT_VARIABLE,
-                                -debug    => 1,
-                                -store    => [ \&watching_sub, $self ],
-                                );
-
+    if($WATCH_METHOD){
+        my $watch = Tie::Watch->new(-variable => \$WAIT_VARIABLE,
+                                    -debug    => 0,
+                                    -store    => [ \&watching_sub, $self ],
+                                    );
+    }else{
+        $self->canvas->eventGenerate('<Control-Button-1>', -when => 'tail');
+    }
     $self->set_entry_value('main');
 
-    return 1;
+    return (200, "<message>accepted</message>");
 }
 sub watching_sub{
     my ($watch, $value) = @_;
@@ -245,6 +220,38 @@ sub watching_sub{
     $watch->Unwatch;
 }
 
+
+
+#=====================================================================
+# short helper bits
+#=====================================================================
+sub current_xclient{
+    my ($self) = @_;
+    return xclient_with_name(${$self->entry_ref});
+}
+sub entry_ref{
+    my ($self) = @_;
+    my $n = '';
+    $self->{'_entry_ref'} ||= \$n;
+    return $self->{'_entry_ref'};
+}
+sub set_entry_value{
+    my ($self, $value) = @_;
+    my $ref = $self->entry_ref();
+    $$ref   = $value;
+}
+sub write_on_canvas{
+    my ($self, $message) = @_;
+    $self->canvas->delete('all');
+    $self->canvas->createText(10, 10,
+                              -text   => "$message",
+                              -anchor => 'nw');
+
+}
+
+#=====================================================================
+# Just to check for memory leaks
+#=====================================================================
 sub DESTROY{
     my $self = shift;
     warn "Destroying $self";
@@ -253,6 +260,34 @@ sub DESTROY{
 1;
 # remove next line to use bindDump()
 __END__
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ====================================== #
 # Just bindDump below.                   #
