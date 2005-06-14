@@ -5,83 +5,24 @@ package MenuCanvasWindow::ZMapSeqChooser;
 use strict;
 use Carp qw{ cluck confess };
 use MenuCanvasWindow::SeqChooser;
-use ZMap::Connect;
+use ZMap::Connect qw(:all);
 use Sys::Hostname;
 use Tie::Watch;
 
 our @ISA = qw(MenuCanvasWindow::SeqChooser);
 
-sub insert_zmap_connector{
-    my ($self) = @_;
-    my $justOneInstance = '_zmap_connector';
-    my $zc = $self->{$justOneInstance};
-    if(!$zc){
-        my $zmap = ZMap::Connect->new( -server => 1 );
-        $zmap->init($self->menu_bar(), \&RECEIVE_FILTER, [ $self, qw( register_client ) ]);
-        my $id = $zmap->server_window_id();
-        $self->{'_xclients'}->{$id} = $zmap->xremote;
-        $zc = $self->{$justOneInstance} = $zmap;
-    }
-    return $zc;
-}
-
-sub xclient{
-    my ($self, $id) = @_;
-    unless ($id){ warn "usage: $self->xclient(id);\n"; return; }
-    my $client = $self->{'_xclients'}->{$id};
-    if(!$client){
-        # make a new client to send commands to a remote window
-        $client = X11::XRemote->new(-id     => $id, 
-                                    -server => 0,
-                                    -_DEBUG => 1
-                                    );
-        # keep a hash of clients hashed on window id of remote window.
-        $self->{'_xclients'}->{$id} = $client;
-    }
-    return $client;
-}
-sub xclient_with_name{
-    my ($self, $name, $id) = @_;
-    if(!$id){
-        $id = $self->{$name};
-    }else{ 
-        $self->{$name} = $id;
-    }
-    return unless $id;
-    return $self->xclient($id);
-}
 sub update_display{
     my ($self , $ace) = @_ ;
-    my $xr = $self->remote  || $self->open_dialogue;
-    print STDERR "Sending:\n$ace";
-    if ($xr) {
-         # I think this lot can be replaced with a single command to zmap.
-#        $xr->load_ace($ace);
-#        $xr->save;
-#        $xr->send_command('gif ; seqrecalc');
-        $xr->send_command('edit  ***should send details of thing to be recalculated here');
-        return 1;
-    } else {
-        $self->message("No zmap attached");
-        print STDERR "Not able to update sequence display - no zmap attached";
-        return 0;
-    }    
+    warn "cannot update display yet";
+    return 1;
 }
-
 # this should be called when a user tries to save, but no ZMap is opened
 sub open_dialogue{
     my ($self) = @_ ;
-    
-    my $answer = $self->canvas->toplevel()->messageBox(-title => 'Please Reply', 
-     -message => 'No ZMap attached, would you like to launch ZMap ?', 
-     -type => 'YesNo', -icon => 'question', -default => 'Yes');
+    warn "cannot open dialogue yet";
+    return undef;
 
-    if ($answer eq 'Yes'){
-        $self->launch_zmap();
-    }
-    return $self->xace_remote;
 }
-
 sub attach {
     my( $self ) = @_;
     
@@ -95,7 +36,6 @@ sub attach {
         warn "no xwindow id: $xwid";
     }
 }
-
 
 sub process_id_list {
     my( $self, $zmap_process_id ) = @_;
@@ -145,67 +85,7 @@ sub kill {
     }
 }
 
-# This will all need changing.........
-sub get_xwindow_id_from_readlock__________________________________________________________ {
-    my( $self ) = @_;
-    
-    local(*ZMAP_DIR, *ZMAP_FILE);
-
-    my $pid  = $self->process_id_list or confess "zmap_process_id not set";
-    my $path = $self->zmap_dir        or confess "zmap_dir not set";
-    
-    # Find a zmap windowid file in the zmap dir for the process we just launched
-    my $zmap_dir = $path;
-    my( $zmap_file );
-    my $wait_seconds = 20;
-    for (my $i = 0; $i < $wait_seconds; $i++, sleep 1) {
-        opendir ZMAP_DIR, $zmap_dir or confess "Can't opendir '$zmap_dir' : $!";
-
-        print STDERR "I'm looking in $zmap_dir";
-
-        ($zmap_file) = grep /main\.win_id/, readdir ZMAP_DIR;
-
-        print STDERR "hmmm $zmap_file";
-
-        closedir ZMAP_DIR;
-
-        if ($zmap_file) {
-            $zmap_file = "$zmap_dir/$zmap_file";
-            last;
-        }
-    }
-    unless ($zmap_file) {
-        warn "Can't find zmap window id file in '$zmap_dir' for process '$pid' after waiting for $wait_seconds seconds\n";
-        return 0;
-    }
-    
-    my( $xwid );
-    for (my $i = 0; $i < $wait_seconds; $i++, sleep 1) {
-        # Extract the WindowID from the zmap file
-        open ZMAP_FILE, $zmap_file or confess "Can't read '$zmap_file' : $!";
-        while (<ZMAP_FILE>) {
-            #warn "Looking at: $_";
-            if (/WindowID: (\w+)/) {
-                $xwid = $1;
-                last;
-            }
-        }
-        close ZMAP_FILE;
-        
-        last if $xwid;
-    }
-    if ($xwid) {
-        $self->xclient_with_name('main', $xwid);
-
-        return 1;
-    } else {
-        warn "WindowID was not found in zmap file - did zmap start up correctly ?";
-        return 0;
-    }
-}
-
 sub remote {}
-
 
 sub get_window_id {
     my( $self ) = @_;
@@ -266,6 +146,24 @@ sub DESTROY {
     warn "Destroying ZmapSeqChooser for ", $self->ace_path, "\n";
 }
 
+#==============================================================================#
+#
+# EXTRA METHODS...
+#
+#==============================================================================#
+
+sub insert_zmap_connector{
+    my ($self) = @_;
+    my $justOneInstance = 
+    my $zc = $self->{'_zmap_connector'};
+    if(!$zc){
+        my $zmap = ZMap::Connect->new( -server => 1 );
+        $zmap->init($self->menu_bar(), \&RECEIVE_FILTER, [ $self, qw( register_client ) ]);
+        my $id = $zmap->server_window_id();
+        $zc = $self->{'_zmap_connector'} = $zmap;
+    }
+    return $zc;
+}
 
 sub spawn_sgifaceserver{
     my ($self) = @_;
@@ -289,13 +187,6 @@ sub connector{
     return $self->{'_zmap_connect'};
 }
 
-#==============================================================================#
-#
-# EXTRA METHODS...
-#
-#==============================================================================#
-
-
 sub write_dot_zmap{
     my ($self) = @_;
     my $dir    = $self->zmap_dir();
@@ -313,13 +204,6 @@ sub write_dot_zmap{
     }
     return 0;
 }
-
-
-
-
-
-
-
 
 sub dot_zmap_content{
     my ($self) = @_;
@@ -345,12 +229,6 @@ sub dot_zmap_content{
     return $content;
 }
 
-
-
-
-
-
-
 sub zmap_port{
     my ($self, $port)  = @_;
     $self->{'_zmap_port'} = $port if $port;
@@ -365,49 +243,6 @@ sub zmap_dir {
 }
 
 
-
-
-sub register_client{
-    my ($self, $request) = @_;
-
-    my $p  = parse_params($request);
-    my $xr = $self->xclient_with_name('main');
-
-    return if $xr;
-
-    unless($p->{'id'} 
-           && $p->{'request'}
-           && $p->{'response'}){
-        warn "mismatched request for register_client:\n", 
-        "id, request and response required\n",
-        "Got '$request'\n";
-        return (403, "<error>Bad request!</error>");
-    }
- 
-    $xr = $self->xclient_with_name('main', $p->{'id'});
-    print "Here";
-
-    Tie::Watch->new(-variable => \$WAIT_VARIABLE,
-                    -debug    => 1,
-                    -store    => [ \&open_clones, $self ],
-                    );
-
-    return (200, "<error>Bingo.</error>");
-}
-
-sub open_clones{
-    my ($watch) = @_;
-    my ($self)  = @{$watch->Args('-store')};
-    my $xr = $self->xclient_with_name('main');
-
-    my @clones = $self->clone_list;
-    my ($chr, $st, $end) = split(/\.|\-/, $clones[0]);
-    my $cmd = "newZmap seq = @clones ; start = 1 ; end = 0";
-    print "I'm sending $cmd\n";
-    $xr->send_commands($cmd);
-    
-    $watch->Unwatch;
-}
 
 sub RECEIVE_FILTER{
     my ($_connect, $_request, $_obj, @list) = @_;
@@ -424,6 +259,91 @@ sub RECEIVE_FILTER{
 
     return ($_status, $_response) ;    
 }
+
+sub register_client{
+    my ($self, $request) = @_;
+
+    my $p  = parse_params($request);
+    my $xr = xclient_with_name('main');
+
+    return if $xr;
+
+    unless($p->{'id'} 
+           && $p->{'request'}
+           && $p->{'response'}){
+        warn "mismatched request for register_client:\n", 
+        "id, request and response required\n",
+        "Got '$request'\n";
+        return (403, "<error>Bad request!</error>");
+    }
+ 
+    $xr = xclient_with_name('main', $p->{'id'});
+
+    $self->set_entry_value('main');
+
+    Tie::Watch->new(-variable => \$WAIT_VARIABLE,
+                    -debug    => 1,
+                    -store    => [ \&open_clones, $self ],
+                    );
+
+    return (200, "<error>Bingo.</error>");
+}
+
+sub open_clones{
+    my ($watch) = @_;
+    my ($self)  = @{$watch->Args('-store')};
+
+    my @clones = $self->clone_list;
+    my ($chr, $st, $end) = split(/\.|\-/, $clones[0]);
+    my $cmd = "newZmap seq = @clones ; start = 1 ; end = 0";
+
+    $self->make_request($cmd);
+    
+    $watch->Unwatch;
+}
+
+sub make_request{
+    my ($self, @commands) = @_;
+
+    my $xr = $self->current_xclient;
+    unless($xr){
+        warn "No current window.";
+        return;
+    }
+
+    my @a = $xr->send_commands(@commands);
+    my $canvasMessage = "Sent commands\n";
+    for(my $i = 0; $i < @commands; $i++){
+        $canvasMessage .= " - cmd: '" . $commands[$i] . "',  result: '" . $a[$i] . "'\n";
+        my ($status, $n) = parse_response($a[$i]);
+        my ($name, $id) = ($n->{zmapid}, $n->{windowid});
+        if($status == 412){
+            delete_xclient_with_id($n->{'error'}->{'windowid'});
+        }
+        if($name){
+            xclient_with_name($name, $id) if $id;
+            $self->set_entry_value($name);
+        }
+    }
+    warn $canvasMessage;
+}
+
+sub current_xclient{
+    my ($self) = @_;
+    return xclient_with_name(${$self->entry_ref});
+}
+sub entry_ref{
+    my ($self) = @_;
+    my $n = '';
+    $self->{'_entry_ref'} ||= \$n;
+    return $self->{'_entry_ref'};
+}
+sub set_entry_value{
+    my ($self, $value) = @_;
+    my $ref = $self->entry_ref();
+    $$ref   = $value;
+}
+
 
 1;
 
