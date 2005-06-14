@@ -155,7 +155,12 @@ return the xclient with specified name, creating if id supplied.
 
     sub list_xclient_names{
         flush_bad_windows();
-        return map { $_->[1] } values %$CACHED_CLIENTS;
+        my @list = ();
+        foreach my $obj_name(values(%$CACHED_CLIENTS)){
+            next if $obj_name->[0]->_is_server();
+            push(@list, $obj_name->[1]);
+        }
+        return @list;
     }
 
 =over 5
