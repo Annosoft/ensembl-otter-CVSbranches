@@ -7,6 +7,7 @@ use strict;
 use Carp;
 use base 'CanvasWindow';
 use MenuCanvasWindow::XaceSeqChooser;
+use MenuCanvasWindow::ZMapSeqChooser;
 use CanvasWindow::SequenceNotes::History;
 use CanvasWindow::SequenceNotes::Status;
 use TransientWindow::OpenRange;
@@ -386,12 +387,26 @@ sub initialise {
     
     my $run_lace = sub{
 	$top->Busy;
+        my $doc = Bio::Otter::Lace::Defaults::get_dot_otter_config();
+        warn "$doc";
+        $doc->{'client'}->{'browser'} = 'xace';
 	$self->run_lace;
 	$top->Unbusy;
     };
     $self->make_button($button_frame_2, 'Run lace', $run_lace, 4);
     $top->bind('<Control-l>', $run_lace);
     $top->bind('<Control-L>', $run_lace);
+    my $run_zmap = sub{
+	$top->Busy;
+        my $doc = Bio::Otter::Lace::Defaults::get_dot_otter_config();
+        warn "$doc";
+        $doc->{'client'}->{'browser'} = 'zmap';
+	$self->run_lace;
+	$top->Unbusy;
+    };
+    $self->make_button($button_frame_2, 'Run zmap', $run_zmap, 4);
+    $top->bind('<Control-z>', $run_zmap);
+    $top->bind('<Control-Z>', $run_zmap);
 
     #if ($write) {
     #    
@@ -737,6 +752,7 @@ sub make_EviCollection {
         unless @{$slice->get_tiling_path};
 
     return Evi::EviCollection->new_from_pipeline_Slice(
+        $pipe_db,                                               
         $slice,
         [qw{ vertrna Est2genome_human Est2genome_mouse Est2genome_other }],
         #[qw{ vertrna }],
@@ -801,7 +817,14 @@ sub make_XaceSeqChooser {
     my $top = $self->canvas->Toplevel(
         -title  => $title,
         );
-    my $xc = MenuCanvasWindow::XaceSeqChooser->new($top);
+    my $xc;
+
+    if($self->Client->browser eq 'zmap'){
+        $xc = MenuCanvasWindow::ZMapSeqChooser->new($top);
+    }else{
+        $xc = MenuCanvasWindow::XaceSeqChooser->new($top);
+    }
+
     return $xc;
 }
 
