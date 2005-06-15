@@ -124,12 +124,12 @@ remote window.
 
 sub connect_request{
     my ($self) = @_;
-    my $req = $self->requestWidget();
+    my $id  = $self->server_window_id();
     my $xr  = $self->xremote();
     my $fmt = "%s id = %s ; request = %s ; response = %s ;";
     return sprintf($fmt, 
                    "register_client", 
-                   $req->id, 
+                   $id, 
                    $self->request_name,
                    $self->response_name
                    );
