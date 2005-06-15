@@ -297,13 +297,13 @@ sub _do_callback{
     #$state == PropertyNewValue;
     if($DEBUG_EVENTS){
         foreach my $m('a'..'z','A'..'Z'){
-            warn "Event on ".($self->is_server ? "server" : "client").
+            warn "Event on ".($self->_is_server ? "server" : "client").
                 " method '$m' - ". $ev->$m() . " \n" if $ev->$m();
         }
     }
     unless($ev->T eq 'PropertyNotify'){ warn "Odd Not a propertyNotify\n"; }
     unless($ev->d eq $reqnm){
-        warn "Event was NOT for this ".($self->is_server ? "server" : "client").
+        warn "Event was NOT for this ".($self->_is_server ? "server" : "client").
             "\n" if $DEBUG_CALLBACK;
         return ;
     }
