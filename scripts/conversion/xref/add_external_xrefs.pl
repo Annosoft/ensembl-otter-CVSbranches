@@ -93,7 +93,15 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'xreffile=s',
     'xrefformat=s',
-    'mismatch=s',
+    'mismatch',
+);
+$support->allowed_params(
+    $support->get_common_params,
+    'chromosomes',
+    'gene_stable_id',
+    'xreffile',
+    'xrefformat',
+    'mismatch',
 );
 
 if ($support->param('help') or $support->error) {
@@ -191,7 +199,17 @@ foreach my $chr (@chr_sorted) {
     foreach my $gene (@$genes) {
         my $gsi = $gene->stable_id;
         my $gid = $gene->dbID;
-        my $gene_name = $gene->display_xref->display_id;
+        
+        # catch missing display_xrefs here!!
+        my $disp_xref = $gene->display_xref;
+        my $gene_name;
+        if ($disp_xref) {
+            $gene_name = $disp_xref->display_id;
+        } else {
+            $support->log_warning("No display_xref found for gene $gid ($gsi).\n");
+            next;
+        }
+
         my $lc_gene_name = lc($gene_name);
 
         # filter to user-specified gene_stable_ids

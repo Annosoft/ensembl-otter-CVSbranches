@@ -83,6 +83,7 @@ my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
 
 # parse options
 $support->parse_common_options(@_);
+$support->allowed_params($support->get_common_params);
 
 if ($support->param('help') or $support->error) {
     warn $support->error if $support->error;

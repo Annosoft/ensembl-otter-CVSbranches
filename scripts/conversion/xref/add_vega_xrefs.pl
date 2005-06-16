@@ -83,6 +83,13 @@ $support->parse_extra_options(
     'gene_type=s',
     'start_gid=s',
 );
+$support->allowed_params(
+    $support->get_common_params,
+    'chromosomes',
+    'gene_stable_id',
+    'gene_type',
+    'start_gid',
+);
 
 if ($support->param('help') or $support->error) {
     warn $support->error if $support->error;
