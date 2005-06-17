@@ -108,8 +108,8 @@ sub init{
         warn "usage: ".__PACKAGE__."->init(Tk_Object, [SubRoutine_Ref, [Data_Array_Ref]]);\n"; 
         return;
     }
-    $self->requestWidget($tk);
-    $self->responseWidget($tk);
+
+    $self->widget($tk);
     $self->respond_handler($callback, $data);
 }
 
@@ -145,7 +145,7 @@ Just the window id of the request widget.
 sub server_window_id{
     my ($self) = @_;
     return undef unless $self->_is_server();
-    return $self->requestWidget->id();
+    return $self->widget->id();
 }
 
 =head2 xremote( )
@@ -210,56 +210,35 @@ sub response_name{
     return $self->{'_response_name'};
 }
 
-=head2 requestWidget( )
+=head2 widget( )
 
-Set/Get the request widget.
-
-=cut
-
-sub requestWidget{
-    my ($self, $tk) = @_;
-    my $label = $self->{'_requestWidget'};
-    if($tk && !$label){
-        my $aName = $self->request_name();
-        $label    = $tk->Label(
-                               -text => "${aName}Widget",
-                               )->pack(-side => 'left');
-        # This actually sets up the XREMOTE.
-        my $xr = $self->xremote($label->id());
-        $xr->request_name($aName);
-        $label->packForget();
-        $self->{'_requestWidget'} = $label;
-    }
-    return $label;
-}
-
-=head2 responseWidget( )
-
-Set/Get the response widget.
+Set/Get the widget.
 
 =cut
 
-sub responseWidget{
+sub widget{
     my ($self, $tk) = @_;
-    my $label = $self->{'_responseWidget'};
-    if($tk && !$label){
-        my $aName = $self->response_name();
-        $label    = $tk->Label(
-                               -text => "${aName}Widget"
-                               )->pack(-side => 'left');
-
-        my $xr = $self->xremote();
-        $xr->response_name($aName);
-
-        $label->packForget();
-        # in case callback data has circular properties.
-        $label->bind('<Destroy>', sub{ 
+    my $widget = $self->{'_widget'};
+    if($tk && !$widget){
+        my $qName = $self->request_name();
+        my $sName = $self->response_name();
+        # we create a new widget so our binding stay alive
+        # and our users bindings don't get trampled on.
+        $widget = $tk->Label(
+                             -text => "${qName}|${sName}|Widget",
+                             )->pack(-side => 'left');
+        $widget->bind('<Destroy>', sub {
             $self->{'_callback_data'} = undef; 
             $self = undef;
-        } );
-        $self->{'_responseWidget'} = $label;
+        });
+        $widget->packForget();
+        $self->{'_widget'} = $widget;
+
+        my $xr = $self->xremote($self->server_window_id());
+        $xr->request_name($self->request_name);
+        $xr->response_name($self->response_name);
     }
-    return $self->{'_responseWidget'};
+    return $widget;
 }
 
 =head2 respond_handler( )
@@ -273,7 +252,7 @@ sub respond_handler{
     $self->__callback($callback);
     $self->__callback_data($data);
     my $handler = \&ZMap::Connect::_do_callback;
-    if(my $widget = $self->requestWidget){
+    if(my $widget = $self->widget){
         $widget->Tk::bind('<Property>', [ $handler , $self ] );
     }else{
         warn "Suggested usage:\n" . 
@@ -287,13 +266,17 @@ sub respond_handler{
 # ======================================================== #
 sub _do_callback{
     my ($tk, $self) = @_;
+    my $id    = $tk->id();
     my $ev    = $tk->XEvent(); # Get the event
     my $state = ($ev->s ? $ev->s : 0); # assume zero (PropertyDelete I think)
     my $reqnm = $self->request_name(); # atom name of the request
-    return if $state == PropertyDelete;
+    if ($state == PropertyDelete){
+        warn "Event had state 'PropertyDelete', returning...\n" if $DEBUG_EVENTS;
+        return ;
+    }
     #====================================================================
     # DEBUG STUFF
-    warn "\n//========== _doing_callback ==========\n" if $DEBUG_CALLBACK;
+    warn "//========== _do_callback ========== window id: $id\n" if $DEBUG_CALLBACK;
     #$state == PropertyNewValue;
     if($DEBUG_EVENTS){
         foreach my $m('a'..'z','A'..'Z'){
