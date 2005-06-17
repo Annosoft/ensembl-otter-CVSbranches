@@ -5,6 +5,7 @@ use warnings;
 use Exporter;
 use X11::XRemote;
 use XML::Simple;
+use POSIX qw(WNOHANG);
 
 
 our @ISA    = qw(Exporter);
@@ -15,11 +16,15 @@ our @EXPORT_OK = qw(xclient_with_id
                     xclient_with_name
                     list_xclient_names
                     delete_xclient_with_id
-                    delete_xclient_with_name);
+                    delete_xclient_with_name
+                    flush_bad_windows
+                    fork_exec);
 our %EXPORT_TAGS = ('caching' => [@EXPORT_OK],
                     'all'     => [@EXPORT, @EXPORT_OK]
                     );
 our $WAIT_VARIABLE = 0;
+
+my $DEBUG_FORK_EXEC = 0;
 
 =pod
 
@@ -198,6 +203,63 @@ remove the xclient with specified name.
             $obj->ping || delete_xclient_with_id($id);
         }
     }
+}
+
+sub fork_exec{
+    my ($command, $children, $filenos, $cleanup) = @_;
+
+    my @command = (ref($command) eq 'ARRAY' ? @$command : ());
+    return unless @command;
+
+    $children ||= {};
+    $cleanup  = (ref($cleanup) eq 'CODE' ? $cleanup : sub {warn "child: cleaning up..."});
+
+    local *REAPER = sub {
+        my $child;
+        # If a second child dies while in the signal handler caused by the
+        # first death, we won't get another signal. So must loop here else
+        # we will leave the unreaped child as a zombie. And the next time
+        # two children die we get another zombie. And so on.
+        while (($child = waitpid(-1,WNOHANG)) > 0) {
+            $children->{$child}->{'CHILD_ERROR'} = "$?";
+            $children->{$child}->{'ERRNO'} = "$!";
+            $cleanup->();
+        }
+        $SIG{CHLD} = \&REAPER;  # still loathe sysV
+    };
+
+    $SIG{CHLD} = \&REAPER;
+
+    local $| = 1;
+
+    if(my $pid = fork){
+        warn "parent: fork() succeeded\n" if $DEBUG_FORK_EXEC;
+        $children->{$pid}->{'ARGV'} = "@command";
+    }elsif($pid == 0){
+        my $closeSTDIN  = ($filenos & 1);
+        my $closeSTDOUT = ($filenos & (fileno(STDOUT) << 1));
+        my $closeSTDERR = ($filenos & (fileno(STDERR) << 1));
+        if($DEBUG_FORK_EXEC){
+            warn "child: PID = '$$'\n";
+            warn "child: closing FILEHANDLES:" 
+                . join(", ",( $closeSTDIN?'STDIN':'')
+                       , ( $closeSTDOUT?'STDOUT':'')
+                       , ( $closeSTDERR?'STDERR':''))
+                . "\n";
+        }
+        close(STDIN)  if $closeSTDIN;
+        close(STDOUT) if $closeSTDOUT;
+        close(STDERR) if $closeSTDERR;
+        { exec $command[0], @command; }
+        # HAVE to use CORE::exit as tk redefines it!!!
+        warn "child: exec '@command' FAILED\n ** ERRNO $!\n ** CHILD_ERROR $?\n";
+        CORE::exit(); 
+        # circular and lexicals don't get cleaned up though
+        # As we're exiting I don't think we care though
+    }else{
+        return 0;
+    }
+    return 1;
 }
 
 
