@@ -221,8 +221,11 @@ sub fork_exec{
         # we will leave the unreaped child as a zombie. And the next time
         # two children die we get another zombie. And so on.
         while (($child = waitpid(-1,WNOHANG)) > 0) {
-            $children->{$child}->{'CHILD_ERROR'} = "$?";
-            $children->{$child}->{'ERRNO'} = "$!";
+            $children->{$child}->{'CHILD_ERROR'} = $?;
+            $children->{$child}->{'ERRNO'} = $!;
+            $children->{$child}->{'ERRNO_HASH'} = \%!;
+            $children->{$child}->{'EXTENDED_OS_ERROR'} = $^E;
+            $children->{$child}->{'ENV'} = \%ENV;
             $cleanup->();
         }
         $SIG{CHLD} = \&REAPER;  # still loathe sysV
