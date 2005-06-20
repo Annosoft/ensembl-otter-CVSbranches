@@ -1,6 +1,6 @@
 #!/usr/local/bin/perl5.8.0 -w
 
-package OtherOne;
+package Testing;
 
 use base 'CanvasWindow';
 use CanvasWindow::XRemoteExample;
@@ -14,21 +14,39 @@ sub new{
         $self = undef;
     };
     $self->canvas->toplevel->protocol('WM_DELETE_WINDOW',  $close_window);
-
+    $self->canvas->delete('all');
+    $self->canvas->createText(10,10,
+                              -text   => "First Window for testing XRemote\nClick open to begin...",
+                              -anchor => 'nw');
     # Create a Button Frame for the buttons, etc...
     my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
-    # Add an Entry widget for the window ID
+    # 
     my $open = $button_frame->Button(-text    => 'open',
                                      -command => sub { 
-                                         $self->{'_x'} ||= CanvasWindow::XRemoteExample->new($self->canvas->Toplevel(-title => "withdrawable"));
-                                         $self->{'_x'}->canvas->toplevel->deiconify;
-                                         $self->{'_x'}->canvas->toplevel->raise;
-                                         }
+                                         $self->open_withdraw_test();
+                                     }
                                      )->pack(-side => 'left');
+    # really close!
     my $close = $button_frame->Button(-text   => 'close',
                                      -command => $close_window
                                      )->pack(-side => 'right');
     return $self;
+}
+
+sub open_withdraw_test{
+    my ($self) = @_;
+    my $canvas = $self->canvas;
+    $canvas->Busy;
+    # need to keep hold of this as otterlace does in it's 
+    # interface to save time re-fetching data
+    unless($self->{'_x'} && eval{$self->{'_x'}->canvas->toplevel}){
+        my $top = $canvas->Toplevel(-title => "X11 XRemote Testing 2");
+        $self->{'_x'} = CanvasWindow::XRemoteExample->new($top);
+    }
+    # if it's already created, just deiconfiy & raise
+    $self->{'_x'}->canvas->toplevel->deiconify;
+    $self->{'_x'}->canvas->toplevel->raise;
+    $canvas->Unbusy;
 }
 
 package main;
@@ -39,8 +57,8 @@ use CanvasWindow::MainWindow;
 use CanvasWindow::XRemoteExample;
 
 my $mw = CanvasWindow::MainWindow->new('X11 XRemote Testing');
+my $tw = Testing->new($mw);
 #my $tw = CanvasWindow::XRemoteExample->new($mw);
-my $tw = OtherOne->new($mw);
-
+                                             
 Tk::MainLoop();
 
