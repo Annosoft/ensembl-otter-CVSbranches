@@ -214,7 +214,7 @@ sub fork_exec{
     $children ||= {};
     $cleanup  = (ref($cleanup) eq 'CODE' ? $cleanup : sub {warn "child: cleaning up..."});
 
-    local *REAPER = sub {
+    my $REAPER = sub {
         my $child;
         # If a second child dies while in the signal handler caused by the
         # first death, we won't get another signal. So must loop here else
@@ -226,14 +226,13 @@ sub fork_exec{
             $children->{$child}->{'ERRNO_HASH'} = \%!;
             $children->{$child}->{'EXTENDED_OS_ERROR'} = $^E;
             $children->{$child}->{'ENV'} = \%ENV;
-            $cleanup->();
+            $cleanup->($child);
         }
-        $SIG{CHLD} = \&REAPER;  # still loathe sysV
+        #$SIG{CHLD} = \&REAPER;          # THIS DOESN'T WORK
+        $SIG{CHLD} = \&{(caller(0))[3]}; # ODD BUT THIS DOES....still loathe sysV
     };
 
-    $SIG{CHLD} = \&REAPER;
-
-    local $| = 1;
+    $SIG{CHLD} = $REAPER;
 
     if(my $pid = fork){
         warn "parent: fork() succeeded\n" if $DEBUG_FORK_EXEC;
@@ -253,11 +252,12 @@ sub fork_exec{
         close(STDIN)  if $closeSTDIN;
         close(STDOUT) if $closeSTDOUT;
         close(STDERR) if $closeSTDERR;
-        { exec $command[0], @command; }
+        { exec @command; }
         # HAVE to use CORE::exit as tk redefines it!!!
         warn "child: exec '@command' FAILED\n ** ERRNO $!\n ** CHILD_ERROR $?\n";
         CORE::exit(); 
         # circular and lexicals don't get cleaned up though
+        # global destruction cleans them up for us...
         # As we're exiting I don't think we care though
     }else{
         return 0;
