@@ -227,14 +227,12 @@ sub widget{
         $widget = $tk->Label(
                              -text => "${qName}|${sName}|Widget",
                              )->pack(-side => 'left');
-        $widget->bind('<Destroy>', sub {
-            $self->{'_callback_data'} = undef; 
-            $self = undef;
-        });
         $widget->packForget();
         $self->{'_widget'} = $widget;
 
-        my $xr = $self->xremote($self->server_window_id());
+        my $id = $self->server_window_id();
+
+        my $xr = $self->xremote($id);
         $xr->request_name($self->request_name);
         $xr->response_name($self->response_name);
     }
@@ -251,9 +249,14 @@ sub respond_handler{
     my ($self, $callback, $data) = @_;
     $self->__callback($callback);
     $self->__callback_data($data);
-    my $handler = \&ZMap::Connect::_do_callback;
+    my $handler = \&_do_callback;
     if(my $widget = $self->widget){
-        $widget->Tk::bind('<Property>', [ $handler , $self ] );
+        $widget->bind('<Property>', [ $handler , $self ] );
+        $widget->bind('<Destroy>', sub {
+            $self->{'_xremote'}       = undef;
+            $self->{'_callback_data'} = undef; 
+            $self = undef;
+        });
     }else{
         warn "Suggested usage:\n" . 
             "my \$c = ".__PACKAGE__."->new([options]);\n" .
@@ -272,23 +275,22 @@ sub _do_callback{
     my $reqnm = $self->request_name(); # atom name of the request
     if ($state == PropertyDelete){
         warn "Event had state 'PropertyDelete', returning...\n" if $DEBUG_EVENTS;
-        return ;
+        return ; # Tk->break
     }
     #====================================================================
     # DEBUG STUFF
     warn "//========== _do_callback ========== window id: $id\n" if $DEBUG_CALLBACK;
-    #$state == PropertyNewValue;
     if($DEBUG_EVENTS){
-        foreach my $m('a'..'z','A'..'Z'){
+        foreach my $m('a'..'z','A'..'Z','#'){
             warn "Event on ".($self->_is_server ? "server" : "client").
-                " method '$m' - ". $ev->$m() . " \n" if $ev->$m();
+                " method '$m' - ". $ev->$m() . " " .sprintf("0x%lx", $ev->$m) . " \n" if $ev->$m();
         }
     }
     unless($ev->T eq 'PropertyNotify'){ warn "Odd Not a propertyNotify\n"; }
     unless($ev->d eq $reqnm){
         warn "Event was NOT for this ".($self->_is_server ? "server" : "client").
             "\n" if $DEBUG_CALLBACK;
-        return ;
+        return ; # Tk->break
     }
     my $req = $self->xremote->request_string();
     warn "Event has request string $req\n" if $DEBUG_CALLBACK;
