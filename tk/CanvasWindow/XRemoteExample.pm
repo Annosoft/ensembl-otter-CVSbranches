@@ -24,6 +24,7 @@ use ZMap::Connect qw(:all);
 use Tie::Watch;
 use Tk;
 use Tk::BrowseEntry;
+use Data::Dumper;
 
 my $WATCH_METHOD = 0;
 #=======================================================================
@@ -34,20 +35,25 @@ sub new{
     my $self = $pkg->SUPER::new(@args);
     # Some setup for the User Interface....
     my $close_window = sub{
-        $self->canvas->toplevel->destroy;
+        my $top = $self->canvas->toplevel;
+        $top->destroy;
+        reset_sigCHLD(); # don't need to catch anymore
         $self = undef;
     };
     $self->canvas->toplevel->protocol('WM_DELETE_WINDOW',  $close_window);
-
     # Create a Button Frame for the buttons, etc...
     my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
     # Add an Entry widget for the window ID
+
+
     my $kill = $button_frame->Button(-text => 'End Test',
                                      -command => sub {
                                          my $top = $self->canvas->toplevel;
                                          $top->withdraw;
                                      }
                                      )->pack(-side => 'left');
+
+
     my $idEntry = $button_frame->BrowseEntry(-label    => "Window ID:",
                                              -width    => 20,
                                              -variable => $self->entry_ref(),
@@ -58,9 +64,10 @@ sub new{
                                                  },
                                              )->pack(-side => 'left');
 
-    $self->canvas->Tk::bind('<Control-Button-1>', 
-                        sub {$self->make_request("newZmap seq = b0250 ; start = 1 ; end = 0")}) if !$WATCH_METHOD;
 
+    $self->canvas->Tk::bind('<Control-Button-1>', 
+                        sub {$self->make_request("newZmap seq = 1.141003345-141198932 ; start = 1 ; end = 0")}) if !$WATCH_METHOD;
+    $self->canvas->Tk::bind('<Destroy>', sub {$self = undef});
     # Setup some buttons to do things.
     my $open = 
         $button_frame->Button(-text       => 'open',
@@ -79,9 +86,12 @@ sub new{
                               })->pack(-side => 'right');
     my $startTalking = 
         $button_frame->Button(-text       => 'start ZMap',
-                              -command    => sub { 
+                              -command    => sub {
                                   $self->start_zmap();
-                              })->pack(-side => 'right');
+                              }
+                              )->pack(-side => 'right');
+    $startTalking->bind('<Destroy>', sub {$self = undef});
+
     # Create a new Object
     my $zmapConnector = ZMap::Connect->new(-server => 1);
     # Initialise it Args: Tk_Widget, callback, list ref of data for the callback.
@@ -90,7 +100,7 @@ sub new{
     $self->zmapConnectObj($zmapConnector);
 
     # just a message.
-    print join(" ", $zmapConnector->server_window_id(), $zmapConnector->request_name, $zmapConnector->response_name) . "\n" ;
+    print join(" ", $zmapConnector->server_window_id(), $zmapConnector->request_name, $zmapConnector->response_name, sprintf("0x%lx",$self->canvas->toplevel->wrapper)) . "\n" ;
 
     return $self;
 }
@@ -98,28 +108,40 @@ sub new{
 #=====================================================================
 # Button Functions
 #=====================================================================
+
 sub start_zmap{
-    my ($self) = @_;
-    return if xclient_with_name('main');
-    if(my $pid = fork()){
-        print "forked ok\n";
-        return;
-    }else{
-        my @exe = qw(zmap --win_id);
-        close STDERR if $^O eq 'linux';
-        exec(@exe, $self->zmapConnectObj()->server_window_id());
+    my ($self, @extra) = @_;
+
+    if(xclient_with_name('main')){
+        warn "zmap already started";
+        return 0;
     }
+    my $zmap    = 'zmap';
+    my $wid     = $self->zmapConnectObj()->server_window_id();
+    my @command = ($zmap, '--win_id', $wid, @extra);
+
+    warn "Looking to fork and exec cmd @command \n";
+
+    my $cb_wipe = sub {
+        warn "pid: @_\n";
+        flush_bad_windows();
+        $self->write_on_canvas( Dumper $self->{'_children'} );
+    };
+
+    fork_exec(\@command, \%{$self->{'_children'}}, 0, $cb_wipe) || warn "failed";
 }
+
 sub make_request{
     my ($self, @commands) = @_;
 
     my $xr = $self->current_xclient;
     unless($xr){
-        warn "No current window.";
+        $self->write_on_canvas("No current window.");
         return;
     }
 
     push(@commands, 'zoom_in') unless @commands;
+    warn "$self requesting @commands\n";
     my @a = $xr->send_commands(@commands);
     my $canvasMessage = "Sent commands\n";
     for(my $i = 0; $i < @commands; $i++){
@@ -216,8 +238,8 @@ sub watching_sub{
     my ($watch, $value) = @_;
     my ($self) = @{$watch->Args('-store')};
     my $xr     = xclient_with_name('main');
-    my @clones = qw(b0250);
-
+#    my @clones = qw(b0250);
+    my @clones = qw(1.141003345-141198932);
     $self->make_request("newZmap seq = @clones ; start = 1 ; end = 0");
 
     $watch->Unwatch;
