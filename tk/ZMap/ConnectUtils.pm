@@ -18,7 +18,8 @@ our @EXPORT_OK = qw(xclient_with_id
                     delete_xclient_with_id
                     delete_xclient_with_name
                     flush_bad_windows
-                    fork_exec);
+                    fork_exec
+                    reset_sigCHLD);
 our %EXPORT_TAGS = ('caching' => [@EXPORT_OK],
                     'all'     => [@EXPORT, @EXPORT_OK]
                     );
@@ -205,66 +206,83 @@ remove the xclient with specified name.
     }
 }
 
-sub fork_exec{
-    my ($command, $children, $filenos, $cleanup) = @_;
+{
+    # so we can continue to catch sigCHLD 
+    # and also provide this clean up to reset sigCHLD
+    my $REAPER_REF = undef;
 
-    my @command = (ref($command) eq 'ARRAY' ? @$command : ());
-    return unless @command;
-
-    $children ||= {};
-    $cleanup  = (ref($cleanup) eq 'CODE' ? $cleanup : sub {warn "child: cleaning up..."});
-
-    my $REAPER = sub {
-        my $child;
-        # If a second child dies while in the signal handler caused by the
-        # first death, we won't get another signal. So must loop here else
-        # we will leave the unreaped child as a zombie. And the next time
-        # two children die we get another zombie. And so on.
-        while (($child = waitpid(-1,WNOHANG)) > 0) {
-            $children->{$child}->{'CHILD_ERROR'} = $?;
-            $children->{$child}->{'ERRNO'} = $!;
-            $children->{$child}->{'ERRNO_HASH'} = \%!;
-            $children->{$child}->{'EXTENDED_OS_ERROR'} = $^E;
-            $children->{$child}->{'ENV'} = \%ENV;
-            $cleanup->($child);
+    sub reset_sigCHLD{
+        $$REAPER_REF = undef;
+        if ($SIG{CHLD}){
+            $SIG{CHLD} = 'DEFAULT';
         }
-        #$SIG{CHLD} = \&REAPER;          # THIS DOESN'T WORK
-        $SIG{CHLD} = \&{(caller(0))[3]}; # ODD BUT THIS DOES....still loathe sysV
-    };
-
-    $SIG{CHLD} = $REAPER;
-
-    if(my $pid = fork){
-        warn "parent: fork() succeeded\n" if $DEBUG_FORK_EXEC;
-        $children->{$pid}->{'ARGV'} = "@command";
-    }elsif($pid == 0){
-        my $closeSTDIN  = ($filenos & 1);
-        my $closeSTDOUT = ($filenos & (fileno(STDOUT) << 1));
-        my $closeSTDERR = ($filenos & (fileno(STDERR) << 1));
-        if($DEBUG_FORK_EXEC){
-            warn "child: PID = '$$'\n";
-            warn "child: closing FILEHANDLES:" 
-                . join(", ",( $closeSTDIN?'STDIN':'')
-                       , ( $closeSTDOUT?'STDOUT':'')
-                       , ( $closeSTDERR?'STDERR':''))
-                . "\n";
-        }
-        close(STDIN)  if $closeSTDIN;
-        close(STDOUT) if $closeSTDOUT;
-        close(STDERR) if $closeSTDERR;
-        { exec @command; }
-        # HAVE to use CORE::exit as tk redefines it!!!
-        warn "child: exec '@command' FAILED\n ** ERRNO $!\n ** CHILD_ERROR $?\n";
-        CORE::exit(); 
-        # circular and lexicals don't get cleaned up though
-        # global destruction cleans them up for us...
-        # As we're exiting I don't think we care though
-    }else{
-        return 0;
     }
-    return 1;
-}
 
+    sub fork_exec{
+        my ($command, $children, $filenos, $cleanup) = @_;
+
+        my @command = (ref($command) eq 'ARRAY' ? @$command : ());
+        return unless @command;
+
+        $children ||= {};
+        $cleanup  = (ref($cleanup) eq 'CODE' ? $cleanup : sub {warn "child: cleaning up..." if $DEBUG_FORK_EXEC});
+
+        my $REAPER = sub {
+            my ($child, $continue) = (0,1);
+            # If a second child dies while in the signal handler caused by the
+            # first death, we won't get another signal. So must loop here else
+            # we will leave the unreaped child as a zombie. And the next time
+            # two children die we get another zombie. And so on.
+            while (($child = waitpid(-1,WNOHANG)) > 0) {
+                $children->{$child}->{'CHILD_ERROR'} = $?;
+                $children->{$child}->{'ERRNO'} = $!;
+                $children->{$child}->{'ERRNO_HASH'} = \%!;
+                $children->{$child}->{'EXTENDED_OS_ERROR'} = $^E;
+                $children->{$child}->{'ENV'} = \%ENV;
+                eval { $cleanup->($child) };
+                if ($@){ 
+                    warn "$cleanup->($child) Error, will reset SIGCHLD: $@"; 
+                    $continue = 0; 
+                }
+            }
+            #$SIG{CHLD} = \&REAPER;    # THIS DOESN'T WORK
+            $SIG{CHLD} = $$REAPER_REF; # ODD BUT THIS DOES....still loathe sysV
+            reset_sigCHLD() unless $continue;
+        };
+        $REAPER_REF = \$REAPER;
+        $SIG{CHLD} = $REAPER;
+        
+        if(my $pid = fork){
+            warn "parent: fork() succeeded\n" if $DEBUG_FORK_EXEC;
+            $children->{$pid}->{'ARGV'} = "@command";
+        }elsif($pid == 0){
+            my $closeSTDIN  = ($filenos & 1);
+            my $closeSTDOUT = ($filenos & (fileno(STDOUT) << 1));
+            my $closeSTDERR = ($filenos & (fileno(STDERR) << 1));
+            if($DEBUG_FORK_EXEC){
+                warn "child: PID = '$$'\n";
+                warn "child: closing FILEHANDLES:" 
+                    . join(", ",( $closeSTDIN?'STDIN':'')
+                           , ( $closeSTDOUT?'STDOUT':'')
+                           , ( $closeSTDERR?'STDERR':''))
+                    . "\n";
+            }
+            close(STDIN)  if $closeSTDIN;
+            close(STDOUT) if $closeSTDOUT;
+            close(STDERR) if $closeSTDERR;
+            { exec @command; }
+            # HAVE to use CORE::exit as tk redefines it!!!
+            warn "child: exec '@command' FAILED\n ** ERRNO $!\n ** CHILD_ERROR $?\n";
+            CORE::exit(); 
+            # circular and lexicals don't get cleaned up though
+            # global destruction cleans them up for us...
+            # As we're exiting I don't think we care though
+        }else{
+            return 0;
+        }
+        return 1;
+    }
+}
 
 1;
 __END__
