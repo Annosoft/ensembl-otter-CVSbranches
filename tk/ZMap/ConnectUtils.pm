@@ -251,8 +251,8 @@ remove the xclient with specified name.
         };
         $REAPER_REF = \$REAPER;
         $SIG{CHLD} = $REAPER;
-        
-        if(my $pid = fork){
+        my $pid;
+        if($pid = fork){
             warn "parent: fork() succeeded\n" if $DEBUG_FORK_EXEC;
             $children->{$pid}->{'ARGV'} = "@command";
         }elsif($pid == 0){
@@ -278,9 +278,9 @@ remove the xclient with specified name.
             # global destruction cleans them up for us...
             # As we're exiting I don't think we care though
         }else{
-            return 0;
+            return undef;
         }
-        return 1;
+        return $pid;
     }
 }
 
