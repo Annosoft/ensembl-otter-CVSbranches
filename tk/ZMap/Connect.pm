@@ -171,6 +171,54 @@ sub xremote{
 }
 
 
+
+=head1 ERROR
+
+ Currently just the one to help the user with consistency.
+
+=head2 basic_error($message)
+
+Some xml which should be used in callback for error messages.
+
+ sub cb {
+   ...
+   # On error
+   my $errno = 404;
+   my $xml = $Connect->basic_error("Unknown Command"); 
+   ...
+   return ($errno, $xml);
+ }
+
+=cut
+
+sub basic_error{
+    my ($self, $message) = @_;
+    $message ||=  (caller(1))[3] . " was lazy";
+    return sprintf(
+                   "<error>\n" .
+                   "\t<name>%s</name>\n" .
+                   "\t<windowid>%s</windowid>\n" .
+                   "\t<application>%s</application>\n" .
+                   "\t<message>%s</message>\n" .
+                   "\t<request>%s</request>\n" .
+                   "\t<version>%s</version>\n" .
+                   # fairly sure these two _ARE_NOT_ required
+                   # but I'll leave them here for the time being
+                   "\t<requestatom>%s</requestatom>\n" .
+                   "\t<responseatom>%s</responseatom>\n" .
+                   "</error>\n",
+                   __PACKAGE__,
+                   $self->server_window_id,
+                   $self->xremote->application,
+                   xml_escape($message),
+                   xml_escape($self->_current_request_string),
+                   $self->xremote->version,
+                   $self->request_name,
+                   $self->response_name
+                   );
+}
+
+
 =head1 SETUP METHODS
 
 It is  recommended that these methods  are not used  directly to setup
@@ -263,7 +311,8 @@ sub respond_handler{
             "\$c->init(\$tk, \$callback, \$callback_data);\n";
     }
 }
-
+{
+    my $REQUEST_STRING = undef;#
 # ======================================================== #
 #                      INTERNALS                           #
 # ======================================================== #
@@ -292,26 +341,34 @@ sub _do_callback{
             "\n" if $DEBUG_CALLBACK;
         return ; # Tk->break
     }
-    my $req = $self->xremote->request_string();
-    warn "Event has request string $req\n" if $DEBUG_CALLBACK;
+    $REQUEST_STRING = $self->xremote->request_string();
+    warn "Event has request string $REQUEST_STRING\n" if $DEBUG_CALLBACK;
     #=========================================================
     my $cb = $self->__callback();
     my @data = @{$self->__callback_data};
     my $reply;
     my $fstr  = $self->xremote->format_string;
+    my $intSE = $self->basic_error("Internal Server Error");
     eval{ 
         X11::XRemote::block(); # this gets automatically unblocked for us, besides we have no way to do that!
-        my ($status,$str) = $cb->($self, $req, @data);
-        $reply = sprintf($fstr, $status, sprintf("<xml>%s</xml>", $str||"<simplemessage>*** callback should return (status, message) ***</simplemessage>"));
+        my ($status,$xmlstr) = $cb->($self, $REQUEST_STRING, @data);
+        $status ||= 500; # If callback returns undef...
+        $xmlstr ||= $intSE;
+        $reply = sprintf($fstr, $status, sprintf("<xml>%s</xml>", $xmlstr));
     };
     if($@){
-        $reply ||= sprintf($fstr, 500, "<xml><simplemessage>Internal Server Error $@</simplemessage></xml>");
+        # $@ needs xml escaping!
+        $reply ||= sprintf($fstr, 500, sprintf("<xml>%s</xml>", $self->basic_error("Internal Server Error $@")));
     }
-    $reply ||= sprintf($fstr, 500, "<xml><simplemessage>Internal Server Error</simplemessage></xml>");
+    $reply ||= sprintf($fstr, 500, sprintf("<xml>%s</xml>", $intSE));
+    $REQUEST_STRING = undef;
     $self->xremote->send_reply($reply);
     $WAIT_VARIABLE++;
 }
-
+sub _current_request_string{
+    return $REQUEST_STRING;
+}
+}
 sub __callback_data{
     my($self, $dataRef) = @_;
     $self->{'_callback_data'} = $dataRef if ($dataRef && ref($dataRef) eq 'ARRAY');
