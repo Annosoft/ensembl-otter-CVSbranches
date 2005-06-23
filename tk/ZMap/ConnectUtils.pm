@@ -5,7 +5,7 @@ use warnings;
 use Exporter;
 use X11::XRemote;
 use XML::Simple;
-use POSIX qw(WNOHANG);
+use POSIX qw(:signal_h :sys_wait_h);
 
 
 our @ISA    = qw(Exporter);
@@ -19,7 +19,8 @@ our @EXPORT_OK = qw(xclient_with_id
                     delete_xclient_with_name
                     flush_bad_windows
                     fork_exec
-                    reset_sigCHLD);
+                    reset_sigCHLD
+                    xml_escape);
 our %EXPORT_TAGS = ('caching' => [@EXPORT_OK],
                     'all'     => [@EXPORT, @EXPORT_OK]
                     );
@@ -91,6 +92,12 @@ sub parse_response{
     return wantarray ? ($status, $hash) : $hash;
 }
 
+sub xml_escape{
+    my $data    = shift;
+    my $parser  = XML::Simple->new(NumericEscape => 1);
+    my $escaped = $parser->escape_value($data);
+    return $escaped;
+}
 
 {
     # functions to cache clients
@@ -236,10 +243,10 @@ remove the xclient with specified name.
             while (($child = waitpid(-1,WNOHANG)) > 0) {
                 $children->{$child}->{'CHILD_ERROR'} = $?;
                 $children->{$child}->{'ERRNO'} = $!;
-                $children->{$child}->{'ERRNO_HASH'} = \%!;
+                #$children->{$child}->{'ERRNO_HASH'} = \%!;
                 $children->{$child}->{'EXTENDED_OS_ERROR'} = $^E;
-                $children->{$child}->{'ENV'} = \%ENV;
-                eval { $cleanup->($child) };
+                #$children->{$child}->{'ENV'} = \%ENV;
+                eval { $cleanup->($children) } if WIFEXITED($?);
                 if ($@){ 
                     warn "$cleanup->($child) Error, will reset SIGCHLD: $@"; 
                     $continue = 0; 
@@ -255,6 +262,7 @@ remove the xclient with specified name.
         if($pid = fork){
             warn "parent: fork() succeeded\n" if $DEBUG_FORK_EXEC;
             $children->{$pid}->{'ARGV'} = "@command";
+            $children->{$pid}->{'PID'}  = $pid;
         }elsif($pid == 0){
             my $closeSTDIN  = ($filenos & 1);
             my $closeSTDOUT = ($filenos & (fileno(STDOUT) << 1));
