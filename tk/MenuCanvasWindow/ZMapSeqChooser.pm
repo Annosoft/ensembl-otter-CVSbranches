@@ -55,7 +55,7 @@ sub launch {
             my $z = $self->insert_zmap_connector();
             $self->write_dot_zmap();
 
-            my @e = ('zmapq', 
+            my @e = ('zmap', 
                      '--conf_dir' => $self->zmap_dir,
                      '--win_id'   => $z->server_window_id);
 
