@@ -6,27 +6,29 @@ accession_to_support.pl - script to add supporting evidence to a Vega database
 
 =head1 SYNOPSIS
 
-    accession_to_support.pl [options]
+accession_to_support.pl [options]
 
-    General options:
-        --dbname, db_name=NAME              use database NAME
-        --host, --dbhost, --db_host=HOST    use database host HOST
-        --port, --dbport, --db_port=PORT    use database port PORT
-        --user, --dbuser, --db_user=USER    use database username USER
-        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
-        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
-        --conffile, --conf=FILE             read parameters from FILE
-        --logfile, --log=FILE               log to FILE (default: *STDOUT)
-        -v, --verbose                       verbose logging
-        -i, --interactive                   run script interactively
-                                            (default: true)
-        -n, --dry_run, --dry                don't write results to database
-        -h, --help, -?                      print help (this message)
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
 
-    Specific options:
-        --chromosomes, --chr=LIST           only process LIST chromosomes
-        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
-                                            (or read list from FILE)
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
+
+Specific options:
+    --chromosomes, --chr=LIST           only process LIST chromosomes
+    --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                        (or read list from FILE)
 
 =head1 DESCRIPTION
 
@@ -114,8 +116,7 @@ $support->list_or_file('gene_stable_id');
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-$support->log_filehandle('>>');
-$support->log($support->init_log);
+$support->init_log;
 
 # connect to database and get adaptors (caching features on one slice only)
 my $dba = $support->get_database('otter');
@@ -276,6 +277,5 @@ foreach my $chr (@chr_sorted) {
 }
 
 # finish log
-$support->log($support->finish_log);
-
+$support->finish_log;
 

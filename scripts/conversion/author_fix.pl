@@ -6,21 +6,24 @@ author_fix.pl - sets the right author for genes/transcripts
 
 =head1 SYNOPSIS
 
-    author_fix.pl [options]
+author_fix.pl [options]
 
-    General options:
-        --dbname, db_name=NAME              use database NAME
-        --host, --dbhost, --db_host=HOST    use database host HOST
-        --port, --dbport, --db_port=PORT    use database port PORT
-        --user, --dbuser, --db_user=USER    use database username USER
-        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
-        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
-        --conffile, --conf=FILE             read parameters from FILE
-        --logfile, --log=FILE               log to FILE (default: *STDOUT)
-        -i, --interactive                   run script interactively
-                                            (default: true)
-        -n, --dry_run, --dry                don't write results to database
-        -h, --help, -?                      print help (this message)
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
+
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
 
 =head1 DESCRIPTION
 
@@ -82,8 +85,7 @@ if ($support->param('help') or $support->error) {
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-$support->log_filehandle('>>');
-$support->log($support->init_log);
+$support->init_log;
 
 # connect to database and get adaptors
 my $dba = $support->get_database('otter');
@@ -134,7 +136,8 @@ print "\n";
 exit unless $support->user_proceed("Continue?");
 
 if ($support->param('dry_run')) {
-    $support->log("There is nothing else to do for dry_run. Aborting.\n");
+    $support->log("There is nothing else to do for dry_run.\n");
+    $support->finish_log;
     exit(0);
 }
 
@@ -224,5 +227,5 @@ $dbh->do('DROP TABLE IF EXISTS chr_transcript_info_temp');
 $support->log("Done.\n");
 
 # finish logfile
-$support->log($support->finish_log);
+$support->finish_log;
 

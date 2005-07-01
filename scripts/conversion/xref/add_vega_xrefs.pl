@@ -6,31 +6,34 @@ add_vega_xrefs.pl - add xrefs to display gene, transcript and translation names
 
 =head1 SYNOPSIS
 
-    add_vega_xrefs.pl [options]
+add_vega_xrefs.pl [options]
 
-    General options:
-        --dbname, db_name=NAME              use database NAME
-        --host, --dbhost, --db_host=HOST    use database host HOST
-        --port, --dbport, --db_port=PORT    use database port PORT
-        --user, --dbuser, --db_user=USER    use database username USER
-        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
-        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
-        --conffile, --conf=FILE             read parameters from FILE
-        --logfile, --log=FILE               log to FILE (default: *STDOUT)
-        -i, --interactive                   run script interactively
-                                            (default: true)
-        -n, --dry_run, --dry                don't write results to database
-        -h, --help, -?                      print help (this message)
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
 
-    Specific options:
-        --chromosomes, --chr=LIST           only process LIST chromosomes
-        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
-                                            (or read list from FILE)
-        --gene_type=TYPE                    only process genes of type TYPE
-        --start_gid=NUM                     start at gene with gene_id NUM
-        --prune                             delete all xrefs and
-                                            gene.display_xref_ids before
-                                            running the script
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
+
+Specific options:
+    --chromosomes, --chr=LIST           only process LIST chromosomes
+    --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                        (or read list from FILE)
+    --gene_type=TYPE                    only process genes of type TYPE
+    --start_gid=NUM                     start at gene with gene_id NUM
+    --prune                             delete all xrefs and
+                                        gene.display_xref_ids before
+                                        running the script
 
 =head1 DESCRIPTION
 
@@ -82,6 +85,7 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'gene_type=s',
     'start_gid=s',
+    'prune',
 );
 $support->allowed_params(
     $support->get_common_params,
@@ -89,6 +93,7 @@ $support->allowed_params(
     'gene_stable_id',
     'gene_type',
     'start_gid',
+    'prune',
 );
 
 if ($support->param('help') or $support->error) {
@@ -103,8 +108,7 @@ $support->list_or_file('gene_stable_id');
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-$support->log_filehandle('>>');
-$support->log($support->init_log);
+$support->init_log;
 
 # connect to database and get adaptors (caching features on one slice only)
 my $dba = $support->get_database('otter');
@@ -257,6 +261,5 @@ foreach my $chr (@chr_sorted) {
 }
 
 # finish log
-$support->log($support->finish_log);
-
+$support->finish_log;
 
