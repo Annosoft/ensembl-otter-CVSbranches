@@ -194,30 +194,40 @@ Some xml which should be used in callback for error messages.
 sub basic_error{
     my ($self, $message) = @_;
     $message ||=  (caller(1))[3] . " was lazy";
-    return sprintf(
-                   "<error>\n" .
-                   "\t<name>%s</name>\n" .
-                   "\t<windowid>%s</windowid>\n" .
-                   "\t<application>%s</application>\n" .
-                   "\t<message>%s</message>\n" .
-                   "\t<request>%s</request>\n" .
-                   "\t<version>%s</version>\n" .
-                   # fairly sure these two _ARE_NOT_ required
-                   # but I'll leave them here for the time being
-                   "\t<requestatom>%s</requestatom>\n" .
-                   "\t<responseatom>%s</responseatom>\n" .
-                   "</error>\n",
-                   __PACKAGE__,
-                   $self->server_window_id,
-                   $self->xremote->application,
-                   xml_escape($message),
-                   xml_escape($self->_current_request_string),
-                   $self->xremote->version,
-                   $self->request_name,
-                   $self->response_name
-                   );
+    my $hash   = { 
+        error => {
+            message => [ $message ],
+        }
+    }; 
+    $self->protocol_add_request($hash);
+    $self->protocol_add_meta($hash);
+    return make_xml($hash);
 }
 
+sub protocol_add_request{
+    my $self = shift;
+    $_[0] = {
+        %{$_[0]}, 
+        (
+            'request' => [ xml_escape($self->_current_request_string) ],
+        )
+    };
+}
+
+sub protocol_add_meta{
+    my $self = shift;
+    $_[0] = {
+        %{$_[0]},
+        (
+            meta => {
+                display     => $ENV{DISPLAY},
+                windowid    => $self->server_window_id,
+                application => $self->xremote->application,
+                version     => $self->xremote->version,
+            }
+        )
+    };
+}
 
 =head1 SETUP METHODS
 
@@ -354,14 +364,15 @@ sub _do_callback{
         my ($status,$xmlstr) = $cb->($self, $REQUEST_STRING, @data);
         $status ||= 500; # If callback returns undef...
         $xmlstr ||= $intSE;
-        $reply = sprintf($fstr, $status, sprintf("<xml>%s</xml>", $xmlstr));
+        $reply = sprintf($fstr, $status, $xmlstr);
     };
     if($@){
         # $@ needs xml escaping!
-        $reply ||= sprintf($fstr, 500, sprintf("<xml>%s</xml>", $self->basic_error("Internal Server Error $@")));
+        $reply ||= sprintf($fstr, 500, $self->basic_error("Internal Server Error $@"));
     }
-    $reply ||= sprintf($fstr, 500, sprintf("<xml>%s</xml>", $intSE));
+    $reply ||= sprintf($fstr, 500, $intSE);
     $REQUEST_STRING = undef;
+    warn "Connect $reply\n" if $DEBUG_CALLBACK;
     $self->xremote->send_reply($reply);
     $WAIT_VARIABLE++;
 }
