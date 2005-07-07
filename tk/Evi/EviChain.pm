@@ -85,6 +85,18 @@ sub prefixed_name {
 	return $db2prefix{$self->db_name()}.$self->name();
 }
 
+my %db2unit = (
+    EMBL        => 1,
+    Swissprot   => 3,
+    TrEMBL      => 3,
+);
+
+sub unit {
+    my $self = shift @_;
+
+    return $db2unit{$self->db_name()};
+}
+
 sub analysis {
 	my $self = shift @_;
 
@@ -117,10 +129,16 @@ sub end { # in slice coordinates
 	return $self->get_last_exon()->end();
 }
 
-sub strand {
+sub hstrand {
 	my $self = shift @_;
 
 	return $self->get_first_exon()->hstrand();
+}
+
+sub strand {
+	my $self = shift @_;
+
+	return $self->get_first_exon()->strand();
 }
 
 sub min_percent_id {	# cached, not to be set
@@ -148,7 +166,7 @@ sub match_lengths { # returns (upstream_unmatched,matched,downstream_unmatched,e
 	my $eviseq_len = $self->eviseq_length();
 
 	my ($ups_len,$dns_len);
-	if($self->strand() == 1) {
+	if($self->hstrand() == 1) {
 		$ups_len = $self->get_first_exon()->hstart() - 1;
 		$dns_len = $eviseq_len - $self->get_last_exon()->hend();
 	} else {
@@ -322,18 +340,21 @@ sub _af2string {	# not-a-method:
 	my $percent_id  = $af->percent_id();
 
 	return ($hstrand == 1)
-		? "[$hstart-$hend] ($start ==> $end) $percent_id"
-		: "[$hend-$hstart] ($start <== $end) $percent_id"
+		? "[$hstart-$hend]/".($hend-$hstart+1)." ($start ==> $end)/".($end-$start+1)." ${percent_id}%"
+		: "[$hend-$hstart]/".($hstart-$hend+1)." ($start <== $end)/".($start-$end+1)." ${percent_id}%"
 }
 
 sub toString {	# multistring text, actually
 	my $self = shift @_;
-	my $transcript = shift @_;
+	my $transcript = shift @_ || 0;
 
 	return '['.$self->eviseq_length().'] '
 		.$self->prefixed_name().':'
-		.'  supp_introns='.$self->trans_supported_introns($transcript)
-		.'  supp_junctions='.$self->trans_supported_junctions($transcript)
+		. ($transcript
+			? (' supp_introns='.$self->trans_supported_introns($transcript)
+			  .' supp_junctions='.$self->trans_supported_junctions($transcript)
+			)
+			: '')
 		.'  eviseq_coverage='.$self->eviseq_coverage()
 		.'  min_percent_id='.$self->min_percent_id()
 		."\n"

@@ -2,7 +2,7 @@ package Tk::OrderedSelectionFrame;
 
 # A Frame to perform ordered selection
 #
-# lg4, 18.Jan'2004
+# lg4
 
 use Tk;
 
@@ -89,7 +89,7 @@ sub Populate {
 		->pack('-side' => 'right', '-fill' => 'both', '-expand' => 1);
 	$self->{_remaining_lab} = $self->{_right_fr}->Label('-text' => 'Remaining:')
 		->pack('-side' => 'top');
-	$self->{_remaining_lb}  = $self->{_right_fr}->Listbox('-selectmode' => 'multiple')
+	$self->{_remaining_lb}  = $self->{_right_fr}->Listbox('-selectmode' => 'browse') # was => 'multiple'
 		->pack('-side' => 'bottom', '-fill' => 'both', '-expand' => 1);
 
 	tie @{$self->{active_aref}}, "Tk::Listbox", $self->{_active_lb};
@@ -200,6 +200,14 @@ sub set_active_entries { # entries are passed inside and copied into the tied ar
 	my $self = shift @_;
 
 	@{$self->{active_aref}} = @_; # NB: the tied reference must stay the same
+}
+
+sub release { # the Black Spot
+        my $self = shift @_;
+                                                                                                            
+        for my $k (keys %$self) {
+                delete $self->{$k};
+        }
 }
 
 1;

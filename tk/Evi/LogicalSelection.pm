@@ -25,8 +25,8 @@ sub _addentry {
 	}
 
 	$self->{_data}{$name} = {
-		'entry'		=> $entry,
-		'visible'	=> 0,	# invisible by default
+		'_entry'	=> $entry,
+		'_visible'	=> {},	# invisible by default
 	};
 }
 
@@ -56,37 +56,63 @@ sub is_selected {
 	return exists($self->{_data}{$name});
 }
 
-sub select {
+sub select_byname {
 	my ($self, $name) = @_;
 
 	if(not $self->is_selected($name)) {
 		$self->_addentry($name);
 	}
+    $self->{_data}{$name}{_visible} = {}; # force invisibility by default
 }
 
-sub deselect {
+sub deselect_byname {
 	my ($self, $name) = @_;
 
 	delete $self->{_data}{$name};
 }
 
-sub get_list {
+sub get_namelist {
 	my $self = shift @_;
 
 	return [ keys %{ $self->{_data}} ];
 }
 
+sub get_visible_indices_by_name {
+	my ($self, $name) = @_;
+
+	if($self->is_selected($name)) {
+        return [keys %{$self->{_data}{$name}{_visible}}];
+    } else {
+        return [];
+    }
+}
+
+sub get_all_visible_indices {
+	my $self = shift @_;
+
+    my @indices = ();
+
+    for my $name (@{$self->get_namelist()}) {
+        push @indices, @{$self->get_visible_indices_by_name($name)};
+    }
+    return \@indices;
+}
+
 sub is_visible {
 	my ($self, $name) = @_;
 
-	return $self->is_selected($name) && $self->{_data}{$name}{visible};
+    return scalar(@{$self->get_visible_indices_by_name($name)});
 }
 
 sub set_visibility {
-	my ($self, $name, $visibility) = @_;
+	my ($self, $name, $visibility, $screendex) = @_;
 
 	if($self->is_selected($name)) {
-		$self->{_data}{$name}{visible} = $visibility || 0;
+        if($visibility) {
+            $self->{_data}{$name}{_visible}{$screendex} = 1;
+        } elsif(exists($self->{_data}{$name}{_visible}{$screendex})) {
+            delete $self->{_data}{$name}{_visible}{$screendex};
+        }
 	} else {
 		warn "cannot make visible/invisible something that is not selected";
 	}
@@ -98,34 +124,20 @@ sub any_changes_in_selection {
 	my $old_selection = join(',', sort map { strip_colonprefix($_->name()); }
 									@{ $self->{_transcript}->transcript_info()->get_all_Evidence() });
 
-	my $curr_selection = join(',', sort @{$self->get_list()} );
+	my $curr_selection = join(',', sort @{$self->get_namelist()} );
 
 	return $old_selection ne $curr_selection;
 }
 
-sub save_to_transcript {
+sub save_to_transcript { # no check here, just force it
 	my $self = shift @_;
 
-	if( $self->any_changes_in_selection() ) {
-		$self->{_transcript}->transcript_info()->flush_Evidence();
+	$self->{_transcript}->transcript_info()->flush_Evidence();
 
-		# for my $eviname (keys %{$self->{_data}}) {
-		#	print "\t".$self->{_data}{$eviname}{entry}->name();
-		#	print "\t".$self->{_data}{$eviname}{visible}."\n";
-		# }
-        
-		$self->{_transcript}->transcript_info()->add_Evidence(
-			map { $self->{_data}{$_}{entry}; }
-					(keys %{ $self->{_data}})
-		);
-
-        # use Data::Dumper;
-        # print STDERR Dumper($self->{_transcript}->transcript_info);
-
-		return 1;
-	} else { # nothing to be done
-		return 0;
-	}
+	$self->{_transcript}->transcript_info()->add_Evidence(
+		map { $self->{_data}{$_}{_entry}; }
+				(keys %{ $self->{_data}})
+	);
 }
 
 1;
