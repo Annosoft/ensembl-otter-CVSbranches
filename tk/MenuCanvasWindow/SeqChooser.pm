@@ -8,7 +8,7 @@ use Tk::Dialog;
 
 use Hum::Ace::SubSeq;
 use Hum::Ace::Locus;
-use Hum::Ace::GeneMethod;
+use Hum::Ace::Method;
 use Hum::Ace::DotterLauncher;
 use Hum::Ace;
 use Hum::Analysis::Factory::ExonLocator;
