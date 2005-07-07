@@ -6,7 +6,7 @@ package Tk::ComboBox;
 use strict;
 
 use vars qw($VERSION);
-$VERSION = '0.1'; # $Id: ComboBox.pm,v 1.4.2.1 2005-07-07 10:10:59 rds Exp $
+$VERSION = '0.1';
 
 use Tk qw(Ev);
 use Carp;
