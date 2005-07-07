@@ -4,6 +4,7 @@ package Testing;
 
 use base 'CanvasWindow';
 use CanvasWindow::XRemoteExample;
+use CanvasWindow::XRemoteExample2;
 
 sub new{
     my ($pkg, @args) = @_;
@@ -16,14 +17,19 @@ sub new{
     $self->canvas->toplevel->protocol('WM_DELETE_WINDOW',  $close_window);
     $self->canvas->delete('all');
     $self->canvas->createText(10,10,
-                              -text   => "First Window for testing XRemote\nClick open to begin...",
+                              -text   => "First Window for testing XRemote\nClick open N to begin...",
                               -anchor => 'nw');
     # Create a Button Frame for the buttons, etc...
     my $button_frame = $self->canvas->toplevel->Frame->pack(-side => 'top', -fill => 'x');
     # 
-    my $open = $button_frame->Button(-text    => 'open',
+    my $open = $button_frame->Button(-text    => 'open 1',
                                      -command => sub { 
                                          $self->open_withdraw_test();
+                                     }
+                                     )->pack(-side => 'left');
+    my $open2 = $button_frame->Button(-text    => 'open 2',
+                                     -command => sub { 
+                                         $self->open_not_so_simple();
                                      }
                                      )->pack(-side => 'left');
     # really close!
@@ -39,26 +45,43 @@ sub open_withdraw_test{
     $canvas->Busy;
     # need to keep hold of this as otterlace does in it's 
     # interface to save time re-fetching data
-    unless($self->{'_x'} && eval{$self->{'_x'}->canvas->toplevel}){
-        my $top = $canvas->Toplevel(-title => "X11 XRemote Testing 2");
-        $self->{'_x'} = CanvasWindow::XRemoteExample->new($top);
+    unless($self->{'_x1'} && eval{$self->{'_x1'}->canvas->toplevel}){
+        my $top = $canvas->Toplevel(-title => "X11 XRemote Testing 1");
+        $self->{'_x1'} = undef;
+        $self->{'_x1'} = CanvasWindow::XRemoteExample->new($top);
     }
     # if it's already created, just deiconfiy & raise
-    $self->{'_x'}->canvas->toplevel->deiconify;
-    $self->{'_x'}->canvas->toplevel->raise;
+    $self->{'_x1'}->canvas->toplevel->deiconify;
+    $self->{'_x1'}->canvas->toplevel->raise;
     $canvas->Unbusy;
 }
+sub open_not_so_simple{
+    my ($self) = @_;
+    my $canvas = $self->canvas;
+    $canvas->Busy;
+    # need to keep hold of this as otterlace does in it's 
+    # interface to save time re-fetching data
+    unless($self->{'_x2'} && eval{$self->{'_x2'}->canvas->toplevel}){
+        my $top = $canvas->Toplevel(-title => "X11 XRemote Testing 2");
+        $self->{'_x2'} = undef;
+        $self->{'_x2'} = CanvasWindow::XRemoteExample2->new($top);
+    }
+    # if it's already created, just deiconfiy & raise
+    $self->{'_x2'}->canvas->toplevel->deiconify;
+    $self->{'_x2'}->canvas->toplevel->raise;
+    $canvas->Unbusy;
 
+}
 package main;
 
 use strict;
 use warnings;
 use CanvasWindow::MainWindow;
-use CanvasWindow::XRemoteExample;
+use CanvasWindow::XRemoteExample3;
 
 my $mw = CanvasWindow::MainWindow->new('X11 XRemote Testing');
-my $tw = Testing->new($mw);
-#my $tw = CanvasWindow::XRemoteExample->new($mw);
+#my $tw = Testing->new($mw);
+my $tw = CanvasWindow::XRemoteExample3->new($mw);
                                              
 Tk::MainLoop();
 

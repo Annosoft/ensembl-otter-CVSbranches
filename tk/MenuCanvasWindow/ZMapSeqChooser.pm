@@ -269,7 +269,6 @@ sub RECEIVE_FILTER{
             last;
         }
     }
-#    warn  ($_status, ":",$_response) ;
     return ($_status, $_response) ;
 }
 
@@ -279,10 +278,19 @@ sub register_client{
     my $p  = parse_params($request);
     my $xr = xclient_with_name('main');
     my $z  = $self->zmap_connector();
+    my $h  = {
+        response => {
+            client => [{
+                created => 0,
+                exists  => 1,
+            }]
+        }
+    };
+    $z->protocol_add_meta($h);
 
     $self->entry_ref();
-
-    return (200, $z->basic_error("ZMap already Exists")) if $xr;
+    
+    return (200, make_xml($h)) if $xr;
 
     unless($p->{'id'} 
            && $p->{'request'}
@@ -301,8 +309,9 @@ sub register_client{
                     -debug    => 1,
                     -store    => [ \&open_clones, $self ],
                     );
-
-    return (200, $z->basic_error(q`no error, just easier...`));
+    # this feels convoluted
+    $h->{'response'}->{'client'}->[0]->{'created'} = 1;
+    return (200, make_xml($h));
 }
 
 sub open_clones{
@@ -364,7 +373,7 @@ sub make_request{
 sub RESPONSE_HANDLER{
     my ($self, $xml) = @_;
     warn "In RESPONSE_HANDLER\n";
-    my ($name, $id) = ($xml->{zmapid}, $xml->{windowid});
+    my ($name, $id) = ($xml->{'response'}->{'zmapid'}, $xml->{'response'}->{'windowid'});
     if($name){
         xclient_with_name($name, $id) if $id;
         $self->set_entry_value($name);

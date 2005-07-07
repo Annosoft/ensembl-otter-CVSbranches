@@ -11,7 +11,10 @@ use POSIX qw(:signal_h :sys_wait_h);
 our @ISA    = qw(Exporter);
 our @EXPORT = qw(parse_params 
                  parse_response
-                 $WAIT_VARIABLE);
+                 xml_escape
+                 make_xml
+                 $WAIT_VARIABLE
+                 );
 our @EXPORT_OK = qw(xclient_with_id
                     xclient_with_name
                     list_xclient_names
@@ -20,7 +23,7 @@ our @EXPORT_OK = qw(xclient_with_id
                     flush_bad_windows
                     fork_exec
                     reset_sigCHLD
-                    xml_escape);
+                    );
 our %EXPORT_TAGS = ('caching' => [@EXPORT_OK],
                     'all'     => [@EXPORT, @EXPORT_OK]
                     );
@@ -91,7 +94,14 @@ sub parse_response{
     
     return wantarray ? ($status, $hash) : $hash;
 }
-
+sub make_xml{
+    my ($hash) = @_;
+    my $parser = XML::Simple->new(rootname => q{},
+                                  keeproot => 1,
+                                  );
+    my $xml = $parser->XMLout($hash);
+    return $xml;
+}
 sub xml_escape{
     my $data    = shift;
     my $parser  = XML::Simple->new(NumericEscape => 1);
@@ -175,6 +185,10 @@ return the xclient with specified name, creating if id supplied.
             push(@list, $obj_name->[1]);
         }
         return @list;
+    }
+
+    sub list_xclient_ids{
+        return keys %$CACHED_CLIENTS;
     }
 
 =over 5
