@@ -51,8 +51,8 @@ use Hum::EMBL::Exon;
 use Hum::EMBL::ExonLocation;
 use Hum::EMBL::LocationUtils qw( simple_location locations_from_subsequence
     location_from_homol_block );
-use Hum::EmblUtils qw( add_Organism add_source_FT species_binomial );
-
+use Hum::EmblUtils qw( add_Organism add_source_FT );
+use Hum::Species;
 
 Hum::EMBL->import(
     'AC *' => 'Hum::EMBL::Line::AC_star',
@@ -195,10 +195,10 @@ sub embl_setup {
     my $references_ref = $self->references;
     
     # EMBL Division, species    
-    my $division;
-    my ($otter_division, $species) = $self->get_EMBL_division_from_otter_species;
+    my( $division );
+    my $species = $self->get_Hum_Species;
     unless ($division = $self->division) {
-        $division = $otter_division;
+        $division = $species->division;
     }
     confess "division not set" unless $division;
     
@@ -260,8 +260,10 @@ sub embl_setup {
         $embl->newXX;
     }
 
-    #Organism
-    add_Organism($embl, $species);
+    # Organism
+    ### should change this argument to just pass $species itself.
+    ### (Need to change in Hum::ProjectDump::EMBL too!)
+    add_Organism($embl, $species->name);
     $embl->newXX;
 
     # Reference
@@ -295,7 +297,7 @@ sub embl_setup {
     $loc->strand('W');
         
     $source->addQualifierStrings('mol_type',  $mol_type);
-    $source->addQualifierStrings('organism',  species_binomial($species));
+    $source->addQualifierStrings('organism',  $species->binomial);
     $source->addQualifierStrings('chromosome',  $chromosome_name);
     $source->addQualifierStrings('clone',     $clone_name) if $clone_name;
     $source->addQualifierStrings('clone_lib', $clone_lib) if $clone_lib;
@@ -303,76 +305,19 @@ sub embl_setup {
     return $embl;
 }
 
-=pod
 
-=head2 EMBL Database Divisions
+sub get_Hum_Species {
+    my( $self ) = @_;
 
-    Division                Code
-    -----------------       ----
-    ESTs                    EST
-    Bacteriophage           PHG
-    Fungi                   FUN
-    Genome survey           GSS
-    High Throughput cDNA    HTC
-    High Throughput Genome  HTG
-    Human                   HUM
-    Invertebrates           INV
-    Mus musculus            MUS
-    Organelles              ORG
-    Other Mammals           MAM
-    Other Vertebrates       VRT
-    Plants                  PLN
-    Prokaryotes             PRO
-    Rodents                 ROD
-    STSs                    STS
-    Synthetic               SYN
-    Unclassified            UNC
-    Viruses                 VRL
+    my $ds = $self->DataSet or confess "DataSet not set";
+    my $species_name = $ds->species
+        or confess "Could not get species from DataSet";
 
-=cut
-
-{
-    my %species_division = (
-        'human'         => 'HUM',
-        'gibbon'        => 'PRI',
-        'mouse'         => 'MUS',
-        'rat'           => 'ROD',
-        'dog'           => 'MAM',
-        'cat'           => 'MAM',
-        'pig'           => 'MAM',
-
-        'fugu'          => 'VRT',
-        'zebrafish'     => 'VRT',
-        'b.floridae'    => 'VRT',
-
-        'drosophila'    => 'INV',
-        
-        'arabidopsis'   => 'PLN',
-        );
-
-=head2 get_EMBL_division_from_otter_species
-
-Using the Bio::Otter::Lace::Dataset->species, returns the 
-EMBL division code ('HUM', 'VRT' etc) and the lowercase
-species name. Confesses if the species retrieved doesnt
-correspond to one of those known about (i.e. hardcoded in
-the module).
-
-=cut
-
-    sub get_EMBL_division_from_otter_species {
-        my( $self ) = @_;
-
-        my $ds = $self->DataSet or confess "DataSet not set";
-        my $species = $ds->species
-            or confess "Could not get species from DataSet";
-        
-        unless ($species_division{lc $species}) {
-            confess "Dont know EMBL_division for: $species";
-        }
-        return ($species_division{$species}, $species);
-    }
+    my $species = Hum::Species->fetch_Species_by_name($species_name)
+        or confess "Can't fetch Hum::Species object for '$species_name'";
+    return $species;
 }
+
 
 =head2 add_sequence_from_otter
 
@@ -716,6 +661,12 @@ sub make_embl_ft {
         foreach my $gid (@$gene_id_list) {
 
             my $gene = $gene_aptr->fetch_by_dbID($gid);
+            my $type = $gene->type;
+            
+            # Don't dump deleted or non-Havana genes
+            next if $type eq 'obsolete';
+            next if $type =~ /^[A-Z]+:/;
+            
             $self->_do_Gene($gene, $set);
         }
 
@@ -833,9 +784,7 @@ sub get_description_from_otter {
     my $clone_info = $annotated_clone->clone_info
         or confess "could not get: CloneInfo object";
         
-    my @clone_remarks = $clone_info->remark
-        or warn "No CloneRemarks for annotated clone " . $self->accession
-            . "." . $self->sequence_version;
+    my @clone_remarks = $clone_info->remark;
     
     my ($description_txt);
     foreach my $clone_remark (@clone_remarks) {
@@ -920,7 +869,7 @@ sub _do_assembly_tag {
       $feat->key('misc_feature');
     }
 
-    if ($atag->strand == 1) {
+    if ($atag->strand <= 1) {
       $feat->location(simple_location($atag->start, $atag->end));
     }
     elsif ($atag->strand == -1) {
@@ -1024,9 +973,6 @@ my %ens2embl_phase = (
 sub _do_Gene {
     my ( $self, $gene, $set ) = @_;
 
-    #Bio::Otter::AnnotatedGene, isa Bio::EnsEMBL::Gene
-    return if $gene->type eq 'obsolete'; # Deleted genes
-
     #Bio::Otter::AnnotatedTranscript, isa Bio::EnsEMBL::Transcript
     #Transcript here give an mRNA, potentially + a CDS in EMBL record.
     foreach my $transcript (@{$gene->get_all_Transcripts}) {
@@ -1034,6 +980,11 @@ sub _do_Gene {
         my $transcript_info = $transcript->transcript_info;
         my $locus_tag = $transcript->transcript_info->name
             or warn "No transcript_info->name for locus_tag\n";
+        if ($locus_tag =~ /^[A-Z]+:/) {
+            # There are some GD: transcripts in Havana genes!
+            warn "Skipping non-Havana transcript '$locus_tag'\n";
+            next;
+        }
  
         #Do the mRNA
         my $all_transcript_Exons = $transcript->get_all_Exons;
@@ -1122,7 +1073,7 @@ sub _supporting_evidence {
     my ( $self, $transcript_info, $ft, @evidence_types ) = @_;
 
     my %evidence_hash;
-    foreach my $evidence ($transcript_info->evidence) {
+    foreach my $evidence (@{$transcript_info->get_all_Evidence}) {
         
         foreach my $evidence_type (@evidence_types) {
         
@@ -1170,6 +1121,7 @@ sub _add_gene_qualifiers {
     my $gene_info = $gene->gene_info; #Bio::Otter::GeneInfo object
 
     if ($gene_info->known_flag) {
+        #printf STDERR "Adding transcript of gene '%s'\n", $gene_info->name->name;
         $ft->addQualifierStrings('gene', $gene_info->name->name);
     }
     if ($gene->description) {

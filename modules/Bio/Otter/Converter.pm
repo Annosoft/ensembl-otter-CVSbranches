@@ -2,7 +2,7 @@ package Bio::Otter::Converter;
 
 use strict;
 use warnings;
-use Carp;
+use Carp qw{ cluck confess };
 
 use Bio::Otter::Author;
 use Bio::Otter::AssemblyTag;
@@ -75,22 +75,16 @@ sub XML_to_otter {
   while (<$fh>) {
     chomp;
     if (/<locus>/) {
-      if (defined($gene)) {
-        $gene->gene_info->author($author);
-      }
-
-      $gene = new Bio::Otter::AnnotatedGene();
-
-      push (@genes, $gene);
-
-      $geneinfo = new Bio::Otter::GeneInfo;
+      $gene     = Bio::Otter::AnnotatedGene->new;
+      $geneinfo = Bio::Otter::GeneInfo->new;
+      $author   = Bio::Otter::Author->new;
 
       $gene->gene_info($geneinfo);
+      $geneinfo->author($author);
+      push (@genes, $gene);
 
-      $author     = new Bio::Otter::Author;
       $currentobj = 'gene';
-
-      undef($tran);
+      $tran = undef;
     } elsif (/<stable_id>(.*)<\/stable_id>/) {
       my $stable_id = $1;
 
@@ -159,8 +153,8 @@ sub XML_to_otter {
       $currentobj = 'dna';
     } elsif (/<transcript>/) {
 
-      $tran     = new Bio::Otter::AnnotatedTranscript;
-      $traninfo = new Bio::Otter::TranscriptInfo;
+      $tran     = Bio::Otter::AnnotatedTranscript->new;
+      $traninfo = Bio::Otter::TranscriptInfo->new;
       $author   = Bio::Otter::Author->new;
 
       $tran->transcript_info($traninfo);
@@ -252,7 +246,7 @@ sub XML_to_otter {
     } elsif (/<evidence>/) {
       $evidence = new Bio::Otter::Evidence;
       $evidence->type('UNKNOWN');
-      $traninfo->evidence($evidence);
+      $traninfo->add_Evidence($evidence);
       $currentobj = 'evidence';
     } elsif (/<\/evidence>/) {
       $currentobj = 'tran';
@@ -580,10 +574,6 @@ sub XML_to_otter {
     }
   }
 
-  if (defined($gene)) {
-    $gene->gene_info->author($author);
-  }
-
   # The xml coordinates are all in chromosomal coords - these
   # Need to be converted back to slice coords 
   if ($chrstart != 2000000000) {
@@ -814,7 +804,6 @@ sub otter_to_ace {
         $str .= "\n$clone_context\n";
     }
 
-    my( %authors );
     $str .= ace_transcripts_locus_people($genes, $slice);
 
     if ($seq) {
@@ -904,7 +893,7 @@ sub ace_transcript_seq_objs_from_genes{
             }
 
             # Supporting evidence
-            my @ev = sort {$a->name cmp $b->name} $tran->transcript_info->evidence;
+            my @ev = sort {$a->name cmp $b->name} @{$tran->transcript_info->get_all_Evidence};
             foreach my $ev (@ev) {
                 my $type = $ev->type;
                 my $name = $ev->name;
@@ -1150,7 +1139,7 @@ sub ace_to_otter {
       while (($_ = <$fh>) !~ /^\n$/) {
 
 	if (/^Subsequence $STRING $INT $INT/x) {
-	  my $name  = $1;
+	  my $name  = ace_unescape($1);
 	  my $start = $2;
 	  my $end   = $3;
 
@@ -1170,8 +1159,8 @@ sub ace_to_otter {
 	  $sequence{$name}{parent} = $currname;
 	  $sequence{$name}{strand} = $strand;
 	} elsif (/Assembly_name $STRING/x) {
-	  $assembly_type = $1;
-	  print $1, "\n";
+	  $assembly_type = ace_unescape($1);
+	  #print STDERR $1, "\n";
 	}
 
 	# SMap assembly information is formatted like this:
@@ -1184,7 +1173,7 @@ sub ace_to_otter {
 	#  AGP_Fragment "AL353662.19" 514440 680437 Align 514440 2001
 
 	elsif (/^AGP_Fragment $STRING $INT $INT \s+Align $INT $INT/x) {
-	  my $name   = $1;
+	  my $name   = ace_unescape($1);
 	  my $start  = $2;
 	  my $end    = $3;
 	  # Don't need $4
@@ -1208,7 +1197,7 @@ sub ace_to_otter {
 	    $chr_name  = $1;
 	    $chr_start = $2;
 	    $chr_end   = $3;
-	    $slice_name = ();
+	    $slice_name = undef;
 	  } else {
 	    print STDERR "Warning: Assembly sequence is not in the 6.1-10000 format [$currname].  Can't convert to chr, start,end\n";
 	  }
@@ -1222,15 +1211,19 @@ sub ace_to_otter {
 	}
 
 	elsif (/^Assembly_tags $STRING $INT $INT $STRING/x) {
-	
-	  my $at = Bio::Otter::AssemblyTag->new;
-	  $at->tag_type($1);
-	  $at->tag_info($4);
+            my $type    = ace_unescape($1);
+            my ($start, $end, $strand) = decide_strand($2, $3);
+            my $info    = ace_unescape($4);
 
-	  $2 < $3 ? ( $at->strand(1), $at->start($2), $at->end($3) ) : ( $at->strand(-1), $at->start($3), $at->end($2) );
+	    my $at = Bio::Otter::AssemblyTag->new;
+	    $at->tag_type($type);
+	    $at->tag_info($info);
+            $at->start($start);
+            $at->end($end);
+            $at->strand($strand);
 
-	  my $assembly_tag_set = $curr_seq->{'assembly_tag_set'} ||= [];
-	  push @$assembly_tag_set, $at;
+	    my $assembly_tag_set = $curr_seq->{'assembly_tag_set'} ||= [];
+	    push @$assembly_tag_set, $at;
 	}
 
 	elsif (/^(Keyword|Remark|Annotation_remark) $STRING/x) {
@@ -1239,18 +1232,10 @@ sub ace_to_otter {
 	} elsif (/^EMBL_dump_info\s+DE_line $STRING/x) {
 	  $curr_seq->{EMBL_dump_info} = ace_unescape($1);
 	} elsif (/^Feature $STRING $INT $INT $FLOAT (?:$STRING)?/x) {
-	  my $type  = $1;
-	  my $start = $2;
-	  my $end   = $3;
+	  my $type  = ace_unescape($1);
+	  my ($start, $end, $strand) = decide_strand($2, $3);
 	  my $score = $4;
-	  my $label = $5;
-	  my $strand = 0;	# Will stay 0 if start == end
-	  if ($start < $end) {
-	    $strand = 1;
-	  } elsif ($start > $end) {
-	    $strand = -1;
-	    ($start, $end) = ($end, $start);
-	  }
+	  my $label = ace_unescape($5);
 
 	  my $ana = $logic_ana{$type} ||= Bio::EnsEMBL::Analysis->new(-LOGIC_NAME => $type);
 	  my $sf = Bio::EnsEMBL::SimpleFeature->new(
@@ -1268,7 +1253,7 @@ sub ace_to_otter {
 
 	elsif (/^Source $STRING/x) {
 	  # We have a gene and not a contig.
-	  $curr_seq->{Source} = $1;
+	  $curr_seq->{Source} = ace_unescape($1);
 
 	  my $tran = Bio::Otter::AnnotatedTranscript->new;
 	  $curr_seq->{transcript} = $tran;
@@ -1277,7 +1262,7 @@ sub ace_to_otter {
 	} elsif (/^Source_Exons $INT $INT (?:$STRING)?/x) {
 	  my $oldstart = $1;
 	  my $oldend   = $2;
-	  my $stableid = $3;    # Will not always have a stable_id
+	  my $stableid = ace_unescape($3);    # Will not always have a stable_id
 
 	  my $tstart  = $curr_seq->{start};
 	  my $tend    = $curr_seq->{end};
@@ -1306,9 +1291,9 @@ sub ace_to_otter {
 	  $curr_seq->{transcript}->add_Exon($exon);
 	} elsif (/^(cDNA_match|Protein_match|Genomic_match|EST_match) $STRING/x) {
 	  my $matches = $curr_seq->{$1} ||= [];
-	  push @$matches, $2;
+	  push @$matches, ace_unescape($2);
 	} elsif (/^Locus $STRING/x) {
-	  $genenames{$currname} = $1;
+	  $genenames{$currname} = ace_unescape($1);
 	} elsif (/^CDS $INT $INT/x) {
 	  $curr_seq->{CDS_start} = $1;
 	  $curr_seq->{CDS_end}   = $2;
@@ -1322,11 +1307,11 @@ sub ace_to_otter {
 	} elsif (/^Start_not_found/) {
 	  $curr_seq->{Start_not_found} = -1;
 	} elsif (/^Method $STRING/x) {
-	  $curr_seq->{Method} = $1;
+	  $curr_seq->{Method} = ace_unescape($1);
 	} elsif (/^(Processed_mRNA|Pseudogene)/) {
 	  $curr_seq->{$1} = 1;
 	} elsif (/^(Transcript_id|Translation_id|Transcript_author|Accession) $STRING/x) {
-	  $curr_seq->{$1} = $2;
+	  $curr_seq->{$1} = ace_unescape($2);
 	} elsif (/^Sequence_version $INT/x) {
 	  $curr_seq->{Sequence_version} = $1;
 	}
@@ -1349,21 +1334,21 @@ sub ace_to_otter {
 	  $cur_gene->{GeneType} = "Novel_CDS-$1";
 	} elsif (/^Positive_sequence $STRING/x) {
 	  my $tran_list = $cur_gene->{transcripts} ||= [];
-	  push @$tran_list, $1;
+	  push @$tran_list, ace_unescape($1);
 	} elsif (/^(Locus_(?:id|author)) $STRING/x) {
-	  $cur_gene->{$1} = $2;
+	  $cur_gene->{$1} = ace_unescape($2);
 	} elsif (/^Truncated/) {
 	  $cur_gene->{Truncated} = 1;
 	} elsif (/^Remark $STRING/x || /^Annotation_remark $STRING/x ) {
 	  my $remark_list = $cur_gene->{'remarks'} ||= [];
-	  push(@$remark_list, $1);
+	  push(@$remark_list, ace_unescape($1));
 	} elsif (/^Alias $STRING/x) {
 	  my $alias_list = $cur_gene->{'aliases'} ||= [];
-	  push(@$alias_list, $1);
+	  push(@$alias_list, ace_unescape($1));
 	} elsif (/^Full_name $STRING/x) {
-	  $cur_gene->{'description'} = $1;
+	  $cur_gene->{'description'} = ace_unescape($1);
 	} elsif (/^(Type_prefix) $STRING/x) {
-	  $cur_gene->{$1} = $2;
+	  $cur_gene->{$1} = ace_unescape($2);
 	}
       }
     }
@@ -1376,7 +1361,7 @@ sub ace_to_otter {
       while (($_ = <$fh>) !~ /^\n$/) {
 	#print STDERR "Person: $_";
 	if (/^Email $STRING/x) {
-	  $author_email = $1;
+	  $author_email = ace_unescape($1);
 	}
       }
 
@@ -1462,7 +1447,7 @@ sub ace_to_otter {
 	}
       }
     }
-    $traninfo->evidence(@evidence);
+    $traninfo->add_Evidence(@evidence);
 
     # Type of transcript (Method tag)
     my $class = Bio::Otter::TranscriptClass
@@ -1744,6 +1729,19 @@ sub ace_to_otter {
   #   return(\@genes, $tile_path, $assembly_type, $dna, $chr_name, $chr_start, $chr_end, $feature_set);
 }
 
+sub decide_strand {
+    my( $start, $end ) = @_;
+    
+    my $strand = 0;	# Will stay 0 if start == end
+    if ($start < $end) {
+        $strand = 1;
+    } elsif ($start > $end) {
+        $strand = -1;
+        ($start, $end) = ($end, $start);
+    }
+    return($start, $end, $strand);
+}
+
 sub ace_to_XML {
     my( $fh ) = @_;
 
@@ -1764,94 +1762,68 @@ sub ace_to_XML {
     return $xml;
 }
 
-# From GeneBuilder (with added translation existence check)
 sub prune_Exons {
-  my ($gene) = @_;
+    my ($gene) = @_;
 
-  #my @unique_Exons;
+    # keep track of all unique exons found so far to avoid making duplicates
+    # need to be very careful about translation->start_exon and translation->end_Exon
 
-  # keep track of all unique exons found so far to avoid making duplicates
-  # need to be very careful about translation->start_exon and translation->end_Exon
+    #cluck "Pruning exons";
 
-  #print STDERR "Pruning exons\n";
+    my( %stable_key, %unique_exons );
 
-  #my %exonhash;
+    foreach my $tran (@{ $gene->get_all_Transcripts }) {
+        my( @transcript_exons );
+        foreach my $exon (@{$tran->get_all_Exons}) {
+            my $key = exon_hash_key($exon);
+            if (my $found = $unique_exons{$key}) {
+                # Use the found exon in the translation
+                if ($tran->translation) {
+                    if ($exon == $tran->translation->start_Exon) {
+                        $tran->translation->start_Exon($found);
+                    }
+                    if ($exon == $tran->translation->end_Exon) {
+                        $tran->translation->end_Exon($found);
+                    }
+                }
+                # re-use existing exon in this transcript
+                $exon = $found;
+            } else {
+                $unique_exons{$key} = $exon;
+            }
+            push (@transcript_exons, $exon);
 
-  foreach my $tran (@{ $gene->get_all_Transcripts }) {
-    my @newexons;
-    my @unique_Exons;
-    my %exonhash;
-
-    foreach my $exon (@{$tran->get_all_Exons}) {
-      my $found;
-      #always empty
-
-      UNI: foreach my $uni (@unique_Exons) {
-        if ($uni->start  == $exon->start  && 
-            $uni->end    == $exon->end    &&
-            $uni->strand == $exon->strand && 
-            $uni->phase  == $exon->phase   &&
-            $uni->end_phase == $exon->end_phase)
-        {
-          $found = $uni;
-          last UNI;
+            # Make sure we don't have the same stable IDs
+            # for different exons (different keys).
+            if (my $stable = $exon->stable_id) {
+                if (my $seen_key = $stable_key{$stable}) {
+                    if ($seen_key ne $key) {
+                        $exon->{_stable_id} = undef;
+                        printf STDERR  "Already seen exon_id '$stable' on different exon\n";
+                    }
+                } else {
+                    $stable_key{$stable} = $key;
+                }
+            }
         }
-      }
-        ### print  " Exon " . $exon->stable_id . "\n";
-        ### print  " Phase " . $exon->phase . " EndPhase " . $exon->end_phase . "\n";
-        ### print  " Strand " . $exon->strand . " Start " . $exon->start . " End ". $exon->end ."\n";
-
-      if (defined($found)) {
-
-        push (@newexons, $found);
-        if ($tran->translation) {
-          if ($exon == $tran->translation->start_Exon) {
-            $tran->translation->start_Exon($found);
-          }
-
-          if ($exon == $tran->translation->end_Exon) {
-            $tran->translation->end_Exon($found);
-          }
-        }
-      } else {
-
-        ### This is nasty for the phases - sometimes exons come back with 
-        ### the same stable id and different phases - we need to strip off
-        ### the stable id if we think we have a new exon but we've
-        ### already seen the stable_id
-
-        if (defined($exon->stable_id) && defined($exonhash{$exon->stable_id})) {
-
-           $exon->{_stable_id} = undef;
-          # print STDERR  "Exon id " .$exon->stable_id . "\n";
-        }
-        push (@newexons,     $exon);
-        push (@unique_Exons, $exon);
-      }
-      if (my $stable = $exon->stable_id) {
-        $exonhash{$stable} = 1;
-      }
-    }
-    $tran->flush_Exons;
-    #foreach my $exon (@newexons) {
-    foreach my $exon (@unique_Exons) {
-      $tran->add_Exon($exon);
-    }
-  }
-
-  my @exons = @{$gene->get_all_Exons};
-
- # %exonhash = ();
-  my %exonhash = ();
-
-    foreach my $ex (@exons) {
-        if (my $stable = $ex->stable_id) {
-            $exonhash{$stable}++;
+        $tran->flush_Exons;
+        foreach my $exon (@transcript_exons) {
+            $tran->add_Exon($exon);
         }
     }
+}
 
-    while (my ($id, $count) = each %exonhash) {
-    }
+sub exon_hash_key {
+    my( $exon ) = @_;
+    
+    # This assumes that all the exons we
+    # compare will be on the same contig
+    return join(" ",
+        $exon->start,
+        $exon->end,
+        $exon->strand,
+        $exon->phase,
+        $exon->end_phase);
 }
 
 sub path_to_XML {
@@ -2217,6 +2189,7 @@ sub frags_to_slice {
 sub ace_escape {
     my $str = shift;
     
+    $str =~ s/^\s+//;       # Trim leading whitespace.
     $str =~ s/\s+$//;       # Trim trailing whitespace.
     $str =~ s/\n/\\n/g;     # Backslash escape newlines
     $str =~ s/\t/\\t/g;     # and tabs.
@@ -2231,6 +2204,7 @@ sub ace_escape {
 sub ace_unescape {
     my $str = shift;
     
+    $str =~ s/^\s+//;       # Trim leading whitespace.
     $str =~ s/\s+$//;       # Trim trailing whitespace.
 
     # Unescape quotes, back and forward slashes,

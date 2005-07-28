@@ -38,11 +38,11 @@ sub _generic_sql_fetch {
 
 	my @remark;
 
-	while (my $ref = $sth->fetchrow_hashref) {
+	while (my ($rem_id, $txt, $giid) = $sth->fetchrow) {
 	    my $remark = new Bio::Otter::GeneRemark;
-	    $remark->dbID($ref->{gene_remark_id});
-	    $remark->remark($ref->{remark});
-	    $remark->gene_info_id($ref->{gene_info_id});
+	    $remark->dbID($rem_id);
+	    $remark->remark($txt);
+	    $remark->gene_info_id($giid);
 		
 	    push(@remark,$remark);
 
@@ -131,24 +131,14 @@ sub store {
 	   return;
 	}
 
-        my $quoted_remark = $self->db->db_handle->quote($remark->remark);
-	#my $sql = "insert into gene_remark(gene_remark_id,remark,gene_info_id) values (null,\'" .  $remark->remark . "\',".
-	#	$remark->gene_info_id . ")";
-	my $sql = "insert into gene_remark(gene_remark_id,remark,gene_info_id) values (null," .
-                        $quoted_remark . "," .
-		        $remark->gene_info_id . ")";
-
-	my $sth = $self->prepare($sql);
-	my $rv = $sth->execute();
-
-	$self->throw("Failed to insert gene remark " . $remark->remark) unless $rv;
-
-	$sth = $self->prepare("select last_insert_id()");
-	my $res = $sth->execute;
-	my $row = $sth->fetchrow_hashref;
-	$sth->finish;
+	my $sth = $self->prepare(q{
+            INSERT INTO gene_remark(remark
+                  , gene_info_id)
+            VALUES (?,?)
+            });
+	$sth->execute($remark->remark, $remark->gene_info_id);
 	
-	$remark->dbID($row->{'last_insert_id()'});
+	$remark->dbID($sth->{'mysql_insertid'});
     }
     return 1;
 }
