@@ -42,12 +42,11 @@ created with the script make_ensembl_vega_db.pl. The alignment is created in
 two steps:
 
     1. Match clones with same name and version directly and create alignment
-       blocks for these regions.
+       blocks for these regions. The result is stored in the assembly table as
+       an assembly between the chromosomes of both assemblies.
 
-    2. Align the missing bits.
-
-The result is stored in the assembly table as an assembly between the
-chromosomes of both assemblies.
+    2. Store non-aligned blocks in a temporary table (tmp_align). They will be
+       aligned using blastz by another script.
 
 =head1 LICENCE
 
@@ -128,6 +127,19 @@ $E_dba = $support->get_database('evega', 'evega');
 $E_dbh = $E_dba->dbc->db_handle;
 my $E_sa = $E_dba->get_SliceAdaptor;
 
+# create temporary table for storing non-aligned blocks
+unless ($support->param('dry_run')) {
+    $E_dbh->do(qq(
+        CREATE TABLE IF NOT EXISTS tmp_align (
+            seq_region_name varchar(10) NOT NULL,
+            e_start int(10) UNSIGNED NOT NULL,
+            e_end int(10) UNSIGNED NOT NULL,
+            v_start int(10) UNSIGNED NOT NULL,
+            v_end int(10) UNSIGNED NOT NULL,
+        )
+    ));
+}
+
 # get Vega and Ensembl chromosomes
 my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'));
 my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassembly'));
@@ -137,15 +149,17 @@ $support->log_stamped("Looping over chromosomes...\n");
 my $match = {};
 my $nomatch = {};
 my %stats_total;
+my @block_length;
 my $fmt1 = "%-35s%10.0f\n";
 my $fmt2 = "%-35s%9.2f%%\n";
 my $fmt3 = "%-12s%-12s%-10s%-12s%-12s%-9s\n";
 my $fmt4 = "%10.0f  %10.0f  %7.0f   %10.0f  %10.0f  %7.0f\n";
-my $sth = $E_dbh->prepare(qq(
+my $sth1 = $E_dbh->prepare(qq(
     INSERT INTO assembly (asm_seq_region_id, cmp_seq_region_id, asm_start,
         asm_end, cmp_start, cmp_end, ori)
     VALUES (?, ?, ?, ?, ?, ?, 1)
 ));
+my $sth2 = $E_dbh->prepare(qq(INSERT INTO tmp_align values(?, ?, ?, ?, ?)));
 foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Chromosome $chr...\n", 1);
     unless ($E_chrlength->{$chr}) {
@@ -228,11 +242,16 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
         $nomatch->{$chr}->[$c]->[5] = scalar(@V_clones) - $nomatch->{$chr}->[$c]->[5];
     }
 
+    # filter single assembly inserts from non-aligned blocks (i.e. cases where 
+    # a block has clones only in one assembly, not in the other) - there is
+    # nothing to be done with them
+    @{ $nomatch->{$chr} } = grep { $_->[2] > 0 and $_->[5] > 0 } @{ $nomatch->{$chr} } if ($nomatch->{$chr});
+
     # store directly aligned blocks in assembly table
     unless ($support->param('dry_run')) {
         $support->log("Adding assembly entries for directly aligned blocks...\n", 1);
         for (my $c = 0; $c < scalar(@{ $match->{$chr} || [] }); $c++) {
-            $sth->execute(
+            $sth1->execute(
                 $V_sa->get_seq_region_id($V_slice),
                 $E_sa->get_seq_region_id($E_slice),
                 $match->{$chr}->[$c]->[3],
@@ -244,8 +263,22 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
         $support->log("Done.\n", 1);
     }
 
-    # write fasta file for non-aligned blocks
-    
+    # store non-aligned blocks in tmp_align table
+    unless ($support->param('dry_run')) {
+        if ($nomatch->{$chr}) {
+            $support->log("Storing non-aligned blocks in tmp_align table...\n", 1);
+            for (my $c = 0; $c < scalar(@{ $nomatch->{$chr} }); $c++) {
+                $sth2->execute(
+                    $chr,
+                    $nomatch->{$chr}->[$c]->[0],
+                    $nomatch->{$chr}->[$c]->[1],
+                    $nomatch->{$chr}->[$c]->[3],
+                    $nomatch->{$chr}->[$c]->[4],
+                );
+            }
+            $support->log("Done.\n", 1);
+        }
+    }
 
     # stats for this chromosome
     $stats_chr{'E_only'} = scalar(@E_clones) - $stats_chr{'identical'} - $stats_chr{'mismatch'};
@@ -285,10 +318,11 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
         $support->log(('-'x67)."\n", 2);
         for (my $c = 0; $c < scalar(@{ $nomatch->{$chr} }); $c++) {
             $support->log(sprintf($fmt4, @{ $nomatch->{$chr}->[$c] }), 2);
-            my $E_longest = $nomatch->{$chr}->[$c]->[1] - $nomatch->{$chr}->[$c]->[0] + 1;
-            my $V_longest = $nomatch->{$chr}->[$c]->[4] - $nomatch->{$chr}->[$c]->[3] + 1;
-            $stats_total{'max_nomatch'} = $E_longest if ($E_longest > $stats_total{'max_nomatch'});
-            $stats_total{'max_nomatch'} = $V_longest if ($V_longest > $stats_total{'max_nomatch'});
+
+            # find longest non-aligned block
+            my $E_length = $nomatch->{$chr}->[$c]->[1] - $nomatch->{$chr}->[$c]->[0] + 1;
+            my $V_length = $nomatch->{$chr}->[$c]->[4] - $nomatch->{$chr}->[$c]->[3] + 1;
+            push @block_length, [$E_length, $V_length, $chr];
         }
     }
 
@@ -301,13 +335,45 @@ $support->log(sprintf($fmt1, "Identical clones:", $stats_total{'identical'}), 1)
 $support->log(sprintf($fmt1, "Clones with start/end mismatch:", $stats_total{'mismatch'}), 1);
 $support->log(sprintf($fmt1, "Clones only in Ensembl:", $stats_total{'E_only'}), 1);
 $support->log(sprintf($fmt1, "Clones only in Vega:", $stats_total{'V_only'}), 1);
-$support->log(sprintf($fmt1, "Longest non-match region:", $stats_total{'max_nomatch'}), 1);
+
+$support->log("\nNon-match block lengths:\n");
+$support->log(sprintf($fmt3, qw(E_LENGTH V_LENGTH CHR)), 1);
+$support->log(('-'x35)."\n", 1);
+foreach my $block (sort { $a->[0] <=> $b->[0] } @block_length) {
+    $support->log(sprintf("%10.0f  %10.0f %10s\n", @{ $block }), 1);
+}
+
 $support->log_stamped("\nDone.\n");
 
 # finish logfile
 $support->finish_log;
 
+
 ### end main
+
+
+=head2 found_match
+
+  Arg[1]      : String $chr - chromosome name 
+  Arg[2]      : Hashref $match - datastructure to store aligned blocks
+  Arg[3]      : Hashref $nomatch - datastructure to store non-aligned blocks
+  Arg[4]      : Bio::EnsEMBL::ProjectionSegment $E_seg - current Ensembl segment
+  Arg[5]      : Bio::EnsEMBL::ProjectionSegment $E_seg - last Ensembl segment
+  Arg[6]      : Bio::EnsEMBL::ProjectionSegment $V_seg - current Vega segment
+  Arg[7]      : Bio::EnsEMBL::ProjectionSegment $V_seg - last Vega segment
+  Arg[8]      : Boolean $match_flag - flag indicating if last clone was a match
+  Arg[9]      : Int $i - Vega clone count
+  Arg[10]     : Int $j - Ensembl clone count
+  Description : This function is called when two clones match (i.e. have the
+                same name.version in both assemblies). Depending on the state
+                of the last clone (match or nomatch), it extends aligned blocks
+                or finishes the non-aligned block and creates a new aligned
+                block.
+  Return type : none
+  Exceptions  : none
+  Caller      : internal
+
+=cut
 
 sub found_match {
     my ($chr, $match, $nomatch, $E_seg, $last_E_seg, $V_seg, $last_V_seg, $match_flag, $i, $j) = @_;
@@ -316,7 +382,7 @@ sub found_match {
     if ($match_flag) {
         # adjust align block end
         if ($match->{$chr}) {
-            my $c = scalar(@{ $match->{$chr} || [] }) - 1;
+            my $c = scalar(@{ $match->{$chr} }) - 1;
             $match->{$chr}->[$c]->[1] = $E_seg->from_end;
             $match->{$chr}->[$c]->[4] = $V_seg->from_end;
         }
@@ -335,7 +401,7 @@ sub found_match {
 
         # finish the last non-align block
         if ($nomatch->{$chr}) {
-            my $c = scalar(@{ $nomatch->{$chr} || [] }) - 1;
+            my $c = scalar(@{ $nomatch->{$chr} }) - 1;
             $nomatch->{$chr}->[$c]->[1] = $last_E_seg->from_end;
             $nomatch->{$chr}->[$c]->[2] = $j - $nomatch->{$chr}->[$c]->[2];
             $nomatch->{$chr}->[$c]->[4] = $last_V_seg->from_end;
@@ -343,6 +409,29 @@ sub found_match {
         }
     }
 }
+
+=head2 found_nomatch
+
+  Arg[1]      : String $chr - chromosome name 
+  Arg[2]      : Hashref $match - datastructure to store aligned blocks
+  Arg[3]      : Hashref $nomatch - datastructure to store non-aligned blocks
+  Arg[4]      : Bio::EnsEMBL::ProjectionSegment $E_seg - current Ensembl segment
+  Arg[5]      : Bio::EnsEMBL::ProjectionSegment $E_seg - last Ensembl segment
+  Arg[6]      : Bio::EnsEMBL::ProjectionSegment $V_seg - current Vega segment
+  Arg[7]      : Bio::EnsEMBL::ProjectionSegment $V_seg - last Vega segment
+  Arg[8]      : Boolean $match_flag - flag indicating if last clone was a match
+  Arg[9]      : Int $i - Vega clone count
+  Arg[10]     : Int $j - Ensembl clone count
+  Description : This function is called when two clones don't match (either
+                different name.version or length mismatch in the two
+                assemblies). Depending on the state of the last clone (nomatch
+                or match), it extends non-aligned blocks or finishes the
+                aligned block and creates a new non-aligned block.
+  Return type : none
+  Exceptions  : none
+  Caller      : internal
+
+=cut
 
 sub found_nomatch {
     my ($chr, $match, $nomatch, $E_seg, $last_E_seg, $V_seg, $last_V_seg, $match_flag, $i, $j) = @_;
