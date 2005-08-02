@@ -1,4 +1,4 @@
-#!/usr/local/ensmebl/bin/perl
+#!/usr/local/ensembl/bin/perl
 
 =head1 NAME
 
@@ -67,6 +67,7 @@ BEGIN {
 use Getopt::Long;
 use Pod::Usage;
 use Bio::EnsEMBL::Utils::ConversionSupport;
+use File::Path;
 
 $| = 1;
 
@@ -100,23 +101,31 @@ if ($support->param('help') or $support->error) {
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-my $id = $ENV{'LSB_JOBINDEX'};
-$support->param('logfile', "blastz_to_assembly.block${id}.log");
+#my $id = $ENV{'LSB_JOBINDEX'};
+my $id = 1;
+#$support->param('logfile', "blastz_to_assembly.block${id}.log");
 $support->init_log;
 
+# log LSF execution host (so that we can track down errors in /tmp files)
+$support->log("Running on host $ENV{LSB_HOSTS}.\n");
+
 # connect to database and get adaptors
-my $dba = $support->get_database('evega', 'evega');
-my $dbh = $dba->dbc->db_handle;
-my $sa = $dba->get_SliceAdaptor;
+my ($V_dba, $V_dbh, $E_dba, $E_dbh);
+$V_dba = $support->get_database('core');
+$V_dbh = $V_dba->dbc->db_handle;
+my $V_sa = $V_dba->get_SliceAdaptor;
+$E_dba = $support->get_database('evega', 'evega');
+$E_dbh = $E_dba->dbc->db_handle;
+my $E_sa = $E_dba->get_SliceAdaptor;
 
 # get non-aligned regions from tmp_align table
-my $sth = $dbh->prepare(qq(SELECT * FROM tmp_align WHERE tmp_align_id = $id));
+my $sth = $E_dbh->prepare(qq(SELECT * FROM tmp_align WHERE tmp_align_id = $id));
 $sth->execute;
 my $row = $sth->fetchrow_hashref;
 $sth->finish;
 
 # get slices from both assemblies
-my $E_slice = $sa->fetch_by_region(
+my $E_slice = $E_sa->fetch_by_region(
     'chromosome',
     $row->{'seq_region_name'},
     $row->{'e_start'},
@@ -124,7 +133,7 @@ my $E_slice = $sa->fetch_by_region(
     1,
     $support->param('ensemblassembly'),
 );
-my $V_slice = $sa->fetch_by_region(
+my $V_slice = $V_sa->fetch_by_region(
     'chromosome',
     $row->{'seq_region_name'},
     $row->{'v_start'},
@@ -156,20 +165,37 @@ print $V_fh join(':', ">block$id dna:chromfrag chromosome",
 print $V_fh $V_slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
 close($V_fh);
 
+# convert sequence files from fasta to nib format (needed for lavToAxt)
+system("faToNib $tmpdir/e_seq.$id.fa $tmpdir/e_seq.$id.nib") == 0 or
+    $support->log_error("Can't run faToNib: $!\n");
+system("faToNib $tmpdir/v_seq.$id.fa $tmpdir/v_seq.$id.nib") == 0 or
+    $support->log_error("Can't run faToNib: $!\n");
+
 # align using blastz
+$blastz_cmd = qq(blastz $tmpdir/e_seq.$id.fa $tmpdir/v_seq.$id.fa \
+                    q=blastz_matrix.txt \
+                    T=0 \
+                    L=10000 \
+                    H=2200 \
+                    Y=3400 \
+                    > blastz.$id.lav
+);
+system($blastz_cmd) == 0 or $support->log_error("Can't run blastz: $!\n");
 
-# find best hit with axtBest
+# convert blastz output from lav to axt format
+system("lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt")
+    or $support->log_error("Can't run lavToAxt: $!\n");
 
-# parse blastz output (see B::E::Pipeline::Tools::Blastz)
+# find best alignment with axtBest
+system("axtBest $tmpdir/blastz.$id.axt chrom=all $tmpdir/blastz.$id.best.axt")
+    or $support->log_error("Can't run axtBest: $!\n");
+
+# parse blastz output (see Graham's parser for chimp)
 
 # write alignment to assembly table
 
 # cleanup
-#unlink("$tmpdir/e_seq.$id.fa") or
-#    $support->log_warning("Could not delete $tmpdir/e_seq.$id.fa: $!\n");
-#unlink("$tmpdir/v_seq.$id.fa") or
-#    $support->log_warning("Could not delete $tmpdir/v_seq.$id.fa: $!\n");
-
+rmtree($tmpdir) or $support->log_warning("Could not delete $tmpdir: $!\n");
 
 # log alignment stats
 # things to log:
