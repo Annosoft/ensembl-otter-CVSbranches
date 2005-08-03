@@ -67,6 +67,7 @@ BEGIN {
 use Getopt::Long;
 use Pod::Usage;
 use Bio::EnsEMBL::Utils::ConversionSupport;
+use File::Path;
 
 $| = 1;
 
@@ -102,34 +103,113 @@ $support->confirm_params;
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
 
+# log LSF execution host (so that we can track down errors in /tmp files)
+$support->log("Running on host $ENV{LSB_HOSTS}.\n");
+
 # connect to database and get adaptors
-my $dba = $support->get_database('evega', 'evega');
-my $dbh = $dba->dbc->db_handle;
+my ($V_dba, $V_dbh, $E_dba, $E_dbh);
+$V_dba = $support->get_database('core');
+$V_dbh = $V_dba->dbc->db_handle;
+my $V_sa = $V_dba->get_SliceAdaptor;
+$E_dba = $support->get_database('evega', 'evega');
+$E_dbh = $E_dba->dbc->db_handle;
+my $E_sa = $E_dba->get_SliceAdaptor;
 
-# get non-aligned regions from tmp_align table
-my $sth = $dbh->prepare(qq(SELECT tmp_align_id, status FROM tmp_align));
+# loop over non-aligned regions in tmp_align table
+$support->log_stamped("Looping over non-aligned blocks...\n");
+my $sth = $E_dbh->prepare(qq(SELECT * FROM tmp_align));
 $sth->execute;
-my @ids;
-while (my ($id, $status) = $sth->fetchrow_array) {
-    if ($status eq 'waiting') {
-        push @ids, $id;
-    }
+while (my $row = $sth->fetchrow_hashref) {
+    $support->log_stamped("Block with tmp_align_id = ".$row->{'tmp_align_id'}."\n", 1);
+    my $E_slice = $E_sa->fetch_by_region(
+        'chromosome',
+        $row->{'seq_region_name'},
+        $row->{'e_start'},
+        $row->{'e_end'},
+        1,
+        $support->param('ensemblassembly'),
+    );
+    my $V_slice = $V_sa->fetch_by_region(
+        'chromosome',
+        $row->{'seq_region_name'},
+        $row->{'v_start'},
+        $row->{'v_end'},
+        1,
+        $support->param('assembly'),
+    );
+
+    # write sequences to file
+    $support->log_stamped("Writing sequences to fasta and nib files...\n", 2);
+    my $user = `whoami`;
+    chomp $user;
+    my $tmpdir = "/tmp/$user.".time;
+    system("mkdir $tmpdir") == 0 or
+        $support->log_error("Can't create tmp dir $tmpdir: $!\n");
+    my $E_fh = $support->filehandle('>', "$tmpdir/e_seq.$id.fa");
+    my $V_fh = $support->filehandle('>', "$tmpdir/v_seq.$id.fa");
+    print $E_fh join(':', ">e_seq.$id dna:chromfrag chromosome",
+                          $support->param('ensemblassembly'),
+                          $E_slice->start,
+                          $E_slice->end,
+                          $E_slice->strand
+                    ), "\n";
+    print $E_fh $E_slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
+    close($E_fh);
+    print $V_fh join(':', ">v_seq.$id dna:chromfrag chromosome",
+                          $support->param('assembly'),
+                          $V_slice->start,
+                          $V_slice->end,
+                          $V_slice->strand
+                    ), "\n";
+    print $V_fh $V_slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
+    close($V_fh);
+
+    # convert sequence files from fasta to nib format (needed for lavToAxt)
+    system("faToNib $tmpdir/e_seq.$id.fa $tmpdir/e_seq.$id.nib") == 0 or
+        $support->log_error("Can't run faToNib: $!\n");
+    system("faToNib $tmpdir/v_seq.$id.fa $tmpdir/v_seq.$id.nib") == 0 or
+        $support->log_error("Can't run faToNib: $!\n");
+    $support->log_stamped("Done.\n", 2);
+
+    # align using blastz
+    $support->log_stamped("Running blastz...\n", 2);
+    my $blastz_cmd = qq(blastz $tmpdir/e_seq.$id.fa $tmpdir/v_seq.$id.fa Q=blastz_matrix.txt T=0 L=10000 H=2200 Y=3400 > $tmpdir/blastz.$id.lav);
+    system($blastz_cmd) == 0 or $support->log_error("Can't run blastz: $!\n");
+    $support->log_stamped("Done.\n", 2);
+
+    # convert blastz output from lav to axt format
+    $support->log_stamped("Converting blastz output from lav to axt format...\n", 2);
+    system("lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt") == 0 or $support->log_error("Can't run lavToAxt: $!\n");
+    $support->log_stamped("Done.\n", 2);
+
+    # find best alignment with axtBest
+    $support->log_stamped("Finding best alignment with axtBest...\n", 2);
+    system("axtBest $tmpdir/blastz.$id.axt all $tmpdir/blastz.$id.best.axt") == 0 or $support->log_error("Can't run axtBest: $!\n");
+    $support->log_stamped("Done.\n", 2);
+
+    # parse blastz output (see Graham's parser for chimp)
+
+    # write alignment to assembly table
+
+    # log alignment stats
+    # things to log:
+    #   - alignment length
+    #   - gap length
+    #   - number of aligned blocks
 }
-my $id_string = join(',', @ids);
+$support->log_stamped("Done.\n");
 
-# run blastz_to_assembly.pl as LSF job array
-$cmd = qq(bsub  -J'blastz_to_assembly[$id_string]' \
-                -R'select[LINUX86]' \
-                -o blastz_to_assembly.%J.%I.out \
-                -e blastz_to_assembly.%J.%I.err
-            blastz_to_assembly.pl -i 0
-);
+# cleanup
+$support->log_stamped("Removing tmpdir...\n");
+#rmtree($tmpdir) or $support->log_warning("Could not delete $tmpdir: $!\n");
+$support->log_stamped("Done.\n");
 
-# periodically check status of runs
-# when all have finished:
-#   - log summary
-#   - cleanup (drop tmp_align, ...)
-
+# drop tmp_align
+unless ($support->param('dry_run')) {
+    $support->log_stamped("Dropping tmp_align table...\n");
+    $E_dbh->do(qq(DROP TABLE tmp_align));
+    $support->log_stamped("Done.\n");
+}
 
 # finish logfile
 $support->finish_log;

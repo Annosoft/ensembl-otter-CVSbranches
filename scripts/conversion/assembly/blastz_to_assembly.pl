@@ -101,9 +101,8 @@ if ($support->param('help') or $support->error) {
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-#my $id = $ENV{'LSB_JOBINDEX'};
-my $id = 1;
-#$support->param('logfile', "blastz_to_assembly.block${id}.log");
+my $id = $ENV{'LSB_JOBINDEX'};
+$support->param('logfile', "blastz_to_assembly.block${id}.log");
 $support->init_log;
 
 # log LSF execution host (so that we can track down errors in /tmp files)
@@ -143,12 +142,13 @@ my $V_slice = $V_sa->fetch_by_region(
 );
 
 # write sequences to file
+$support->log_stamped("Writing sequences to fasta and nib files...\n");
 my $tmpdir = '/tmp/pm2.'.time;
 system("mkdir $tmpdir") == 0 or
     $support->log_error("Can't create tmp dir $tmpdir: $!\n");
 my $E_fh = $support->filehandle('>', "$tmpdir/e_seq.$id.fa");
 my $V_fh = $support->filehandle('>', "$tmpdir/v_seq.$id.fa");
-print $E_fh join(':', ">block$id dna:chromfrag chromosome",
+print $E_fh join(':', ">e_seq.$id dna:chromfrag chromosome",
                       $support->param('ensemblassembly'),
                       $E_slice->start,
                       $E_slice->end,
@@ -156,7 +156,7 @@ print $E_fh join(':', ">block$id dna:chromfrag chromosome",
                 ), "\n";
 print $E_fh $E_slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
 close($E_fh);
-print $V_fh join(':', ">block$id dna:chromfrag chromosome",
+print $V_fh join(':', ">v_seq.$id dna:chromfrag chromosome",
                       $support->param('assembly'),
                       $V_slice->start,
                       $V_slice->end,
@@ -170,32 +170,27 @@ system("faToNib $tmpdir/e_seq.$id.fa $tmpdir/e_seq.$id.nib") == 0 or
     $support->log_error("Can't run faToNib: $!\n");
 system("faToNib $tmpdir/v_seq.$id.fa $tmpdir/v_seq.$id.nib") == 0 or
     $support->log_error("Can't run faToNib: $!\n");
+$support->log_stamped("Done.\n");
 
 # align using blastz
-$blastz_cmd = qq(blastz $tmpdir/e_seq.$id.fa $tmpdir/v_seq.$id.fa \
-                    q=blastz_matrix.txt \
-                    T=0 \
-                    L=10000 \
-                    H=2200 \
-                    Y=3400 \
-                    > blastz.$id.lav
-);
+$support->log_stamped("Running blastz...\n");
+my $blastz_cmd = qq(blastz $tmpdir/e_seq.$id.fa $tmpdir/v_seq.$id.fa Q=blastz_matrix.txt T=0 L=10000 H=2200 Y=3400 > $tmpdir/blastz.$id.lav);
 system($blastz_cmd) == 0 or $support->log_error("Can't run blastz: $!\n");
+$support->log_stamped("Done.\n");
 
 # convert blastz output from lav to axt format
-system("lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt")
-    or $support->log_error("Can't run lavToAxt: $!\n");
+$support->log_stamped("Converting blastz output from lav to axt format...\n");
+system("lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt") == 0 or $support->log_error("Can't run lavToAxt: $!\n");
+$support->log_stamped("Done.\n");
 
 # find best alignment with axtBest
-system("axtBest $tmpdir/blastz.$id.axt chrom=all $tmpdir/blastz.$id.best.axt")
-    or $support->log_error("Can't run axtBest: $!\n");
+$support->log_stamped("Finding best alignment with axtBest...\n");
+system("axtBest $tmpdir/blastz.$id.axt all $tmpdir/blastz.$id.best.axt") == 0 or $support->log_error("Can't run axtBest: $!\n");
+$support->log_stamped("Done.\n");
 
 # parse blastz output (see Graham's parser for chimp)
 
 # write alignment to assembly table
-
-# cleanup
-rmtree($tmpdir) or $support->log_warning("Could not delete $tmpdir: $!\n");
 
 # log alignment stats
 # things to log:
@@ -203,6 +198,10 @@ rmtree($tmpdir) or $support->log_warning("Could not delete $tmpdir: $!\n");
 #   - gap length
 #   - number of aligned blocks
 
+# cleanup
+$support->log_stamped("Cleanup: Removing tmpdir...\n");
+#rmtree($tmpdir) or $support->log_warning("Could not delete $tmpdir: $!\n");
+$support->log_stamped("Done.\n");
 
 # finish logfile
 $support->finish_log;
