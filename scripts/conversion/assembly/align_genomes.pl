@@ -2,12 +2,12 @@
 
 =head1 NAME
 
-align_genomes.pl - create a whole genome alignment between two closely related
-assemblies
+align_by_clone_identity.pl - create a whole genome alignment between two closely
+related assemblies
 
 =head1 SYNOPSIS
 
-align_genomes.pl [options]
+align_by_clone_identity.pl [options]
 
 General options:
     --conffile, --conf=FILE             read parameters from FILE
@@ -45,8 +45,8 @@ two steps:
        blocks for these regions. The result is stored in the assembly table as
        an assembly between the chromosomes of both assemblies.
 
-    2. Store non-aligned blocks in a temporary table (tmp_align). They will be
-       aligned using blastz by another script.
+    2. Store non-aligned blocks in a temporary table (tmp_align). They can be
+       aligned using blastz by align_nonident_regions.pl.
 
 =head1 LICENCE
 
@@ -131,11 +131,14 @@ my $E_sa = $E_dba->get_SliceAdaptor;
 unless ($support->param('dry_run')) {
     $E_dbh->do(qq(
         CREATE TABLE IF NOT EXISTS tmp_align (
+            tmp_align_id int(10) unsigned NOT NULL auto_increment,
             seq_region_name varchar(10) NOT NULL,
             e_start int(10) UNSIGNED NOT NULL,
             e_end int(10) UNSIGNED NOT NULL,
             v_start int(10) UNSIGNED NOT NULL,
             v_end int(10) UNSIGNED NOT NULL,
+            
+            PRIMARY KEY (tmp_align_id)
         )
     ));
 }
@@ -159,7 +162,7 @@ my $sth1 = $E_dbh->prepare(qq(
         asm_end, cmp_start, cmp_end, ori)
     VALUES (?, ?, ?, ?, ?, ?, 1)
 ));
-my $sth2 = $E_dbh->prepare(qq(INSERT INTO tmp_align values(?, ?, ?, ?, ?)));
+my $sth2 = $E_dbh->prepare(qq(INSERT INTO tmp_align values(NULL, ?, ?, ?, ?, ?)));
 foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Chromosome $chr...\n", 1);
     unless ($E_chrlength->{$chr}) {
