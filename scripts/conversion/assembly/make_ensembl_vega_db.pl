@@ -155,7 +155,7 @@ if ($support->user_proceed("Would you like to drop the ensembl-vega db $evega_db
     $dbh->{'vega'}->do("CREATE DATABASE $evega_db") unless ($support->param('dry_run'));
     $support->log("Done.\n", 1);
 }
-$support->log_stamped("Done.\n");
+$support->log_stamped("Done.\n\n");
 
 # load schema into ensembl-vega db
 $support->log_stamped("Loading schema...\n");
@@ -168,10 +168,10 @@ my $cmd = "/usr/local/mysql/bin/mysql".
                 " -P "  .$support->param('evegaport').
                 " "     .$support->param('evegadbname').
                 " < $schema_file";
-unless ($support->param('dry_ryn')) {
+unless ($support->param('dry_run')) {
     system($cmd) == 0 or $support->log_error("Could not load schema: $!");
 }
-$support->log_stamped("Done.\n");
+$support->log_stamped("Done.\n\n");
 
 # connect to ensembl-vega database
 $dba->{'evega'} = $support->get_database('evega', 'evega');
@@ -189,7 +189,7 @@ $sql = qq(
     AND cs.name = 'chromosome'
 );
 $c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done transfering $c seq_regions.\n");
+$support->log_stamped("Done transfering $c seq_regions.\n\n");
 
 # transfer seq_regions from Ensembl db
 my $sth;
@@ -211,7 +211,19 @@ $sql = qq(
     FROM seq_region
 );
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done transfering $c seq_regions.\n");
+$support->log_stamped("Done transfering $c seq_regions.\n\n");
+
+# transfer seq_region_attribs from Ensembl
+$support->log_stamped("Transfering Ensembl seq_region_attrib...\n");
+$sql = qq(
+    INSERT INTO $evega_db.seq_region_attrib
+    SELECT sra.seq_region_id+$sri_adjust, sra.attrib_type_id, sra.value
+    FROM seq_region_attrib sra, attrib_type at
+    WHERE sra.attrib_type_id = at.attrib_type_id
+    AND at.code NOT LIKE '\%Count'
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c seq_region_attrib entries.\n\n");
 
 # transfer assembly from Ensembl db
 $support->log_stamped("Transfering Ensembl assembly...\n");
@@ -222,19 +234,7 @@ $sql = qq(
     FROM assembly
 );
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done transfering $c assembly entries.\n");
-# PARs from assembly_exception
-$support->log_stamped("Transfering Ensembl PARs from assembly_exception...\n");
-$sql = qq(
-    INSERT INTO $evega_db.assembly_exception
-    SELECT assembly_exception_id, seq_region_id+$sri_adjust, seq_region_start,
-           seq_region_end, exc_type, exc_seq_region_id+$sri_adjust,
-           exc_seq_region_start, exc_seq_region_end, ori
-    FROM assembly_exception
-    WHERE exc_type = 'PAR'
-);
-$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done transfering $c assembly_exception entries.\n");
+$support->log_stamped("Done transfering $c assembly entries.\n\n");
 
 # transfer dna from Ensembl db
 $support->log_stamped("Transfering Ensembl dna...\n");
@@ -244,7 +244,49 @@ $sql = qq(
     FROM dna
 );
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done transfering $c dna entries.\n");
+$support->log_stamped("Done transfering $c dna entries.\n\n");
+
+# transfer repeat_consensus and repeat_feature from Ensembl db
+$support->log_stamped("Transfering Ensembl repeat_consensus...\n");
+$sql = qq(
+    INSERT INTO $evega_db.repeat_consensus
+    SELECT * FROM repeat_consensus
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c repeat_consensus entries.\n");
+$support->log_stamped("Transfering Ensembl repeat_feature...\n");
+$sql = qq(
+    INSERT INTO $evega_db.repeat_feature
+    SELECT repeat_feature_id, seq_region_id+$sri_adjust, seq_region_start,
+           seq_region_end, seq_region_strand, repeat_start, repeat_end,
+           repeat_consensus_id, analysis_id, score
+    FROM repeat_feature
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c repeat_feature entries.\n\n");
+
+# transfer xrefs to external_db Vega_gene, Vega_transcript and Vega_translation
+# from Vega db
+$support->log_stamped("Transfering Vega xrefs (Vega_*)...\n");
+$sql = qq(
+    INSERT INTO $evega_db.xref
+    SELECT x.*
+    FROM xref x, external_db ed
+    WHERE x.external_db_id = ed.external_db_id
+    AND ed.db_name IN
+        ('Vega_gene', 'Vega_transcript', 'Vega_translation', 'Interpro');
+);
+$c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c xref entries.\n\n");
+
+# transfer interpro from Vega db
+$support->log_stamped("Transfering Vega interpro...\n");
+$sql = qq(
+    INSERT INTO $evega_db.interpro
+    SELECT * FROM interpro
+);
+$c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c interpro entries.\n\n");
 
 # add appropriate entries to coord_system
 $support->log_stamped("Adding coord_system entries...\n");
@@ -261,7 +303,23 @@ $sql = qq(
     FROM coord_system
 );
 $c += $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done adding $c coord_system entries.\n");
+$support->log_stamped("Done adding $c coord_system entries.\n\n");
+
+# populate meta_coord
+$support->log_stamped("Tranfering meta_coord...\n");
+$sql = qq(
+    INSERT INTO $evega_db.meta_coord
+    SELECT * FROM meta_coord WHERE table_name = 'assembly_exception'
+);
+$c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
+$sql = qq(
+    INSERT INTO $evega_db.meta_coord
+    SELECT table_name, coord_system_id+$csi_adjust, max_length
+    FROM meta_coord
+    WHERE table_name IN ('assembly_exception', 'repeat_feature')
+);
+$c += $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c meta_coord entries.\n\n");
 
 # populate meta
 $support->log_stamped("Tranfering meta...\n");
@@ -270,7 +328,7 @@ $sql = qq(
     SELECT * FROM meta
 );
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
-$support->log_stamped("Done transfering $c meta entries.\n");
+$support->log_stamped("Done transfering $c meta entries.\n\n");
 
 # finish logfile
 $support->finish_log;

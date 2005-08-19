@@ -80,6 +80,7 @@ BEGIN {
 use Getopt::Long;
 use Pod::Usage;
 use Bio::EnsEMBL::Utils::ConversionSupport;
+use Bio::EnsEMBL::Attribute;
 
 $| = 1;
 
@@ -118,14 +119,31 @@ $support->confirm_params;
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
 
+# suggest to run non-verbosely
+my $txt = qq(Running this script with the --verbose option will create a lot of output.
+It is recommended to do this only for debug purposes.
+Shall I switch to non-verbose logging for you?);
+
+if ($support->param('verbose') and $support->user_proceed($txt)) {
+    $support->param('verbose', 0);
+}
+
 # connect to database and get adaptors
-my ($V_dba, $V_dbh, $E_dba, $E_dbh);
-$V_dba = $support->get_database('core');
-$V_dbh = $V_dba->dbc->db_handle;
+my $V_dba = $support->get_database('core');
+my $V_dbh = $V_dba->dbc->db_handle;
 my $V_sa = $V_dba->get_SliceAdaptor;
-$E_dba = $support->get_database('evega', 'evega');
-$E_dbh = $E_dba->dbc->db_handle;
+my $E_dba = $support->get_database('evega', 'evega');
+my $E_dbh = $E_dba->dbc->db_handle;
 my $E_sa = $E_dba->get_SliceAdaptor;
+my $E_aa = $E_dba->get_AttributeAdaptor;
+
+# create attribute to indicate that a chromosome is identical to Ensembl
+my $attrib = Bio::EnsEMBL::Attribute->new(
+        -CODE           => 'ensembl_ident',
+        -NAME           => 'Ensembl identity',
+        -VALUE          => 1,
+        -DESCRIPTION    => 'Flag indicating seq_region identity with Ensembl',
+);
 
 # create temporary table for storing non-aligned blocks
 unless ($support->param('dry_run')) {
@@ -141,6 +159,9 @@ unless ($support->param('dry_run')) {
             PRIMARY KEY (tmp_align_id)
         )
     ));
+
+    # clear tmp_align table of entries from previous runs
+    $E_dbh->do(qq(DELETE FROM tmp_align));
 }
 
 # get Vega and Ensembl chromosomes
@@ -165,8 +186,9 @@ my $sth1 = $E_dbh->prepare(qq(
 my $sth2 = $E_dbh->prepare(qq(INSERT INTO tmp_align values(NULL, ?, ?, ?, ?, ?)));
 foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Chromosome $chr...\n", 1);
+    
+    # skip non-ensembl chromosomes (e.g. MHC haplotypes)
     unless ($E_chrlength->{$chr}) {
-        # skip non-ensembl chromosomes (e.g. MHC haplotypes)
         $support->log("Chromosome not in Ensembl. Skipping.\n", 1);
         next;
     }
@@ -198,18 +220,48 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
 
                 # same clone start/end -> identical assembly
                 if ($E_clone->start == $V_clone->start and $E_clone->end == $V_clone->end) {
-                    $support->log_verbose("Found matching Vega clone ($i) ".$V_clone->seq_region_name.":".$V_clone->start."-".$V_clone->end.":".$V_clone->strand." $chr:".$V_clones[$i]->from_start."-".$V_clones[$i]->from_end."\n", 2);
+                    # check if clone is tagged to be skipped
+                    # this is to resolve some odd assembly differences,
+                    # relevant clones will have to be tagged manually (for now;
+                    # write script to do this from input list)
+                    my ($skip) = @{ $V_clone->get_all_Attributes('skip_clone') };
+                    if ($skip) {
+                        $support->log_verbose("Skipping matching Vega clone ($i)".
+                        $V_clone->seq_region_name.":".$V_clone->start."-".
+                        $V_clone->end.":".$V_clone->strand."$chr:".
+                        $V_clones[$i]->from_start."-".$V_clones[$i]->from_end.
+                        "\n", 2);
+                        
+                        &found_nomatch($chr, $match, $nomatch, $E_seg,
+                            $last_E_seg, $V_clones[$i], $V_clones[$i-1],
+                            $match_flag, $i, $j
+                        );
 
-                    &found_match($chr, $match, $nomatch, $E_seg, $last_E_seg, $V_clones[$i], $V_clones[$i-1], $match_flag, $i, $j);
+                        $stats_chr{'skipped'}++;
+                        $match_flag = 0;
+                    } else {
+                        $support->log_verbose("Found matching Vega clone ($i)".
+                        $V_clone->seq_region_name.":".$V_clone->start."-".
+                        $V_clone->end.":".$V_clone->strand."$chr:".
+                        $V_clones[$i]->from_start."-".$V_clones[$i]->from_end.
+                        "\n", 2);
 
-                    $stats_chr{'identical'}++;
-                    $match_flag = 1;
+                        &found_match($chr, $match, $nomatch, $E_seg,
+                            $last_E_seg, $V_clones[$i], $V_clones[$i-1],
+                            $match_flag, $i, $j
+                        );
+
+                        $stats_chr{'identical'}++;
+                        $match_flag = 1;
+                    }
 
                 # start/end mismatch
                 } else {
                     $support->log_verbose("Start/end mismatch for clone ($i) ".$V_clone->seq_region_name.":".$V_clone->start."-".$V_clone->end.":".$V_clone->strand." $chr:".$V_clones[$i]->from_start."-".$V_clones[$i]->from_end."\n", 2);
 
-                    &found_nomatch($chr, $match, $nomatch, $E_seg, $last_E_seg, $V_clones[$i], $V_clones[$i-1], $match_flag, $i, $j);
+                    &found_nomatch($chr, $match, $nomatch, $E_seg, $last_E_seg,
+                        $V_clones[$i], $V_clones[$i-1], $match_flag, $i, $j
+                    );
 
                     $stats_chr{'mismatch'}++;
                     $match_flag = 0;
@@ -253,7 +305,8 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
     # store directly aligned blocks in assembly table
     unless ($support->param('dry_run')) {
         $support->log("Adding assembly entries for directly aligned blocks...\n", 1);
-        for (my $c = 0; $c < scalar(@{ $match->{$chr} || [] }); $c++) {
+        my $c;
+        for ($c = 0; $c < scalar(@{ $match->{$chr} || [] }); $c++) {
             $sth1->execute(
                 $V_sa->get_seq_region_id($V_slice),
                 $E_sa->get_seq_region_id($E_slice),
@@ -263,14 +316,15 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
                 $match->{$chr}->[$c]->[1]
             );
         }
-        $support->log("Done.\n", 1);
+        $support->log("Done inserting $c entries.\n", 1);
     }
 
     # store non-aligned blocks in tmp_align table
     unless ($support->param('dry_run')) {
         if ($nomatch->{$chr}) {
             $support->log("Storing non-aligned blocks in tmp_align table...\n", 1);
-            for (my $c = 0; $c < scalar(@{ $nomatch->{$chr} }); $c++) {
+            my $c;
+            for ($c = 0; $c < scalar(@{ $nomatch->{$chr} }); $c++) {
                 $sth2->execute(
                     $chr,
                     $nomatch->{$chr}->[$c]->[0],
@@ -279,8 +333,15 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
                     $nomatch->{$chr}->[$c]->[4],
                 );
             }
-            $support->log("Done.\n", 1);
+            $support->log("Done inserting $c entries.\n", 1);
         }
+    }
+
+    # flag chromosomes which are completely identical
+    unless ($nomatch->{$chr}) {
+        $support->log("Flagging chromosome as identical...\n", 1);
+        $E_aa->store_on_Slice($E_slice, [$attrib]) unless ($support->param('dry_run'));
+        $support->log("Done.\n", 1);
     }
 
     # stats for this chromosome
@@ -298,6 +359,7 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log(sprintf($fmt1, "Length (Ensembl):", $E_slice->length), 2);
     $support->log(sprintf($fmt1, "Length (Vega):", $V_slice->length), 2);
     $support->log(sprintf($fmt1, "Identical clones:", $stats_chr{'identical'}), 2);
+    $support->log(sprintf($fmt1, "Identical clones that were skipped:", $stats_chr{'skipped'}), 2);
     $support->log(sprintf($fmt1, "Clones with start/end mismatch:", $stats_chr{'mismatch'}), 2);
     $support->log(sprintf($fmt1, "Clones only in Ensembl:", $stats_chr{'E_only'}), 2);
     $support->log(sprintf($fmt1, "Clones only in Vega:", $stats_chr{'V_only'}), 2);
@@ -311,6 +373,10 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
         $support->log(('-'x67)."\n", 2);
         for (my $c = 0; $c < scalar(@{ $match->{$chr} }); $c++) {
             $support->log(sprintf($fmt4, @{ $match->{$chr}->[$c] }), 2);
+            # sanity check: aligned region pairs must have same length
+            my $e_len = $match->{$chr}->[$c]->[1] - $match->{$chr}->[$c]->[0] + 1;
+            my $v_len = $match->{$chr}->[$c]->[4] - $match->{$chr}->[$c]->[3] + 1;
+            $support->log_warning("Length mismatch: $e_len <> $v_len\n", 2) unless ($e_len == $v_len);
         }
     }
 
@@ -332,9 +398,21 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("\nDone with chromosome $chr.\n", 1);
 }
 
+# add assembly.mapping to meta table
+unless ($support->param('dry_run')) {
+    $support->log("Adding assembly.mapping entry to meta table...\n");
+    my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
+    $E_dbh->do(qq(
+        INSERT INTO meta (meta_key, meta_value)
+        VALUES ('assembly.mapping', '$mappingstring')
+    ));
+    $support->log("Done.\n");
+}
+
 # overall stats
 $support->log("\nOverall stats:\n");
 $support->log(sprintf($fmt1, "Identical clones:", $stats_total{'identical'}), 1);
+$support->log(sprintf($fmt1, "Identical clones that were skipped:", $stats_total{'skipped'}), 1);
 $support->log(sprintf($fmt1, "Clones with start/end mismatch:", $stats_total{'mismatch'}), 1);
 $support->log(sprintf($fmt1, "Clones only in Ensembl:", $stats_total{'E_only'}), 1);
 $support->log(sprintf($fmt1, "Clones only in Vega:", $stats_total{'V_only'}), 1);
@@ -386,8 +464,35 @@ sub found_match {
         # adjust align block end
         if ($match->{$chr}) {
             my $c = scalar(@{ $match->{$chr} }) - 1;
-            $match->{$chr}->[$c]->[1] = $E_seg->from_end;
-            $match->{$chr}->[$c]->[4] = $V_seg->from_end;
+
+            # if the gaps between this clone and the last are different, start
+            # a new block
+            if (($E_seg->from_start - $match->{$chr}->[$c]->[1]) !=
+                ($V_seg->from_start - $match->{$chr}->[$c]->[4])) {
+
+                $support->log("Gap size mismatch at chromosome $chr, E:".$match->{$chr}->[$c]->[1].'-'.$E_seg->from_start.', V:'.$match->{$chr}->[$c]->[4].'-'.$V_seg->from_start."\n", 2);
+
+                # finish the last align block
+                $match->{$chr}->[$c]->[1] = $last_E_seg->from_end;
+                $match->{$chr}->[$c]->[2] = $j - $match->{$chr}->[$c]->[2];
+                $match->{$chr}->[$c]->[4] = $last_V_seg->from_end;
+                $match->{$chr}->[$c]->[5] = $i - $match->{$chr}->[$c]->[5];
+
+                # start a new align block
+                push @{ $match->{$chr} }, [
+                    $E_seg->from_start,
+                    $E_seg->from_end,
+                    $j,
+                    $V_seg->from_start,
+                    $V_seg->from_end,
+                    $i,
+                ];
+
+            # adjust align block end
+            } else {
+                $match->{$chr}->[$c]->[1] = $E_seg->from_end;
+                $match->{$chr}->[$c]->[4] = $V_seg->from_end;
+            }
         }
     
     # last clone was a non-match
@@ -395,10 +500,10 @@ sub found_match {
         # start a new align block
         push @{ $match->{$chr} }, [
             $E_seg->from_start,
-            undef,
+            $E_seg->from_end,
             $j,
             $V_seg->from_start,
-            undef,
+            $V_seg->from_end,
             $i,
         ];
 
