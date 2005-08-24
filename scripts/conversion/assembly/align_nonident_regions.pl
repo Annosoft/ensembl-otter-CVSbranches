@@ -13,6 +13,11 @@ General options:
     --conffile, --conf=FILE             read parameters from FILE
                                         (default: conf/Conversion.ini)
 
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
     --logfile, --log=FILE               log to FILE (default: *STDOUT)
     --logpath=PATH                      write logfile to PATH (default: .)
     --logappend, --log_append           append to logfile (default: truncate)
@@ -35,19 +40,37 @@ Specific options:
 
 =head1 DESCRIPTION
 
-This script creates a whole genome alignment between two closely related
-assemblies for non-identical regions. These regions are identified by another
-script (align_by_clone_identity.pl) and stored in a temporary database table
-(tmp_align). Alignments are calculated by this algorithm:
+This script is part of a series of scripts to transfer annotation from a
+Vega to an Ensembl assembly. See "Related scripts" below for an overview of the
+whole process.
+
+It creates a whole genome alignment between two closely related assemblies for
+non-identical regions. These regions are identified by another script
+(align_by_clone_identity.pl) and stored in a temporary database table
+(tmp_align).
+
+Alignments are calculated by this algorithm:
 
     1. fetch region from tmp_align
     2. write soft-masked sequences to temporary files
     3. align using blastz
     4. filter best hits (for query sequences, i.e. Ensembl regions) using
        axtBest
-    5. parse blastz output
-    6. remove overlapping Vega alignments
+    5. parse blastz output to create blocks of exact matches only
+    6. remove overlapping target (Vega) alignments
     7. write alignments to assembly table
+
+=head1 RELATED SCRIPTS
+
+The whole Ensembl-vega database production process is done by these scripts:
+
+    ensembl-otter/scripts/conversion/assembly/make_ensembl_vega_db.pl
+    ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
+    ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
+    ensembl-otter/scripts/conversion/assembly/map_annotation.pl
+    ensembl-otter/scripts/conversion/assembly/finish_ensembl_vega_db.pl
+
+See documention in the respective script for more information.
 
 =head1 LICENCE
 
@@ -146,7 +169,7 @@ my $sth = $E_dbh->prepare(qq(SELECT * FROM tmp_align));
 $sth->execute;
 while (my $row = $sth->fetchrow_hashref) {
     my $id = $row->{'tmp_align_id'};
-    #next unless ($id == 1);
+
     $support->log_stamped("Block with tmp_align_id = $id\n", 1);
     my $E_slice = $E_sa->fetch_by_region(
         'chromosome',

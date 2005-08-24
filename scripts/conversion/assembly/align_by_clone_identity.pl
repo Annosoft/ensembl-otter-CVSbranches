@@ -3,7 +3,7 @@
 =head1 NAME
 
 align_by_clone_identity.pl - create a whole genome alignment between two closely
-related assemblies
+related assemblies, step 1
 
 =head1 SYNOPSIS
 
@@ -13,6 +13,11 @@ General options:
     --conffile, --conf=FILE             read parameters from FILE
                                         (default: conf/Conversion.ini)
 
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
     --logfile, --log=FILE               log to FILE (default: *STDOUT)
     --logpath=PATH                      write logfile to PATH (default: .)
     --logappend, --log_append           append to logfile (default: truncate)
@@ -35,6 +40,10 @@ Specific options:
 
 =head1 DESCRIPTION
 
+This script is part of a series of scripts to transfer annotation from a
+Vega to an Ensembl assembly. See "Related scripts" below for an overview of the
+whole process.
+
 This script creates a whole genome alignment between two closely related
 assemblies (e.g. a Vega human assembly and the corresponding NCBI assembly used
 in Ensembl). You will need a database containing both assemblies which can be
@@ -42,11 +51,29 @@ created with the script make_ensembl_vega_db.pl. The alignment is created in
 two steps:
 
     1. Match clones with same name and version directly and create alignment
-       blocks for these regions. The result is stored in the assembly table as
-       an assembly between the chromosomes of both assemblies.
+       blocks for these regions. Clones can be tagged manually to be excluded
+       from these direct matches by adding a seq_region_attrib of type
+       "skip_clone" to the Vega source database. This can be useful to get
+       better results in regions with major assembly differences (eg human chr
+       9).
+       
+       The result is stored in the assembly table as an assembly between the
+       chromosomes of both genome assemblies.
 
-    2. Store non-aligned blocks in a temporary table (tmp_align). They can be
-       aligned using blastz by align_nonident_regions.pl.
+    2. Store non-aligned blocks in a temporary table (tmp_align). They can
+       later be aligned using blastz by align_nonident_regions.pl.
+
+=head1 RELATED SCRIPTS
+
+The whole Ensembl-vega database production process is done by these scripts:
+
+    ensembl-otter/scripts/conversion/assembly/make_ensembl_vega_db.pl
+    ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
+    ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
+    ensembl-otter/scripts/conversion/assembly/map_annotation.pl
+    ensembl-otter/scripts/conversion/assembly/finish_ensembl_vega_db.pl
+
+See documention in the respective script for more information.
 
 =head1 LICENCE
 
@@ -439,9 +466,10 @@ $support->finish_log;
   Arg[2]      : Hashref $match - datastructure to store aligned blocks
   Arg[3]      : Hashref $nomatch - datastructure to store non-aligned blocks
   Arg[4]      : Bio::EnsEMBL::ProjectionSegment $E_seg - current Ensembl segment
-  Arg[5]      : Bio::EnsEMBL::ProjectionSegment $E_seg - last Ensembl segment
+  Arg[5]      : Bio::EnsEMBL::ProjectionSegment $last_E_seg - last Ensembl
+                segment
   Arg[6]      : Bio::EnsEMBL::ProjectionSegment $V_seg - current Vega segment
-  Arg[7]      : Bio::EnsEMBL::ProjectionSegment $V_seg - last Vega segment
+  Arg[7]      : Bio::EnsEMBL::ProjectionSegment $last_V_seg - last Vega segment
   Arg[8]      : Boolean $match_flag - flag indicating if last clone was a match
   Arg[9]      : Int $i - Vega clone count
   Arg[10]     : Int $j - Ensembl clone count
@@ -524,9 +552,10 @@ sub found_match {
   Arg[2]      : Hashref $match - datastructure to store aligned blocks
   Arg[3]      : Hashref $nomatch - datastructure to store non-aligned blocks
   Arg[4]      : Bio::EnsEMBL::ProjectionSegment $E_seg - current Ensembl segment
-  Arg[5]      : Bio::EnsEMBL::ProjectionSegment $E_seg - last Ensembl segment
+  Arg[5]      : Bio::EnsEMBL::ProjectionSegment $last_E_seg - last Ensembl
+                segment
   Arg[6]      : Bio::EnsEMBL::ProjectionSegment $V_seg - current Vega segment
-  Arg[7]      : Bio::EnsEMBL::ProjectionSegment $V_seg - last Vega segment
+  Arg[7]      : Bio::EnsEMBL::ProjectionSegment $last_V_seg - last Vega segment
   Arg[8]      : Boolean $match_flag - flag indicating if last clone was a match
   Arg[9]      : Int $i - Vega clone count
   Arg[10]     : Int $j - Ensembl clone count

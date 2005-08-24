@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-make_ensembl_vega_db.pl - create a db for transfering annotation to Ensembl
+make_ensembl_vega_db.pl - create a db for transfering annotation to the Ensembl
 assembly
 
 =head1 SYNOPSIS
@@ -43,21 +43,40 @@ Specific options:
                                         username USER
     --evegapass=PASS                    use ensembl-vega (target) database
                                         passwort PASS
+    --extdbfile, --extdb=FILE           the path of the file containing
+                                        the insert statements of the
+                                        entries of the external_db table
+    --attribtypefile=FILE               read attribute type definition from FILE
 
 =head1 DESCRIPTION
 
-This script prepares a database which can be used to transfer annotation from a
-Vega to an Ensembl assembly by:
+This script is part of a series of scripts to transfer annotation from a
+Vega to an Ensembl assembly. See "Related scripts" below for an overview of the
+whole process.
 
-    - creating a db with current Ensembl schema
-    - transfering Vega chromosomes (with same seq_region_id and name as in
+It prepares the initial Ensembl schema database to hold Vega annotation on the
+Ensembl assembly. Major steps are:
+
+    - create a db with current Ensembl schema
+    - transfer Vega chromosomes (with same seq_region_id and name as in
       source db)
-    - transfering Ensembl seq_regions, assembly and dna
-    - adding coord_system entries
-    - transfering Ensembl meta
+    - transfer Ensembl seq_regions, assembly, dna, repeats
+    - transfer certain Vega xrefs
+    - add coord_system entries
+    - transfer Ensembl meta
+    - update external_db and attrib_type
 
-It does not load the alignment between the two assemblies (this is generated
-and loaded by separate scripts).
+=head1 RELATED SCRIPTS
+
+The whole Ensembl-vega database production process is done by these scripts:
+
+    ensembl-otter/scripts/conversion/assembly/make_ensembl_vega_db.pl
+    ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
+    ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
+    ensembl-otter/scripts/conversion/assembly/map_annotation.pl
+    ensembl-otter/scripts/conversion/assembly/finish_ensembl_vega_db.pl
+
+See documention in the respective script for more information.
 
 =head1 LICENCE
 
@@ -329,6 +348,41 @@ $sql = qq(
 );
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c meta entries.\n\n");
+
+# run update_external_dbs.pl
+my $options = $support->create_commandline_options({
+    'allowed_params' => 1,
+    'exclude' => [
+        'ensemblhost',
+        'ensemblport',
+        'ensembluser',
+        'ensemblpass',
+        'ensembldbname',
+        'evegahost',
+        'evegaport',
+        'evegauser',
+        'evegapass',
+        'evegadbname',
+    ],
+    'replace' => {
+        dbname      => $support->param('evegadbname'),
+        host        => $support->param('evegahost'),
+        port        => $support->param('evegaport'),
+        user        => $support->param('evegauser'),
+        pass        => $support->param('evegapass'),
+        logappend   => 1,
+    },
+});
+$support->log_stamped("Updating external_db table...\n");
+system("../xref/update_external_dbs.pl $options") == 0
+    or $support->throw("Error running update_external_dbs.pl: $!");
+$support->log_stamped("Done.\n\n");
+
+# update attributes
+$support->log_stamped("Updating attrib_type table...\n");
+system("../update_attributes.pl $options") == 0
+    or $support->throw("Error running update_attributes.pl: $!");
+$support->log_stamped("Done.\n\n");
 
 # finish logfile
 $support->finish_log;

@@ -36,9 +36,60 @@ Specific options:
                                         username USER
     --evegapass=PASS                    use ensembl-vega (target) database
                                         passwort PASS
+    --chromosomes, --chr=LIST           only process LIST chromosomes
+    --prune=0|1                         delete results from previous runs of
+                                        this script first
+    --statlog=FILE                      log stats to FILE
 
 =head1 DESCRIPTION
 
+This script is part of a series of scripts to transfer annotation from a
+Vega to an Ensembl assembly. See "Related scripts" below for an overview of the
+whole process.
+
+Given a database with a mapping between two different assemblies of the same
+genome, this script transfers features from one assembly to the other.
+
+Features transfer include:
+
+    - genes/transcripts/exons/translations
+    - xrefs
+    - supporting features and associated dna/protein_align_features
+    - protein features
+
+It uses Bio::EnsEMBL::ChainedAssemblyMapper to remap feature coordinates. This
+mapper has to be configured manually at the moment by editing
+Bio::EnsEMBL::DBSQL::AssemblyMapperAdaptor. At the time of writing these were
+lines 183-192:
+
+  if(@mapping_path == 2) {
+    # 1 step regular mapping
+#   $asm_mapper = Bio::EnsEMBL::AssemblyMapper->new($self, @mapping_path);
+
+    # If you want multiple pieces on two seqRegions to map to each other
+    # uncomment following. AssemblyMapper assumes only one mapped piece per
+    # contig
+    $asm_mapper = Bio::EnsEMBL::ChainedAssemblyMapper->new( $self, $mapping_path[0], undef, $mapping_path[1] );
+    $self->{'_asm_mapper_cache'}->{$key} = $asm_mapper;
+    return $asm_mapper;
+  }
+
+Currently, only complete transfers are considered. This is the easiest way to
+ensure that the resulting gene structures are identical to the original ones.
+For future release, there are plans to store incomplete matches by using the
+Ensembl API's SeqEdit facilities.
+
+=head1 RELATED SCRIPTS
+
+The whole Ensembl-vega database production process is done by these scripts:
+
+    ensembl-otter/scripts/conversion/assembly/make_ensembl_vega_db.pl
+    ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
+    ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
+    ensembl-otter/scripts/conversion/assembly/map_annotation.pl
+    ensembl-otter/scripts/conversion/assembly/finish_ensembl_vega_db.pl
+
+See documention in the respective script for more information.
 
 =head1 LICENCE
 
@@ -48,6 +99,7 @@ Please see http://www.ensembl.org/code_licence.html for details
 =head1 AUTHOR
 
 Patrick Meidl <pm2@sanger.ac.uk>
+Based on code originally wrote by Graham McVicker <mcvicker@ebi.ac.uk>
 
 =head1 CONTACT
 
@@ -129,6 +181,10 @@ $support->init_log;
 # check required params
 $support->check_required_params(qw(statlog));
 
+# this isn't really used, but still needed so modules don't break
+StatMsg::set_logger(StatLogger->new(
+    $support->param('logpath').'/'.$support->param('statlog')));
+
 # connect to database and get adaptors
 my $V_dba = $support->get_database('core');
 my $V_dbh = $V_dba->dbc->db_handle;
@@ -140,10 +196,6 @@ my $E_dbh = $E_dba->dbc->db_handle;
 my $E_sa = $E_dba->get_SliceAdaptor;
 my $E_ga = $E_dba->get_GeneAdaptor;
 my $E_pfa = $E_dba->get_ProteinFeatureAdaptor;
-
-StatMsg::set_logger(StatLogger->new(
-    $support->param('logpath').'/'.$support->param('statlog')));
-
 my $cs_adaptor = $E_dba->get_CoordSystemAdaptor;
 my $asmap_adaptor = $E_dba->get_AssemblyMapperAdaptor;
 
@@ -152,10 +204,12 @@ my $E_cs = $cs_adaptor->fetch_by_name('chromosome',
 my $V_cs = $cs_adaptor->fetch_by_name('chromosome',
     $support->param('assembly'));
 
+# get assembly mapper
 my $mapper = $asmap_adaptor->fetch_by_CoordSystems($E_cs, $V_cs);
 $mapper->max_pair_count( 6_000_000 );
 $mapper->register_all;
 
+# if desired, delete entries from previous runs of this script
 if ($support->param('prune')) {
     $support->log("Deleting db entries from previous runs of this script...\n");
     $E_dbh->do(qq(DELETE FROM analysis));
@@ -223,10 +277,6 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
                 }
             }
 
-            # This method call is optional, just for statistics gathering
-            # and extra sanity checking / debug output:
-            #gen_transcript_stats($finished_transcripts);
-
             push @finished, @$finished_transcripts;
             map { $all_protein_features{$_} = $protein_features->{$_} }
                 keys %{ $protein_features || {} };
@@ -248,83 +298,20 @@ $support->finish_log;
 ### END main
 
 
-#
-# method which does some sanity checking of generated transcripts,
-# gathers some stats about the completed transcripts and prints the
-# created translations to STDERR
-#
-sub gen_transcript_stats {
-  my $finished_transcripts = shift;
-
-  my $transcript_count = @$finished_transcripts;
-  my $translation_count = 0;
-  my $stop_codons_count = 0;
-
-  if($transcript_count > 1) {
-    StatMsg->new(StatMsg::TRANSCRIPT | StatMsg::SPLIT);
-  }
-  elsif($transcript_count== 0) {
-    StatMsg->new(StatMsg::TRANSCRIPT | StatMsg::NO_SEQUENCE_LEFT);
-  }
-
-  foreach my $ftrans (@$finished_transcripts) {
-    if($ftrans->translation) {
-      $translation_count++;
-      my $pep = $ftrans->translate->seq;
-
-      print STDERR "\n\n$pep\n\n";
-
-      if($pep =~ /\*/) {
-        $stop_codons_count++;
-      }
-
-      # sanity check, if translation is defined we expect a peptide
-      if(!$pep) {
-        print_translation($support, $ftrans->translation);
-        $support->log_error("Unexpected Translation but no peptide.\n");
-      }
-    }
-  }
-
-  # If there were stop codons in one of the split transcripts
-  # report it. Report it as 'entire' if all split transcripts had
-  # stops.
-  if($stop_codons_count) {
-    my $code = StatMsg::TRANSCRIPT | StatMsg::DOESNT_TRANSLATE;
-    if($stop_codons_count == $translation_count) {
-      $code |= StatMsg::ENTIRE;
-    } else {
-      $code |= StatMsg::PARTIAL;
-    }
-    StatMsg->new($code);
-  }
-
-  if(!$translation_count) {
-    StatMsg->new(StatMsg::TRANSCRIPT | StatMsg::NO_CDS_LEFT);
-  }
-
-  if($translation_count) {
-    if($stop_codons_count) {
-      if($translation_count > $stop_codons_count) {
-        StatMsg->new(StatMsg::TRANSCRIPT | StatMsg::TRANSLATES |
-                     StatMsg::PARTIAL);
-      }
-    } else {
-      StatMsg->new(StatMsg::TRANSCRIPT | StatMsg::TRANSLATES |
-                   StatMsg::ENTIRE);
-    }
-  }
-}
-
-
 =head2 transfer_transcript
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Bio::EnsEMBL::Transcript $transcript - Vega source transcript
+  Arg[2]      : Bio::EnsEMBL::ChainedAssemblyMapper $mapper - assembly mapper
+  Arg[3]      : Bio::EnsEMBL::CoordSystem $V_cs - Vega coordinate system
+  Arg[4]      : Bio::EnsEMBL::ProteinFeatureAdaptor $V_pfa - Vega protein
+                feature adaptor
+  Arg[5]      : Bio::EnsEMBL::Slice $slice - Ensembl slice
+  Description : This subroutine takes a Vega transcript and transfers it (and
+                all associated features) to the Ensembl assembly.
+  Return type : InterimTranscript - the interim transcript object representing
+                the transfered transcript
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
@@ -448,12 +435,14 @@ sub transfer_transcript {
 
 =head2 create_transcripts
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : InterimTranscript $itranscript - an interim transcript object
+  Arg[2]      : Bio::EnsEMBL::SliceAdaptor $E_sa - Ensembl slice adaptor
+  Description : Creates the actual transcripts from interim transcripts
+  Return type : List of a listref of Bio::EnsEMBL::Transcripts and a hashref of
+                protein features (keys: transcript_stable_id, values:
+                Bio::Ensmembl::ProteinFeature)
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
