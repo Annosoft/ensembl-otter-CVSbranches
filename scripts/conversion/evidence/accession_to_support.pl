@@ -6,27 +6,29 @@ accession_to_support.pl - script to add supporting evidence to a Vega database
 
 =head1 SYNOPSIS
 
-    accession_to_support.pl [options]
+accession_to_support.pl [options]
 
-    General options:
-        --dbname, db_name=NAME              use database NAME
-        --host, --dbhost, --db_host=HOST    use database host HOST
-        --port, --dbport, --db_port=PORT    use database port PORT
-        --user, --dbuser, --db_user=USER    use database username USER
-        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
-        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
-        --conffile, --conf=FILE             read parameters from FILE
-        --logfile, --log=FILE               log to FILE (default: *STDOUT)
-        -v, --verbose                       verbose logging
-        -i, --interactive                   run script interactively
-                                            (default: true)
-        -n, --dry_run, --dry                don't write results to database
-        -h, --help, -?                      print help (this message)
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
 
-    Specific options:
-        --chromosomes, --chr=LIST           only process LIST chromosomes
-        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
-                                            (or read list from FILE)
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
+
+Specific options:
+    --chromosomes, --chr=LIST           only process LIST chromosomes
+    --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                        (or read list from FILE)
 
 =head1 DESCRIPTION
 
@@ -96,6 +98,11 @@ $support->parse_extra_options(
     'chromosomes|chr=s@',
     'gene_stable_id|gsi=s@',
 );
+$support->allowed_params(
+    $support->get_common_params,
+    'chromosomes',
+    'gene_stable_id',
+);
 
 if ($support->param('help') or $support->error) {
     warn $support->error if $support->error;
@@ -109,8 +116,7 @@ $support->list_or_file('gene_stable_id');
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-$support->log_filehandle('>>');
-$support->log($support->init_log);
+$support->init_log;
 
 # connect to database and get adaptors (caching features on one slice only)
 my $dba = $support->get_database('otter');
@@ -171,18 +177,14 @@ foreach my $chr (@chr_sorted) {
         $stats{'genes'}++;
         my %se_hash = ();
         my $gene_has_support = 0;
-        if ($support->param('verbose')) {
-            $support->log("Gene $gene_name ($gid, $gsi) on slice ".
-                           $gene->slice->name."... ".
-                           $support->date_and_mem."\n");
-        }
+        $support->log_verbose("Gene $gene_name ($gid, $gsi) on slice ".
+                        $gene->slice->name."... ".
+                        $support->date_and_mem."\n");
 
         # fetch similarity features from db and store required information in
         # lightweight datastructure (name => [ start, end, dbID, type ])
-        if ($support->param('verbose')) {
-            $support->log("Fetching similarity features... ".
-                           $support->date_and_mem."\n", 1);
-        }
+        $support->log_verbose("Fetching similarity features... ".
+                        $support->date_and_mem."\n", 1);
         my $similarity = $gene_slice->get_all_SimilarityFeatures;
         my $sf = {};
         foreach my $f (@$similarity) {
@@ -190,16 +192,14 @@ foreach my $chr (@chr_sorted) {
             push @{ $sf->{$hitname} },
                  [ $f->start, $f->end, $f->dbID, $ftype{ref($f)} ];
         }
-        if ($support->param('verbose')) {
-            $support->log("Done fetching ".(scalar @$similarity)." features.".
-                           $support->date_and_mem."\n", 1);
-        }
+        $support->log_verbose("Done fetching ".(scalar @$similarity).
+                        " features.".$support->date_and_mem."\n", 1);
 
         # loop over transcripts
         foreach my $trans (@{ $gene->get_all_Transcripts }) {
             my $transcript_has_support = 0;
             $stats{'transcripts'}++;
-            $support->log("Transcript ".$trans->stable_id."...\n", 1) if ($support->param('verbose'));
+            $support->log_verbose("Transcript ".$trans->stable_id."...\n", 1);
 
             # loop over evidence added by annotators for this transcript
             my @evidence = $trans->transcript_info->evidence;
@@ -210,7 +210,7 @@ foreach my $chr (@chr_sorted) {
                 $acc =~ s/.*://;
                 $acc =~ s/\.[0-9]*$//;
                 my $ana = $analysis{$evi->type . "_evidence"};
-                $support->log("Evidence $acc...\n", 2) if ($support->param('verbose'));
+                $support->log_verbose("Evidence $acc...\n", 2);
                 # loop over similarity features on the slice, compare name with
                 # evidence
                 my $match = 0;
@@ -221,7 +221,7 @@ foreach my $chr (@chr_sorted) {
                             # similarity features
                             foreach my $exon (@exons) {
                                 if ($exon->end >= $hit->[0] && $exon->start <= $hit->[1]) {
-                                    $support->log("Matches similarity feature with dbID ".$hit->[2].".\n", 3) if ($support->param('verbose'));
+                                    $support->log_verbose("Matches similarity feature with dbID ".$hit->[2].".\n", 3);
                                     # store unique evidence identifier in hash
                                     $se_hash{$exon->dbID.":".$hit->[2].":".$hit->[3]} = 1;
                                     
@@ -242,17 +242,13 @@ foreach my $chr (@chr_sorted) {
         }
         $stats{'genes_without_support'}++ unless ($gene_has_support);
 
-        if ($support->param('verbose')) {
-            $support->log("Found $gene_has_support matches (".
-                           scalar(keys %se_hash)." unique).\n", 1);
-        }
+        $support->log_verbose("Found $gene_has_support matches (".
+                       scalar(keys %se_hash)." unique).\n", 1);
 
         # store supporting evidence in db
         if ($gene_has_support and !$support->param('dry_run')) {
-            if ($support->param('verbose')) {
-                $support->log("Storing supporting evidence... ".
-                               $support->date_and_mem."\n", 1);
-            }
+            $support->log_verbose("Storing supporting evidence... ".
+                           $support->date_and_mem."\n", 1);
             foreach my $se (keys %se_hash) {
                 eval {
                     $sth->execute(split(":", $se));
@@ -261,10 +257,8 @@ foreach my $chr (@chr_sorted) {
                     $support->log_warning("$gsi: $@\n", 1);
                 }
             }
-            if ($support->param('verbose')) {
-                $support->log("Done storing evidence. ".
-                               $support->date_and_mem."\n", 1);
-            }
+            $support->log_verbose("Done storing evidence. ".
+                           $support->date_and_mem."\n", 1);
         }
     }
     $support->log("\nProcessed $stats{genes} genes (of ".scalar @$genes." on chromosome $chr), $stats{transcripts} transcripts, $stats{exons} exons.\n");
@@ -283,6 +277,5 @@ foreach my $chr (@chr_sorted) {
 }
 
 # finish log
-$support->log($support->finish_log);
-
+$support->finish_log;
 

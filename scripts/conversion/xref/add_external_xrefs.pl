@@ -7,31 +7,34 @@ of input files
 
 =head1 SYNOPSIS
 
-    add_external_xrefs.pl [options]
+add_external_xrefs.pl [options]
 
-    General options:
-        --dbname, db_name=NAME              use database NAME
-        --host, --dbhost, --db_host=HOST    use database host HOST
-        --port, --dbport, --db_port=PORT    use database port PORT
-        --user, --dbuser, --db_user=USER    use database username USER
-        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
-        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
-        --conffile, --conf=FILE             read parameters from FILE
-        --logfile, --log=FILE               log to FILE (default: *STDOUT)
-        -i, --interactive                   run script interactively
-                                            (default: true)
-        -n, --dry_run, --dry                don't write results to database
-        -h, --help, -?                      print help (this message)
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
 
-    Specific options:
-        --chromosomes, --chr=LIST           only process LIST chromosomes
-        --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
-                                            (or read list from FILE)
-        --xreffile FILE                     read input from FILE
-        --xrefformat FORMAT                 input file format FORMAT
-                                            (hugo|locuslink|refseq)
-        --mismatch                          correct case mismatches in the db
-                                            (NOTE: this option overrides
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
+
+Specific options:
+    --chromosomes, --chr=LIST           only process LIST chromosomes
+    --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
+                                        (or read list from FILE)
+    --xreffile=FILE                     read input from FILE
+    --xrefformat=FORMAT                 input file format FORMAT
+                                        (hugo|locuslink|refseq)
+    --mismatch                          correct case mismatches in the db
+                                        (NOTE: this option overrides
                                             dry_run!)
 
 =head1 DESCRIPTION
@@ -93,7 +96,15 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'xreffile=s',
     'xrefformat=s',
-    'mismatch=s',
+    'mismatch',
+);
+$support->allowed_params(
+    $support->get_common_params,
+    'chromosomes',
+    'gene_stable_id',
+    'xreffile',
+    'xrefformat',
+    'mismatch',
 );
 
 if ($support->param('help') or $support->error) {
@@ -111,8 +122,7 @@ $support->confirm_params;
 exit unless $support->user_proceed("This script must run after add_vega_xrefs.pl. Have you run it?");
 
 # get log filehandle and print heading and parameters to logfile
-$support->log_filehandle('>>');
-$support->log($support->init_log);
+$support->init_log;
 
 # check that --mismatch is combined with --dry_run
 if ($support->param('mismatch')) {
@@ -151,7 +161,7 @@ unless ($allowed_formats{$support->param('xrefformat')}) {
 }
 
 # parse input file
-$support->log("Reading xref input file... ".$support->date_and_mem."\n");
+$support->log_stamped("Reading xref input file...\n");
 my $parser = 'parse_'.$support->param('xrefformat');
 no strict 'refs';
 my ($xrefs, $lcmap) = &$parser($support);
@@ -191,7 +201,17 @@ foreach my $chr (@chr_sorted) {
     foreach my $gene (@$genes) {
         my $gsi = $gene->stable_id;
         my $gid = $gene->dbID;
-        my $gene_name = $gene->display_xref->display_id;
+        
+        # catch missing display_xrefs here!!
+        my $disp_xref = $gene->display_xref;
+        my $gene_name;
+        if ($disp_xref) {
+            $gene_name = $disp_xref->display_id;
+        } else {
+            $support->log_warning("No display_xref found for gene $gid ($gsi).\n");
+            next;
+        }
+
         my $lc_gene_name = lc($gene_name);
 
         # filter to user-specified gene_stable_ids
@@ -273,7 +293,7 @@ foreach my $chr (@chr_sorted) {
 }
 
 # finish log
-$support->log($support->finish_log);
+$support->finish_log;
 
 
 ### end main ###
@@ -459,7 +479,7 @@ sub parse_locuslink {
     close(LL);
 
     # log stats
-    $support->log("Done processing ".$stats{'total'}." entries. ".$support->date_and_mem."\n");
+    $support->log_stamped("Done processing ".$stats{'total'}." entries.\n");
     $support->log("OK: ".$stats{'ok'}.".\n");
     $support->log("SKIPPED:\n");
     $support->log("Not \'$species\': ".$stats{'wrong_org'}.".\n", 1);
@@ -539,7 +559,7 @@ sub parse_refseq {
     }
 
     # log stats
-    $support->log("Done processing ".$stats{'total'}." entries. ".$support->date_and_mem."\n");
+    $support->log_stamped("Done processing ".$stats{'total'}." entries.\n");
     $support->log("OK:\n");
     $support->log("Found ".$stats{'genenames'}." gene names (".scalar(keys(%xrefs))." unique).\n", 1);
     $support->log("SKIPPED:\n");

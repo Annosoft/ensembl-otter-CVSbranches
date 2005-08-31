@@ -6,26 +6,29 @@ update_external_dbs.pl - reads external_db entries from reference file
 
 =head1 SYNOPSIS
 
-    update_external_dbs.pl [options]
+update_external_dbs.pl [options]
 
-    General options:
-        --dbname, db_name=NAME              use database NAME
-        --host, --dbhost, --db_host=HOST    use database host HOST
-        --port, --dbport, --db_port=PORT    use database port PORT
-        --user, --dbuser, --db_user=USER    use database username USER
-        --pass, --dbpass, --db_pass=PASS    use database passwort PASS
-        --driver, --dbdriver, --db_driver=DRIVER    use database driver DRIVER
-        --conffile, --conf=FILE             read parameters from FILE
-        --logfile, --log=FILE               log to FILE (default: *STDOUT)
-        -i, --interactive                   run script interactively
-                                            (default: true)
-        -n, --dry_run, --dry                don't write results to database
-        -h, --help, -?                      print help (this message)
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
 
-    Specific options:
-        --extdbfile, --extdb=FILE           the path of the file containing
-                                            the insert statements of the
-                                            entries of the external_db table
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
+
+Specific options:
+    --extdbfile, --extdb=FILE           the path of the file containing
+                                        the insert statements of the
+                                        entries of the external_db table
 
 =head1 DESCRIPTION
 
@@ -74,6 +77,7 @@ my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
 # parse options
 $support->parse_common_options(@_);
 $support->parse_extra_options('extdbfile|extdb=s');
+$support->allowed_params($support->get_common_params, 'extdbfile');
 
 if ($support->param('help') or $support->error) {
     warn $support->error if $support->error;
@@ -86,8 +90,7 @@ $support->check_required_params('extdbfile');
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
-$support->log_filehandle('>>');
-$support->log($support->init_log);
+$support->init_log;
 
 # connect to database and get adaptors
 my $dba = $support->get_database('core');
@@ -139,5 +142,5 @@ unless ($support->param('dry_run')) {
 }
 
 # finish logging
-$support->log($support->finish_log);
+$support->finish_log;
 
