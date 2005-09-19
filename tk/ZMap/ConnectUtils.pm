@@ -88,7 +88,6 @@ sub parse_response{
     my $delimit  = X11::XRemote::delimiter();
 
     my ($status, $xml) = split(/$delimit/, $response, 2);
-
     my $parser = XML::Simple->new();
     my $hash   = $parser->XMLin($xml);
     
@@ -132,8 +131,10 @@ return the xclient with specified id, creating if necessary.
 
     sub xclient_with_id{
         my ($id) = @_;
+
         # user can't use a name for some reason, lets make one up
         my $name = __PACKAGE__ . $AUTO_INCREMENT++;
+
         return xclient_with_name($name, $id);
     }
 
@@ -170,6 +171,7 @@ return the xclient with specified name, creating if id supplied.
                                             );
                 $CACHED_CLIENTS->{$id} = [ $client, $name ];
             }
+            print $client->window_id;
 
             return $client;
         };

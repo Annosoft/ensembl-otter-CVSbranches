@@ -10,53 +10,62 @@ use base 'CanvasWindow::SequenceNotes';
 
 sub clone_index{
     my ($self, $index) = @_;
-    if (defined($index)){
-	$self->{'_clone_index'} = $index;
-	if($self->SequenceSet){
+
+    if (defined $index) {
+	    $self->{'_clone_index'} = $index;
+
+
+        # Disable Prev and Next buttons at ends of range
 	    my $cs_list = $self->get_CloneSequence_list();
 	    my $prev_button = $self->prev_button();
 	    my $next_button = $self->next_button();
-	    return $index unless $prev_button;
-	    if($index && $index + 1 >= scalar(@$cs_list)){
-		$next_button->configure(-state => 'disabled');
-		$prev_button->configure(-state => 'normal');
-	    }elsif(!$index){
-		$next_button->configure(-state => 'normal');
-		$prev_button->configure(-state => 'disabled');
-	    }else{
-		$next_button->configure(-state => 'normal');
-		$prev_button->configure(-state => 'normal');
+        if ($index == 0) {
+            # First clone
+		    $prev_button->configure(-state => 'disabled');
+		    $next_button->configure(-state => 'normal');
 	    }
-	}
+        elsif ($index + 1 >= scalar(@$cs_list)) {
+            # Last clone
+		    $prev_button->configure(-state => 'normal');
+		    $next_button->configure(-state => 'disabled');
+	    }
+        else {
+            # Internal clone
+		    $prev_button->configure(-state => 'normal');
+		    $next_button->configure(-state => 'normal');
+	    }
     }
     return $self->{'_clone_index'};
 }
 
-sub next_button{
+sub next_button {
     my ($self, $next) = @_;
     if ($next){
-	$self->{'_next_button'} = $next;
+	    $self->{'_next_button'} = $next;
     }
     return $self->{'_next_button'};
 }
-sub prev_button{
+sub prev_button {
     my ($self, $prev) = @_;
     if ($prev){
-	$self->{'_prev_button'} = $prev;
+	    $self->{'_prev_button'} = $prev;
     }
     return $self->{'_prev_button'};
 }
 
-
-
-sub current_clone{
-    my ($self , $clone) = @_;
+sub current_clone {
+    my ($self, $clone) = @_;
+    
     my $cs_list = $self->get_CloneSequence_list();
-    my $cloneSeq = @$cs_list[$self->clone_index];
+    my $i = $self->clone_index;
+    my $cs = @$cs_list[$i];
 
-    my $title = "Pipeline Status for " .$cloneSeq->contig_name . "  " .$cloneSeq->clone_name;
+    my $title = sprintf "%d: pipline status of %s  (%s)",
+        $i + 1,
+        $cs->accession . '.' . $cs->sv,
+        $cs->clone_name;
     $self->canvas->toplevel->title($title);
-    return $cloneSeq;
+    return $cs;
 }
 
 sub initialise {
@@ -73,28 +82,28 @@ sub initialise {
     
     my $button_frame = $top->Frame;
     $button_frame->pack(
-			-side => 'top',
- 			);        
+		-side => 'top',
+ 		);        
     
     my( $comment, $comment_label, $set );
 
+    ### These buttons should also highlight the current
+    ### clone in the parent SequenceNotes window
     my $next_clone = sub { 
-	my $cs_list = $self->get_CloneSequence_list(); 
-	my $cur_idx = $self->clone_index();
-	$self->clone_index(++$cur_idx) unless $cur_idx + 1 >= scalar(@$cs_list);
-	$self->draw();
+	    my $cs_list = $self->get_CloneSequence_list(); 
+	    my $cur_idx = $self->clone_index();
+	    $self->clone_index(++$cur_idx) unless $cur_idx + 1 >= scalar(@$cs_list);
+	    $self->draw();
     };
     my $prev_clone = sub { 
-	my $cs_list = $self->get_CloneSequence_list(); 
-	my $cur_idx = $self->clone_index();
-	$self->clone_index(--$cur_idx) if $cur_idx;
-	$self->draw();
+	    my $cs_list = $self->get_CloneSequence_list(); 
+	    my $cur_idx = $self->clone_index();
+	    $self->clone_index(--$cur_idx) if $cur_idx;
+	    $self->draw();
     };
     
     my $prev = $self->make_button($button_frame, 'Prev Clone', $prev_clone);
     my $next = $self->make_button($button_frame, 'Next Clone', $next_clone);
-    $prev->bind('<Destroy>', sub { $self = undef });
-    $next->bind('<Destroy>', sub { $self = undef });
     $self->prev_button($prev);
     $self->next_button($next);
     
@@ -105,114 +114,43 @@ sub initialise {
     # And I think normal behaviour without it.
     $self->bind_close_window($top);
     
-    return $self;
-}
-
-sub get_rows_list{
-    my ($self) = @_ ;         
-    print STDERR "Fetching SequenceNotes list...";
-    my $clone = $self->current_clone;
-    my $note_list = [];#$clone->get_all_SequenceNotes;
-
-    my $pipeStatus = $clone->pipelineStatus();
-    my $completed  = $pipeStatus->completed();
-    foreach my $comp(sort(keys(%{$completed}))){
-        push(@$note_list, [ $completed->{$comp}, 'completed' ]);
-    }
-    my $unfinished = $pipeStatus->unfinished();
-    foreach my $unfin(sort(keys(%{$unfinished}))){
-        push(@$note_list, [ $unfinished->{$unfin}, 'unfinished' ]);
-    }
-    return $note_list;
-}  
-sub empty_canvas_message{
-    my ($self) = @_;
-    my $clone = $self->current_clone;
-    return "No Status available for sequence " . $clone->contig_name . "  " . $clone->clone_name;
-}
-
-#already have this method in SequenceNotes.pm, but perl doesnt seem to like inheritance with anonymous subroutines
-sub _write_text{
-    my ($canvas ,  @args) = @_ ;
-    $canvas->createText(@args) ;
-}
-
-sub column_methods{
-    my $self = shift @_ ;
+    # Define how the table gets drawn by supplying a column_methods array
     my $norm = [$self->font, $self->font_size, 'normal'];
     my $bold = [$self->font, $self->font_size, 'bold'];   
     my $status_colors = {'completed'   => 'darkgreen', 
-                         'unfinished'  => 'red', 
+                         'missing'     => 'red', 
                          'unavailable' => 'darkred'};
-    unless(ref($self->{'_column_methods'}) eq 'ARRAY'){
-	my $calling_method  = \&_write_text ;
-        my $methods =[
-		      [ $calling_method,
-                      sub{
-			  my $arr_ref = shift;
-			  #my( $year, $month, $mday ) = (localtime($time))[5,4,3];
-			  #my $txt = sprintf "%04d-%02d-%02d", 1900 + $year, 1 + $month, $mday;
-			  return { -text => $arr_ref->[0]->logic_name, -font => $bold, -tags => ['searchable']}; 
-		      }],
-                      [$calling_method , 
-		      sub{
-			  # Use closure for font definition
-			  my $arr_ref = shift;
-                          my $color = $status_colors->{$arr_ref->[1]};
-			  return {-text => $arr_ref->[1], -font => $bold, -tags => ['searchable'], -fill => $color};
-		      }],
-		      [$calling_method, 
-                      sub{
-			  # Use closure for font definition
-			  my $arr_ref = shift;
-			  return {-text => $arr_ref->[0]->created , -font => $norm, -tags => ['searchable'] };
-		      }],
-		      [$calling_method, 
-                      sub{
-			  # Use closure for font definition
-			  my $arr_ref = shift;
-			  return {-text => $arr_ref->[0]->db_version , -font => $norm, -tags => ['searchable'] };
-		      }]                        
-		      ];
-	$self->{'_column_methods'} = $methods;
-    }
-    return $self->{'_column_methods'};
-}
-
-
-sub bind_item_selection{
-    my ($self , $canvas , $comment_entry) = @_ ;
-    return;
-}
-
-sub toggle_selection {
-    my( $self, $obj ) = @_;
-    return;
-}
-
-sub get_row_id{
-    my ($self) = @_ ;
-    my $row_tag = $self->get_current_row_tag or return;
-    my ($index) = $row_tag =~ /row=(\d+)/;
-    return $index;
-}
-
-sub get_message{
-    my ($self) = @_ ;
-    my ($index) = $self->get_row_id ; 
-#    my $text = $self->indexed_note_text($index); 
-#    ${$self->entry_text_ref()} = $text;
-}
-
-sub Busy{   
-    my $self= shift ;
-    $self->canvas->toplevel->Busy;
-};
+	my $write_text  = \&CanvasWindow::SequenceNotes::_write_text ;
+    $self->column_methods([
+        [$write_text, sub{
+	         my $pipe_status = shift;
+	         return { -font => $norm, -tags => ['searchable'], -text => $pipe_status->{'name'} }; 
+	         }],
+        [$write_text, sub{
+	         my $pipe_status = shift;
+             my $status = $pipe_status->{'status'};
+	         return { -font => $norm, -tags => ['searchable'], -text => $status, -fill => $status_colors->{$status}};
+             }],
+        [$write_text, sub{
+	         my $pipe_status = shift;
+	         return { -font => $norm, -tags => ['searchable'], -text => $pipe_status->{'created'} };
+             }],
+        [$write_text, sub{
+	         my $pipe_status = shift;
+	         return { -font => $bold, -tags => ['searchable'], -text => $pipe_status->{'version'} };
+             }],
+    ]);
     
-sub Unbusy{ 
-    my $self= shift;
-    $self->canvas->toplevel->Unbusy;
-};
+    $prev->bind('<Destroy>', sub { $self = undef });
+
+    return $self;
+}
+
+sub get_rows_list {
+    my ($self) = @_ ;         
+
+    return $self->current_clone->pipelineStatus->display_list;
+}
 
 sub DESTROY {
     my( $self ) = @_;

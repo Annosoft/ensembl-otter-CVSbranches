@@ -65,7 +65,9 @@ sub new{
                                                  },
                                              )->pack(-side => 'left');
 
-    my $query = sprintf('feature_find type = %s ; method = %s ; start = %d ; end = %d ; q_start = %d ; q_end = %d ; strand = %s ; feature = %s',
+#    my $query = sprintf('feature_find type = %s ; method = %s ; start = %d ; end = %d ; q_start = %d ; q_end = %d ; strand = %s ; feature = %s',
+#                        qw(homol wublastx_worm 10788 11048 514 600 + WP:CE19655));
+    my $query = sprintf('<zmap action=""><!-- %s %s %d %d %d %d %s %s --></zmap>',
                         qw(homol wublastx_worm 10788 11048 514 600 + WP:CE19655));
     
     $self->set_entry_value('req_entry_ref', $query);
@@ -115,7 +117,7 @@ sub make_request{
     }
 
     push(@commands, 'zoom_in') unless @commands;
-    warn "$self requesting @commands\n";
+    warn "$self requesting @commands of window ".$xr->window_id."\n";
     my @a = $xr->send_commands(@commands);
     my $canvasMessage = "Sent commands\n";
     for(my $i = 0; $i < @commands; $i++){
@@ -138,6 +140,7 @@ sub win_id_entry_ref{
     my $n = '';
     my $k = (caller(0))[3];
     $self->{$k} ||= \$n;
+
     return $self->{$k};
 }
 sub req_entry_ref{

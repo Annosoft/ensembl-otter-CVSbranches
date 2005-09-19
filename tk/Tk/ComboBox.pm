@@ -6,7 +6,7 @@ package Tk::ComboBox;
 use strict;
 
 use vars qw($VERSION);
-$VERSION = '0.1'; # $Id: ComboBox.pm,v 1.4.2.3 2005-07-07 10:37:00 rds Exp $
+$VERSION = '0.1'; # $Id: ComboBox.pm,v 1.4.2.4 2005-09-19 10:01:01 rds Exp $
 
 use Tk qw(Ev);
 use Carp;
@@ -68,7 +68,7 @@ sub Populate {
         -state       => [qw/METHOD   state       State         normal/],
         -arrowimage  => [ {-image => $b}, qw/arrowImage ArrowImage/, undef],
         -variable    => '-textvariable',
-	-colorstate  => [qw/PASSIVE  colorState  ColorState/,  undef],
+	    -colorstate  => [qw/PASSIVE  colorState  ColorState/,  undef],
         -command     => '-browsecmd',
         -options     => '-choices',
         'DEFAULT'    => [$e],
@@ -263,7 +263,8 @@ sub LbIndex {
         if (ref($sel) eq 'ARRAY') {
             return $sel->[0];
         } else {
-	        die "Unexpected return type from Tk::Listbox->curselection : '$sel'";
+	        warn "Unexpected return type from Tk::Listbox->curselection : '$sel'";
+            return $sel;
         }
     } else {
 	    if (defined $flag && ($flag eq 'emptyOK')) {

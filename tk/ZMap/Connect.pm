@@ -86,6 +86,7 @@ callback does  not have to  navigate its way  to it from  this module
 (supplied as $self above).
 
  Usage:
+
  my $fruits = [qw(apples pears bananas)];
  my $veg    = [qw(carrots potatoes)];
  my $callback = sub{ 
@@ -97,6 +98,7 @@ callback does  not have to  navigate its way  to it from  this module
      }
      return (200, "printed my knowledge.");
  };
+
  my $zmap = ZMap::Connect->new();
  $zmap->init($tk, $callback, [$fruits, $veg]);
 
