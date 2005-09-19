@@ -246,63 +246,90 @@ sub fetch_all_CloneSequences_for_selected_SequenceSet {
     return $self->fetch_all_CloneSequences_for_SequenceSet($ss);
 }
 
-sub status_refresh_for_SequenceSet{
 #   this forces a refresh of the $self->status query
 #   but doesn't re fetch all CloneSequences of the SequenceSet
+sub status_refresh_for_SequenceSet{
     my ($self, $ss) = @_;
+
     return unless Bio::Otter::Lace::Defaults::fetch_pipeline_switch();
-    my $dba            = $self->get_cached_DBAdaptor;
-    my $type           = $ss->name;
-    my $cloneSeqList   = $ss->CloneSequence_list();
-    my $pipeline_db    = Bio::Otter::Lace::PipelineDB::get_pipeline_DBAdaptor($dba);
-    my $dbh            = $pipeline_db->db_handle();
+
+    my $dba = $self->get_cached_DBAdaptor;
+    my $pipe_dba = Bio::Otter::Lace::PipelineDB::get_pipeline_DBAdaptor($dba);
     $self->fetch_pipeline_ctg_ids_for_SequenceSet($ss);
-    my @pipe_ctg_ids   = map { $dbh->quote($_->pipeline_contig_id()) } @$cloneSeqList;
-    my $anaAdapt       = $pipeline_db->get_AnalysisAdaptor();
-    my $ruleAdapt      = $pipeline_db->get_RuleAdaptor();
-    my @rules          = $ruleAdapt->fetch_all;
-    my $rule_list      = []; # all the analysis which can run for this species.
-    my $species = $self->species();
-    my $filters = Bio::Otter::Lace::Defaults::option_from_array([$species, 'use_filters']);
-    foreach my $s(keys %$filters){
-        # filter name can be present and have value 0.
-        next unless $filters->{$s};
-        push(@$rule_list, $s);
-    }
-    # I think this query can be optimised more
-    my $sql = q{SELECT i.input_id, i.analysis_id, i.created, i.db_version
-                     FROM assembly a straight_join contig c
-                     , input_id_analysis i
-                     WHERE i.input_id = c.name
-                     && a.contig_id = c.contig_id
-                     && a.contig_id IN (
-                 } . 
-                 join(', ' => @pipe_ctg_ids) . 
-                 q{)};
-    my $sth = $pipeline_db->prepare($sql);
-    $sth->execute();
-    my $hash = {};
-    while(my $row = $sth->fetchrow_arrayref()){
-        # $row->[0] is contig name
-        # $row->[1] is analysis id
-        # $row->[2] is created
-        # $row->[3] is db_version
-        my $anaObj = $anaAdapt->fetch_by_dbID($row->[1]);
-        next unless $anaObj;
-        my $tmpObj = $hash->{$row->[0]} 
-                      || Bio::Otter::Lace::PipelineStatus->new(-runnable_logic_names => $rule_list,
-                                                               -contig_name          => $row->[0]);
-        $anaObj->created($row->[2]);
-        $anaObj->db_version($row->[3]);
-        $tmpObj->add_completedAnalysis($anaObj);
-        $hash->{$row->[0]} = $tmpObj;
+
+    my( %id_cs );
+    foreach my $cs (@{$ss->CloneSequence_list}) {
+        $cs->drop_pipelineStatus;
+        $id_cs{$cs->pipeline_contig_id} = $cs;
     }
 
-    foreach my $cs (@{$ss->CloneSequence_list}){
-	my $ctg_name = $cs->contig_name();
-	$cs->pipelineStatus($hash->{$ctg_name});
+    my $rule_list = []; # all the analysis which can run for this species.
+    if (1) {
+        my $ruleAdapt      = $pipe_dba->get_RuleAdaptor();
+        my %rules = map {$_->goalAnalysis->logic_name, $_} $ruleAdapt->fetch_all;
+
+        ### Would be nice to see rules in correct order.
+        #@rules = sort_rules_by_dependency(@rules);
+
+        # Only show analyses that descend from 'SubmitContig'
+        while (my ($name, $rule) = each %rules) {
+            my $will_be_run = 0;
+            foreach my $cond_name (@{$rule->list_conditions}) {
+                # The "SubmitContig" rule does not show up by itself
+                if ($cond_name eq 'SubmitContig' or $rules{$cond_name}) {
+                    $will_be_run = 1;
+                }
+            }
+            if ($will_be_run) {
+                push(@$rule_list, $name);
+            }
+        }
     }
-    Bio::Otter::Lace::SatelliteDB::disconnect_DBAdaptor($pipeline_db);
+
+    # Used to depend on the list of filters in the config file
+    #my $species = $self->species();
+    #my $filters = Bio::Otter::Lace::Defaults::option_from_array([$species, 'use_filters']);
+    #foreach my $s (keys %$filters){
+    #    # filter name can be present and have value 0.
+    #    next unless $filters->{$s};
+    #    push(@$rule_list, $s);
+    #}
+
+    Bio::Otter::Lace::PipelineStatus->set_rule_list([sort @$rule_list]);
+
+    my $sql = q{
+        SELECT c.contig_id
+          , y.logic_name
+          , i.created
+          , i.db_version
+        FROM analysis y
+          , input_id_analysis i
+          , contig c
+        WHERE c.name = i.input_id
+          AND y.analysis_id = i.analysis_id
+          AND i.input_id = c.name
+          AND c.contig_id IN (} . join(', ', keys %id_cs) . q{)};
+    #warn "pipeline status query = '$sql'";
+    my $sth = $pipe_dba->prepare($sql);
+    $sth->execute();
+    
+    my( $ctg_id, $ana_name, $created, $version );
+    $sth->bind_columns(\$ctg_id, \$ana_name, \$created, \$version);
+    
+    my( %id_status );
+    while ($sth->fetch) {
+        next if $ana_name eq 'SubmitContig';
+        my $status = $id_status{$ctg_id};
+        unless ($status) {
+            # Make a new PipelineStatus object, and attach it to its CloneSequence
+            $status = $id_status{$ctg_id} = Bio::Otter::Lace::PipelineStatus->new;
+            my $cs = $id_cs{$ctg_id};
+            $cs->pipelineStatus($status);
+        }
+        $status->add_completed_analysis($ana_name, $created, $version);
+    }
+
+    Bio::Otter::Lace::SatelliteDB::disconnect_DBAdaptor($pipe_dba);
 }
 
 # used when the locks column on sequence notes needs to be refereshed , rather than query for every detail
@@ -995,8 +1022,8 @@ sub get_cached_DBAdaptor {
     my( $self ) = @_;
 
     unless($self->{'_dba_cache'}){
-	$self->{'_dba_cache'} = $self->make_DBAdaptor;
-	$self->_attach_DNA_DBAdaptor($self->{'_dba_cache'});
+	    $self->{'_dba_cache'} = $self->make_DBAdaptor;
+	    $self->_attach_DNA_DBAdaptor($self->{'_dba_cache'});
     }
     #warn "OTTER DBADAPTOR = '$dba'";
     return $self->{'_dba_cache'};
