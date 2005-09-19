@@ -14,6 +14,7 @@ use TransientWindow::OpenRange;
 use Evi::EviCollection;
 use POSIX qw(ceil);
 
+
 sub name {
     my( $self, $name ) = @_;
     
@@ -382,26 +383,12 @@ sub initialise {
     
     my $run_lace = sub{
 	$top->Busy;
-        my $doc = Bio::Otter::Lace::Defaults::get_dot_otter_config();
-        warn "$doc";
-        $doc->{'client'}->{'browser'} = 'xace';
 	$self->run_lace;
 	$top->Unbusy;
     };
     $self->make_button($button_frame_2, 'Run lace', $run_lace, 4);
     $top->bind('<Control-l>', $run_lace);
     $top->bind('<Control-L>', $run_lace);
-    my $run_zmap = sub{
-	$top->Busy;
-        my $doc = Bio::Otter::Lace::Defaults::get_dot_otter_config();
-        warn "$doc";
-        $doc->{'client'}->{'browser'} = 'zmap';
-	$self->run_lace;
-	$top->Unbusy;
-    };
-    $self->make_button($button_frame_2, 'Run zmap', $run_zmap, 4);
-    $top->bind('<Control-z>', $run_zmap);
-    $top->bind('<Control-Z>', $run_zmap);
 
     #if ($write) {
     #    
@@ -823,11 +810,7 @@ sub make_XaceSeqChooser {
         );
     my $xc;
 
-    if($self->Client->browser eq 'zmap'){
-        $xc = MenuCanvasWindow::ZMapSeqChooser->new($top);
-    }else{
-        $xc = MenuCanvasWindow::XaceSeqChooser->new($top);
-    }
+    $xc = MenuCanvasWindow::XaceSeqChooser->new($top);
 
     return $xc;
 }
