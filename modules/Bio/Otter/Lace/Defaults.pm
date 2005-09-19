@@ -42,6 +42,7 @@ my @CLIENT_OPTIONS = qw(
     gene_type_prefix=s
     debug!
     misc_acefile=s
+    logdir=s
     );
 
 # @CLIENT_OPTIONS is Getopt::GetOptions() keys which will be included in the 
@@ -62,23 +63,9 @@ my $save_deep_option = sub {
     $DEFAULTS->{"@$option"} ||= { };
     $DEFAULTS->{"@$option"}->{param} = $value ;
 };
-my $LOGGING_INITIALISED = 0;
-my $init_log = sub{
-    my $filename = $_[1];
-    return if $LOGGING_INITIALISED;           # only do it once
-    return unless $filename;                  # need a filename
-    my ($home_dir) = (getpwuid($<))[7];
-    $filename  =~ s!^~!$home_dir!;
-    my $module = "Bio::Otter::Lace::LogFile"; # this is the module
-    eval "use $module;";                      # use and tie STDERR
-    return if $@;                             # no point continuing 
-    open (STDERR, "> $filename") or die "Can't dup stdout: $!";
-    my $tail_size = 20;
-    Bio::Otter::Lace::LogFile::set_tail_size($tail_size);
-    print STDERR "Start of log file (tail size '$tail_size')\n";
-    $LOGGING_INITIALISED = 1;
-    return 1;
-};
+
+
+my ($THIS_USER, $HOME_DIR) = (getpwuid($<))[0,7];    
 my $CALLED = "$0 @ARGV";
 
 
@@ -110,8 +97,6 @@ Suggested usage:
 
 sub do_getopt {
     my( @script_args ) = @_;
-
-    my ($this_user, $home_dir) = (getpwuid($<))[0,7];    
     
     my @conf_files = list_config_files();
 
@@ -127,14 +112,6 @@ sub do_getopt {
     ############################################################################
     ############################################################################
     my $start = "Called as:\n\t$CALLED\nGetOptions() Error parsing options:";
-    my $warn;
-    unless($DEBUG_CONFIG){
-        $warn = $SIG{__WARN__};
-        $SIG{__WARN__} = sub { 
-            my $err = shift; 
-            $GETOPT_ERRSTR .= ( $GETOPT_ERRSTR ? "\t$err" : "$start\n\t$err" );
-        };
-    }
     $GETOPT_ERRSTR = undef; # in case this gets called more than once
     GetOptions(
                # map {} makes these lines dynamically from @CLIENT_OPTIONS
@@ -147,28 +124,27 @@ sub do_getopt {
                'local_fasta=s' => sub { $DEFAULTS->{'local_blast'}->{'database'} = $_[1] },
                'noblast'       => sub { map { $_->{'local_blast'} = {} if exists $_->{'local_blast'} } @$CONFIG_INIFILES ; },
                # this allows multiple extra config file to be used
-               'cfgfile=s'     => sub { my $opts = options_from_file($_[1]); push(@$CONFIG_INIFILES, $opts) if $opts },
+               'cfgfile=s'     => sub {
+                    my $opts = options_from_file($_[1]);
+                    push(@$CONFIG_INIFILES, $opts) if $opts;
+                    },
                'with-das!'     => sub { $DEFAULTS->{$CLIENT_STANZA}->{'with-das'} = $_[1] },
-               'log-file=s'    => $init_log,
+               'log-file=s'    => sub { die "log-file option is obsolete - use logdir" },
                'help'          => sub { exit(exec('perldoc', $0)); },
                # these are the caller script's options
                @script_args,
                ) or return 0;
     ############################################################################
     ############################################################################
-    $SIG{__WARN__} = $warn unless $INC{'Bio/Otter/Lace/LogFile.pm'};
-    
 
     push(@$CONFIG_INIFILES, $DEFAULTS);
     # now safe to call any subs which are required to setup stuff
 
-    # setup the log file if it was specified in otter_config files
-    my $llf = option_from_array([ $CLIENT_STANZA, 'log-file']);
-    $init_log->('log-file', $llf) if $llf;
-
-    # die Dumper $CONFIG_INIFILES;
-
     return 1;
+}
+
+sub start_Logging {
+    
 }
 
 sub make_Client {
@@ -229,8 +205,7 @@ sub list_config_files{
         # Only add if OTTER_HOME environment variable is set
         push(@conf_files, "$ENV{'OTTER_HOME'}/otter_config");
     }
-    my ($home_dir) = (getpwuid($<))[7];
-    push(@conf_files, "$home_dir/.otter_config");
+    push(@conf_files, "$HOME_DIR/.otter_config");
     return @conf_files;
 }
 
@@ -271,44 +246,47 @@ sub misc_acefile {
     return option_from_array([ $CLIENT_STANZA, 'misc_acefile' ]);
 }
 
+sub methods_acefile {
+    return option_from_array([ $CLIENT_STANZA, 'methods_acefile' ]);
+}
+
 sub get_config_list{
     return $CONFIG_INIFILES;
 }
 
-sub get_default_GeneMethods{
+#sub get_default_GeneMethods{
+#
+    #my $stanza = 'gene_methods';
+    #my %defaults_hash = %{option_from_array([$stanza])};
+    #my @methods = ();
+    ## 
+    #my $EDITABLE   = 0; # is the gene method editable?
+    #my $CODING     = 1; # is the gene method coding?
+    #my $IS_SUB_CAT = 2; # is the method a sub category?
+    #my $TRUNC_VER  = 3; # should I make a truncated version?
+    #my $ORDER      = 4; # ORDER THE EDITABLE TO MAKE THE TREE WORK
 
-    my $stanza = 'gene_methods';
-    my %defaults_hash = %{option_from_array([$stanza])};
-    my @methods = ();
-    # 
-    my $EDITABLE   = 0; # is the gene method editable?
-    my $CODING     = 1; # is the gene method coding?
-    my $IS_SUB_CAT = 2; # is the method a sub category?
-    my $TRUNC_VER  = 3; # should I make a truncated version?
-    my $ORDER      = 4; # ORDER THE EDITABLE TO MAKE THE TREE WORK
+    #foreach my $method(keys(%defaults_hash)){
+    #    my $properties = $defaults_hash{$method};
+    #    my $prop_array = [ split(',', $properties) ];
+    #    $defaults_hash{$method} = [ @$prop_array[$EDITABLE..$IS_SUB_CAT], undef, $prop_array->[$ORDER] || 0];
+    #    if($prop_array->[$TRUNC_VER]){
+    #        $defaults_hash{"${method}_trunc"} = [ 0, @$prop_array[$CODING..$IS_SUB_CAT], undef, 0];
+    #    }
+    #}
+    ## there must be a better way.
+    #foreach my $method(sort { $defaults_hash{$a}->[$ORDER] <=> $defaults_hash{$b}->[$ORDER] } keys(%defaults_hash)){
+    #    my $prop_array = $defaults_hash{$method};
+    #    push(@methods, ($method => [ @$prop_array[$EDITABLE..$IS_SUB_CAT] ]));
+    #}
 
-    foreach my $method(keys(%defaults_hash)){
-        my $properties = $defaults_hash{$method};
-        my $prop_array = [ split(',', $properties) ];
-        $defaults_hash{$method} = [ @$prop_array[$EDITABLE..$IS_SUB_CAT], undef, $prop_array->[$ORDER] || 0];
-        if($prop_array->[$TRUNC_VER]){
-            $defaults_hash{"${method}_trunc"} = [ 0, @$prop_array[$CODING..$IS_SUB_CAT], undef, 0];
-        }
-    }
-    # there must be a better way.
-    foreach my $method(sort { $defaults_hash{$a}->[$ORDER] <=> $defaults_hash{$b}->[$ORDER] } keys(%defaults_hash)){
-        my $prop_array = $defaults_hash{$method};
-        push(@methods, ($method => [ @$prop_array[$EDITABLE..$IS_SUB_CAT] ]));
-    }
-
-    return @methods;
-}
+#    return @methods;
+#}
 
 sub get_dot_otter_config{
     my $configs = get_config_list();
     my $dot_otter_config;
-    my ($home_dir) = (getpwuid($<))[7];
-    my $location   = "$home_dir/.otter_config";
+    my $location   = "$HOME_DIR/.otter_config";
     foreach my $c(@{$configs}){
         my $obj = tied(%$c);
         next unless $obj;

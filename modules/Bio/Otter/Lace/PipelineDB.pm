@@ -11,31 +11,43 @@ use Carp;
 sub get_DBAdaptor {
     my( $otter_db, $rw ) = @_;
 
-    return Bio::Otter::Lace::SatelliteDB::_get_DBAdaptor(
+    return Bio::Otter::Lace::SatelliteDB::get_DBAdaptor(
         $otter_db, 'pipeline_db', 'Bio::Otter::DBSQL::DBAdaptor');
 }
 
 sub get_rw_DBAdaptor {
     my( $otter_db ) = @_;
     
-    return Bio::Otter::Lace::SatelliteDB::_get_DBAdaptor(
+    return Bio::Otter::Lace::SatelliteDB::get_DBAdaptor(
         $otter_db, 'pipeline_db_rw', 'Bio::Otter::DBSQL::DBAdaptor');
 }
 
 sub get_pipeline_DBAdaptor {
-    my( $otter_db, $rw ) = @_;
+    my( $otter_db, $inherit_assembly_type ) = @_;
 
     require Bio::EnsEMBL::Pipeline::DBSQL::DBAdaptor;
-    return Bio::Otter::Lace::SatelliteDB::_get_DBAdaptor(
+    my $pipe_db = Bio::Otter::Lace::SatelliteDB::get_DBAdaptor(
         $otter_db, 'pipeline_db', 'Bio::EnsEMBL::Pipeline::DBSQL::DBAdaptor');
+
+    if($inherit_assembly_type) {
+        $pipe_db->assembly_type($otter_db->assembly_type());
+    }
+
+    return $pipe_db;
 }
 
 sub get_pipeline_rw_DBAdaptor {
-    my( $otter_db ) = @_;
+    my( $otter_db, $inherit_assembly_type ) = @_;
     
     require Bio::EnsEMBL::Pipeline::DBSQL::DBAdaptor;
-    return Bio::Otter::Lace::SatelliteDB::_get_DBAdaptor(
+    my $pipe_db =  Bio::Otter::Lace::SatelliteDB::get_DBAdaptor(
         $otter_db, 'pipeline_db_rw', 'Bio::EnsEMBL::Pipeline::DBSQL::DBAdaptor');
+
+    if($inherit_assembly_type) {
+        $pipe_db->assembly_type($otter_db->assembly_type());
+    }
+
+    return $pipe_db;
 }
 
 1;
