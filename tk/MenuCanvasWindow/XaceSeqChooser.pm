@@ -450,7 +450,7 @@ sub populate_menus {
     $file->add('command',
         -label          => 'Launch ZMap',
         -command        => $zmap_launch_command,
-        -accelerator    => 'Ctrl+L',
+        -accelerator    => 'Ctrl+Z',
         -underline      => 0,
         );
     $top->bind('<Control-z>', $zmap_launch_command);
