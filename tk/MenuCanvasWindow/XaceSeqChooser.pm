@@ -930,6 +930,7 @@ sub close_all_PolyAWindows {
                     }
                 }
                 $new->Locus($self->get_Locus($sub->Locus->name));
+                ### set locus gene_type_prefix() here ?
                 $self->add_SubSeq($new);
                 push(@new_subseq, $new);
                 print STDERR $new->ace_string;
@@ -1959,8 +1960,6 @@ sub replace_SubSeq {
     if (my $prev_name = $locus->drop_previous_name) {
         warn "Unsetting otter_id for locus '$prev_name'\n";
         $self->get_Locus($prev_name)->drop_otter_id;
-        use Data::Dumper;
-        print STDERR Dumper($self->get_Locus($prev_name));
     }
     $self->set_Locus($locus);
 
