@@ -10,9 +10,13 @@ use POSIX qw(:signal_h :sys_wait_h);
 
 our @ISA    = qw(Exporter);
 our @EXPORT = qw(parse_params 
+                 parse_request
                  parse_response
                  xml_escape
                  make_xml
+                 obj_make_xml
+                 newXMLObj
+                 setObjNameValue
                  $WAIT_VARIABLE
                  );
 our @EXPORT_OK = qw(xclient_with_id
@@ -54,7 +58,17 @@ into
 
 =cut
 
+sub parse_request{
+    my ($xml)  = shift;
+    my $parser = XML::Simple->new();
+    my $hash   = $parser->XMLin($xml);
+    return $hash;
+}
+
 sub parse_params{
+    warn "This doesn't work anymore!";
+#    return {};
+
     my ($pairs_string) = shift;
     my ($param, $value, $out, $tmp);
 
@@ -100,6 +114,13 @@ sub make_xml{
                                   );
     my $xml = $parser->XMLout($hash);
     return $xml;
+}
+
+sub obj_make_xml{
+    my ($obj, $action) = @_;
+    return unless $obj && $action;
+    my $formatStr = '<zmap action="%s">%s</zmap>';
+    return sprintf($formatStr, $action, xmlString($obj));
 }
 sub xml_escape{
     my $data    = shift;
@@ -171,7 +192,7 @@ return the xclient with specified name, creating if id supplied.
                                             );
                 $CACHED_CLIENTS->{$id} = [ $client, $name ];
             }
-            print $client->window_id;
+            #print $client->window_id;
 
             return $client;
         };
@@ -307,6 +328,126 @@ remove the xclient with specified name.
         return $pid;
     }
 }
+
+
+#########################
+{
+    my $encodedXSD = {
+        feature => {
+            name   => undef,
+            style  => undef,
+            start  => undef,
+            end    => undef,
+            strand => undef,
+            suid   => undef,
+            edit_name  => undef,
+            edit_style => undef,
+            edit_start => undef,
+            edit_end   => undef,
+        },
+        segment => {
+            sequence => undef,
+            start    => undef,
+            end      => undef,
+        },
+        client => {
+            xwid          => undef,
+            request_atom  => undef,
+            response_atom => undef,
+        },
+        location => {
+            start => undef,
+            end   => undef,
+        },
+        featureset => {
+            suid     => undef,
+            features => [],
+        },
+        error => {
+            message => undef,
+        },
+        meta => {
+            display     => undef,
+            windowid    => undef,
+            application => undef,
+            version     => undef,
+        },
+        response => undef
+    };
+    my @TYPES = keys( %$encodedXSD );
+
+    sub newXMLObj{
+        my ($type) = @_;
+        $type = lc $type;
+        if(grep /$type/, @TYPES){
+            my $obj = [];
+            $obj->[0] = $type;
+            $obj->[1] = { %{$encodedXSD->{$type}} };
+            return $obj;
+        }else{
+            return undef;
+        }
+    }
+
+    sub setObjNameValue{
+        my ($obj, $name, $value) = @_;
+        return unless $obj && $name && defined($value) && ref($obj) eq 'ARRAY';
+        my $type = $obj->[0];
+        if((grep /$type/, @TYPES) && exists($encodedXSD->{$type}->{$name})){
+            if(ref($encodedXSD->{$type}->{$name}) eq 'ARRAY'){
+                push(@{$obj->[1]->{$name}}, $value);
+            }else{
+                $obj->[1]->{$name} = $value;
+            }
+        }else{
+            warn "Unknown type '$type' or name '$name'\n";
+        }
+    }
+
+}
+sub xmlString{
+    my ($obj, $formatStr, @parts, $utype, $uobj) = @_; # ONLY $obj is used.
+    return unless $obj && ref($obj) eq 'ARRAY';
+    $formatStr = "";
+    @parts     = ();
+    $utype     = $obj->[0];
+    $uobj      = $obj->[1];
+    if($utype eq 'client'){
+        $formatStr = '<client xwid="%s" request_atom="%s" response_atom="%s" />';
+        @parts     = map { $uobj->{$_} || '' } qw(xwid request_atom response_atom);
+    }elsif($utype eq 'feature'){
+        @parts     = map { $uobj->{$_} || '' } qw(suid name style start end strand);
+        if($uobj->{'edit_name'} 
+           || $uobj->{'edit_start'} 
+           || $uobj->{'edit_end'}
+           || $uobj->{'edit_style'}){
+            $formatStr = '<feature suid="%s" name="%s" style="%s" start="%s" 
+                                   end="%s" strand="%s" >
+                            <edit name="%s" style="%s" start="%s" end="%s"/>
+                          </feature>';
+            push(@parts, map{ $uobj->{$_} || '' } qw(edit_name edit_style edit_start edit_end));
+        }else{
+            $formatStr = '<feature suid="%s" name="%s" style="%s" start="%s" 
+                                    end="%s" strand="%s"/>';
+        }
+    }elsif($utype eq 'featureset'){
+        $formatStr = '<featureset suid="%s">%s</featureset>';
+        @parts     = map { $uobj->{$_} || '' } qw(suid __empty);
+        foreach my $f(@{$uobj->{'features'}}){
+            $parts[1] .= xmlString($f);
+        }
+    }elsif($utype eq 'location'){
+        $formatStr = '<location start="%s" end="%s" />';
+        @parts     = map { $uobj->{$_} || '' } qw(start end); 
+    }elsif($utype eq 'segment'){
+        $formatStr = '<segment sequence="%s" start="%s" end="%s" />';
+        @parts     = map { $uobj->{$_} || '' } qw(sequence start end);
+    }else{
+        warn "Unknown object type '$utype'\n";
+    }
+    return sprintf($formatStr, @parts);
+}
+
 
 1;
 __END__

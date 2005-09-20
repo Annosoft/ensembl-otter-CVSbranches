@@ -45,14 +45,14 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapLaunchZmap {
             my @e = ('zmap', 
                      '--conf_dir' => $self->zMapZmapDir,
                      '--win_id'   => $z->server_window_id);
-            warn "@e\n";
+            warn "export PATH=$ENV{PATH}\nexport LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}\n@e\n";
             sleep(2);
             my $ref = Hum::Ace::LocalServer::full_child_info();
             my $pid = fork_exec(\@e, $ref, 0, sub { 
                 my ($info) = @_;
                 flush_bad_windows;
-#                use Data::Dumper;                
-#                warn "INFO: ", Dumper($info);
+                #use Data::Dumper;                
+                #warn "INFO: ", Dumper($info);
             });
 
             if($pid){
@@ -138,7 +138,8 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapWriteDotZmap{
 
 sub MenuCanvasWindow::XaceSeqChooser::zMapDotZmapContent{
     my ($self) = @_;
-    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\nstylesfile = "%s"\n}\n`;
+#    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\nstylesfile = "%s"\n}\n`;
+    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\n}\n`;
     # make the content
     my $protocol ||= "acedb";
     my $username ||= "any";
@@ -200,7 +201,7 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapSetEntryValue{
 sub MenuCanvasWindow::XaceSeqChooser::zMapRegisterClient{
     my ($self, $request) = @_;
 
-    my $p  = parse_params($request);
+    my $p  = parse_request($request);
     my $xr = xclient_with_name('main');
     my $z  = $self->zMapZmapConnector();
     my $h  = {
@@ -217,16 +218,16 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapRegisterClient{
     
     return (200, make_xml($h)) if $xr;
 
-    unless($p->{'id'} 
-           && $p->{'request'}
-           && $p->{'response'}){
+    unless($p->{'client'}->{'xwid'} 
+           && $p->{'client'}->{'request_atom'}
+           && $p->{'client'}->{'response_atom'}){
         warn "mismatched request for register_client:\n", 
         "id, request and response required\n",
         "Got '$request'\n";
         return (403, $z->basic_error("Bad Request!"));
     }
  
-    xclient_with_name('main', $p->{'id'});
+    xclient_with_name('main', $p->{'client'}->{'xwid'});
 
     $self->zMapSetEntryValue('main');
 
@@ -243,23 +244,17 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapRegisterClient{
 #===========================================================
 
 sub MenuCanvasWindow::XaceSeqChooser::zMapMakeRequest{
-    my ($self, $handler, @commands) = @_;
+    my ($self, $xmlObject, $action) = @_;
 
     my $xr = $self->zMapCurrentXclient;
     unless($xr){
         warn "No current window.";
         return ;
     }
-    my $type = ref($handler);
-    unless($type && $type eq 'CODE'){
-        unshift(@commands, $handler) if !$type;
-        $handler = undef;
-    }
-    $handler  ||= \&RESPONSE_HANDLER;
-    my $error ||= \&ERROR_HANDLER;
+    my $handler ||= \&RESPONSE_HANDLER;
+    my $error   ||= \&ERROR_HANDLER;
 
-    warn "@commands";
-
+    my @commands = obj_make_xml($xmlObject, $action);
     my @a = $xr->send_commands(@commands);
 
     for(my $i = 0; $i < @commands; $i++){
@@ -283,10 +278,12 @@ sub RECEIVE_FILTER{
         = (404, $_obj->zMapZmapConnector->basic_error("Unknown Command"));
 
     my $lookup = {register_client => 'zMapRegisterClient'};
-    
+    my $action = '';
+    my $reqXML = parse_request($_request);
+    $action    = $reqXML->{'action'};
+
     foreach my $valid(@list){
-        
-        if($_request =~ s/^$valid// 
+        if($action eq $valid
            && ($valid = $lookup->{$valid}) # N.B. THIS SHOULD BE ASSIGNMENT NOT EQUALITY 
            && $_obj->can($valid)){
             ($_status, $_response) 
@@ -303,9 +300,13 @@ sub open_clones{
 
     my @clones = $self->clone_list;
     my ($chr, $st, $end) = split(/\.|\-/, $clones[0]);
-    my $cmd = "newZmap seq = @clones ; start = 1 ; end = 0";
 
-    $self->zMapMakeRequest($cmd);
+    my $seg = newXMLObj('segment');
+    setObjNameValue($seg, 'sequence', "@clones");
+    setObjNameValue($seg, 'start', 1);
+    setObjNameValue($seg, 'end', '0');
+
+    $self->zMapMakeRequest($seg, 'new');
 
     my $windows = $self->make_menu('ZMap',1);
     foreach my $name (list_xclient_names()){
@@ -314,9 +315,7 @@ sub open_clones{
                       -command => sub { 
                           $self->zMapSetEntryValue($name); 
                           $self->zMapMakeRequest('zoom_in');
-                      },
-                      -accelerator => 'Ctrl+K',
-                      -underline   => 0
+                      }
                       );
     }
     
