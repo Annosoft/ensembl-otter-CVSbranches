@@ -251,10 +251,12 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapMakeRequest{
         warn "No current window.";
         return ;
     }
+    warn "Current window " . $xr->window_id . " @_\n";
     my $handler ||= \&RESPONSE_HANDLER;
     my $error   ||= \&ERROR_HANDLER;
 
     my @commands = obj_make_xml($xmlObject, $action);
+    warn "@commands";
     my @a = $xr->send_commands(@commands);
 
     for(my $i = 0; $i < @commands; $i++){
@@ -268,6 +270,72 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapMakeRequest{
     return ;
 }
 
+sub MenuCanvasWindow::XaceSeqChooser::zMapUpdateMenu{
+    my ($self) = @_;
+    
+    my $menu_item = $self->{'_zMapMenuItem'};
+
+    my $cleanUpMenu = sub{
+        my ($menuRoot, $this) = @_;
+        my @current = list_xclient_names();
+        $this->{'_zMapSubMenuItems'} ||= {};
+        my @remove = ();
+        foreach my $k(keys(%{$this->{'_zMapSubMenuItems'}})){
+            my $idx = $this->{'_zMapSubMenuItems'}->{$k};
+            print "This is $k \n";
+            if(!(grep /^$k$/, @current)){
+                delete $this->{'_zMapSubMenuItems'}->{$k};
+                push(@remove, $idx);
+            }
+        }
+        map { $menuRoot->delete($_) } @remove;
+    };
+
+    unless($menu_item){
+        $self->{'_zMapMenuItem'} = 
+            $menu_item = $self->make_menu('ZMap', 1);
+        $menu_item->bind('<Button-1>', [ $cleanUpMenu, $self ]);
+    }
+
+    my $addSubMenuItem = sub {
+        my ($this, $menuRoot, $name) = @_;
+        $this->{'_zMapSubMenuItems'} ||= {};
+        $this->{'_zMapSubMenuItems'}->{$name} = scalar(keys(%{$this->{'_zMapSubMenuItems'}}));
+        my $submi = $menuRoot->cascade(-label => $name, -tearoff => 0);
+
+        if($name eq 'main'){
+            $submi->command(-command => [ sub { 
+                my $self = shift;
+                my $z = newXMLObj('client');
+                $self->zMapSetEntryValue($name); 
+                $self->zMapMakeRequest($z, 'shutdown Zmap');
+            }, $self ],-label => 'finish');     
+        }else{
+            $submi->command(-command => [ sub { 
+                my $this = shift;
+                my $z    = newXMLObj('zoom_in');
+                $this->zMapSetEntryValue($name); 
+                $this->zMapMakeRequest($z, 'zoom_in');
+            }, $self ], 
+                            -label => 'Zoom In');             
+            $submi->command(-command => [ sub { 
+                my $this = shift;
+                my $z    = newXMLObj('zoom_in');
+                $self->zMapSetEntryValue($name); 
+                $self->zMapMakeRequest($z, 'zoom_out');
+            }, $self ], 
+                            -label => 'Zoom Out');             
+        }
+    };
+
+    $cleanUpMenu->($menu_item, $self);
+
+    foreach my $name (list_xclient_names()){
+        $addSubMenuItem->($self, $menu_item, $name);
+    }
+
+    return ;
+}
 
 
 #===========================================================
@@ -308,16 +376,7 @@ sub open_clones{
 
     $self->zMapMakeRequest($seg, 'new');
 
-    my $windows = $self->make_menu('ZMap',1);
-    foreach my $name (list_xclient_names()){
-        $windows->add('command',
-                      -label   => $name,
-                      -command => sub { 
-                          $self->zMapSetEntryValue($name); 
-                          $self->zMapMakeRequest('zoom_in');
-                      }
-                      );
-    }
+    $self->zMapUpdateMenu();
     
     $watch->Unwatch;
 }
