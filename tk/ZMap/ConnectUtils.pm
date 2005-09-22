@@ -372,14 +372,16 @@ remove the xclient with specified name.
             application => undef,
             version     => undef,
         },
-        response => undef
+        response => {},
+        zoom_in => {},
+        zoom_out => {},
     };
     my @TYPES = keys( %$encodedXSD );
 
     sub newXMLObj{
         my ($type) = @_;
         $type = lc $type;
-        if(grep /$type/, @TYPES){
+        if(grep /^$type$/, @TYPES){
             my $obj = [];
             $obj->[0] = $type;
             $obj->[1] = { %{$encodedXSD->{$type}} };
@@ -407,7 +409,7 @@ remove the xclient with specified name.
 }
 sub xmlString{
     my ($obj, $formatStr, @parts, $utype, $uobj) = @_; # ONLY $obj is used.
-    return unless $obj && ref($obj) eq 'ARRAY';
+    return "" unless $obj && ref($obj) eq 'ARRAY';
     $formatStr = "";
     @parts     = ();
     $utype     = $obj->[0];
