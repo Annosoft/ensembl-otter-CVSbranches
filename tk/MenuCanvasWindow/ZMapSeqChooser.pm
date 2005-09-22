@@ -10,6 +10,7 @@ use Sys::Hostname;
 use Tie::Watch;
 use Hum::Ace::LocalServer;
 
+my $ZMAP_DEBUG = 1;
 #==============================================================================#
 #
 # WARNING: THESE ARE INJECTED METHODS!!!!
@@ -41,11 +42,11 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapLaunchZmap {
         if(my $ok = $self->zMapSpawnSgifaceserver){
             my $z = $self->zMapInsertZmapConnector();
             $self->zMapWriteDotZmap();
-
+            $self->isZMap(1);
             my @e = ('zmap', 
                      '--conf_dir' => $self->zMapZmapDir,
                      '--win_id'   => $z->server_window_id);
-            warn "export PATH=$ENV{PATH}\nexport LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}\n@e\n";
+            warn "export PATH=$ENV{PATH}\nexport LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}\n@e\n" if $ZMAP_DEBUG;
             sleep(2);
             my $ref = Hum::Ace::LocalServer::full_child_info();
             my $pid = fork_exec(\@e, $ref, 0, sub { 
@@ -139,7 +140,8 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapWriteDotZmap{
 sub MenuCanvasWindow::XaceSeqChooser::zMapDotZmapContent{
     my ($self) = @_;
 #    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\nstylesfile = "%s"\n}\n`;
-    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\n}\n`;
+#    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\n}\n`;
+    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\nfeaturesets = "%s"\n}\n`;
     # make the content
     my $protocol ||= "acedb";
     my $username ||= "any";
@@ -148,7 +150,15 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapDotZmapContent{
     my $port     ||= $self->zMapPort;
     my $seq      ||= 0;
     my $writebck ||= 0;
-    my $style    ||= "ZMap.styles";
+    my $style    ||= "";#"ZMap.styles";
+    my $sets     ||= join(" ", qw(Transcript Putative Processed_pseudogene Unprocessed_pseudogene
+                                  RepeatMasker RepeatMasker_LINE RepeatMasker_SINE
+                                  trf Predicted_CpG_island 
+                                  vertebrate_mRNA EST_Human EST_Mouse EST_Other EST
+                                  BLASTX ensembl Fgenesh Genscan
+                                  genomewise REFSEQ 
+                                  Saturated_BLASTX Saturated_EST
+                                  Saturated_EST_Human Saturated_vertebrate_mRNA));
     my $content    = sprintf($fmt,
                              $protocol,
                              $username,
@@ -157,7 +167,7 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapDotZmapContent{
                              $port,
                              ($seq ? 'true' : 'false'),
                              ($writebck ? 'true' : 'false'),
-                             $style);
+                             $style || $sets);
     return $content;
 }
 
@@ -251,12 +261,12 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapMakeRequest{
         warn "No current window.";
         return ;
     }
-    warn "Current window " . $xr->window_id . " @_\n";
+    warn "Current window " . $xr->window_id . " @_\n" if $ZMAP_DEBUG;
     my $handler ||= \&RESPONSE_HANDLER;
     my $error   ||= \&ERROR_HANDLER;
 
     my @commands = obj_make_xml($xmlObject, $action);
-    warn "@commands";
+    warn "@commands" if $ZMAP_DEBUG;
     my @a = $xr->send_commands(@commands);
 
     for(my $i = 0; $i < @commands; $i++){
@@ -282,7 +292,7 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapUpdateMenu{
         my @remove = ();
         foreach my $k(keys(%{$this->{'_zMapSubMenuItems'}})){
             my $idx = $this->{'_zMapSubMenuItems'}->{$k};
-            print "This is $k \n";
+            print "This is $k \n" if $ZMAP_DEBUG;
             if(!(grep /^$k$/, @current)){
                 delete $this->{'_zMapSubMenuItems'}->{$k};
                 push(@remove, $idx);
@@ -291,10 +301,22 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapUpdateMenu{
         map { $menuRoot->delete($_) } @remove;
     };
 
+    my $fullCleanUpMenu = sub {
+        my ($button, $this) = @_;
+        if(my $menu = $button->cget('-menu')){
+            $cleanUpMenu->($menu, $this);
+        }        
+    };
+
     unless($menu_item){
+        my $frame  = $self->menu_bar;
+        my $button = $frame->Menubutton(-text => 'ZMap')->pack(-side => 'left');
+        my $menu   = $button->Menu(-tearoff => 0);
+        $button->configure(-menu => $menu);
+        $button->bind('<Button-1>', [ $fullCleanUpMenu, $self ]);
+
         $self->{'_zMapMenuItem'} = 
-            $menu_item = $self->make_menu('ZMap', 1);
-        $menu_item->bind('<Button-1>', [ $cleanUpMenu, $self ]);
+            $menu_item = $button; #$self->make_menu('ZMap', 1);
     }
 
     my $addSubMenuItem = sub {
@@ -308,8 +330,8 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapUpdateMenu{
                 my $self = shift;
                 my $z = newXMLObj('client');
                 $self->zMapSetEntryValue($name); 
-                $self->zMapMakeRequest($z, 'shutdown Zmap');
-            }, $self ],-label => 'finish');     
+                $self->zMapMakeRequest($z, 'finish');
+            }, $self ],-label => 'Shutdown ZMap');     
         }else{
             $submi->command(-command => [ sub { 
                 my $this = shift;
@@ -383,7 +405,7 @@ sub open_clones{
 
 sub RESPONSE_HANDLER{
     my ($self, $xml) = @_;
-    warn "In RESPONSE_HANDLER\n";
+    warn "In RESPONSE_HANDLER\n" if $ZMAP_DEBUG;
     my ($name, $id) = ($xml->{'response'}->{'zmapid'}, $xml->{'response'}->{'windowid'});
     if($name){
         xclient_with_name($name, $id) if $id;
@@ -394,7 +416,7 @@ sub RESPONSE_HANDLER{
 sub ERROR_HANDLER{
     my ($self, $status, $xml) = @_;
     $xml = $xml->{'error'}; # this is all we care about
-    warn "In ERROR_HANDLER\n";
+    warn "In ERROR_HANDLER\n" if $ZMAP_DEBUG;
     if($status == 400){
 
     }elsif($status == 401){
