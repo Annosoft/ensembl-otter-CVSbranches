@@ -2255,7 +2255,7 @@ sub isZMap{
 }
 sub __hasEverZMap{
     my($self, $zmapped) = @_;
-    $self->{'zmapped'} = $zmapped;
+    $self->{'zmapped'} = $zmapped if defined($zmapped);
     return ($self->{'zmapped'} ? 1 : 0);
 }
 
@@ -2263,8 +2263,8 @@ sub DESTROY {
     my( $self ) = @_;
 
     if($self->__hasEverZMap){
-        $self->kill_zmap();
-        flush_bad_windows();
+        $self->zMapKillZmap() if $self->can('zMapKillZmap');
+        ZMap::ConnectUtils::flush_bad_windows();
         delete $self->{'_SGIF_LOCAL_SERVER'}; # shutdown server
     }
 
