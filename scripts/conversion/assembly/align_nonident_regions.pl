@@ -167,13 +167,14 @@ our $fmt1 = "%-30s%10.0f (%3.2f%%)\n";
 our $fmt2 = "%-30s%10.0f\n";
 my $sth = $E_dbh->prepare(qq(SELECT * FROM tmp_align));
 $sth->execute;
+my $ensembl_chr_map = $support->get_ensembl_chr_mapping($V_dba, $support->param('assembly'));
 while (my $row = $sth->fetchrow_hashref) {
     my $id = $row->{'tmp_align_id'};
 
     $support->log_stamped("Block with tmp_align_id = $id\n", 1);
     my $E_slice = $E_sa->fetch_by_region(
         'chromosome',
-        $row->{'seq_region_name'},
+        $row->{'e_seq_region_name'},
         $row->{'e_start'},
         $row->{'e_end'},
         1,
@@ -181,7 +182,7 @@ while (my $row = $sth->fetchrow_hashref) {
     );
     my $V_slice = $V_sa->fetch_by_region(
         'chromosome',
-        $row->{'seq_region_name'},
+        $row->{'v_seq_region_name'},
         $row->{'v_start'},
         $row->{'v_end'},
         1,
@@ -269,7 +270,7 @@ while (my $row = $sth->fetchrow_hashref) {
                 } else {
                     # match
                     if ($e_arr[$j] eq $v_arr[$j]) {
-                        &found_match($row->{'seq_region_name'}, $id, $stats{'alignments'}, $match_flag, $j, \%stats, \%coords);
+                        &found_match($row->{'v_seq_region_name'}, $id, $stats{'alignments'}, $match_flag, $j, \%stats, \%coords);
                         $stats{'match'}++;
                         $match_flag = 1;
                     # mismatch
@@ -287,29 +288,29 @@ while (my $row = $sth->fetchrow_hashref) {
     }
 
     # convert relative alignment coordinates to chromosomal coords
-    my $chr = $row->{'seq_region_name'};
-    for (my $align = 0; $align < scalar(@{ $match->{$chr}->{$id} }); $align++) {
-        for (my $c = 0; $c < scalar(@{ $match->{$chr}->{$id}->[$align] }); $c++) {
-            $match->{$chr}->{$id}->[$align]->[$c]->[0] += $row->{'e_start'} - 1;
-            $match->{$chr}->{$id}->[$align]->[$c]->[1] += $row->{'e_start'} - 1;
+    my $V_chr = $row->{'v_seq_region_name'};
+    for (my $align = 0; $align < scalar(@{ $match->{$V_chr}->{$id} }); $align++) {
+        for (my $c = 0; $c < scalar(@{ $match->{$V_chr}->{$id}->[$align] }); $c++) {
+            $match->{$V_chr}->{$id}->[$align]->[$c]->[0] += $row->{'e_start'} - 1;
+            $match->{$V_chr}->{$id}->[$align]->[$c]->[1] += $row->{'e_start'} - 1;
 
             # forward strand match
-            if ($match->{$chr}->{$id}->[$align]->[$c]->[4] == 1) {
-                $match->{$chr}->{$id}->[$align]->[$c]->[2] += $row->{'v_start'} - 1;
-                $match->{$chr}->{$id}->[$align]->[$c]->[3] += $row->{'v_start'} - 1;
+            if ($match->{$V_chr}->{$id}->[$align]->[$c]->[4] == 1) {
+                $match->{$V_chr}->{$id}->[$align]->[$c]->[2] += $row->{'v_start'} - 1;
+                $match->{$V_chr}->{$id}->[$align]->[$c]->[3] += $row->{'v_start'} - 1;
             
             # reverse strand match
             } else {
                 my $tmp_start = 
-                    $row->{'v_end'} - $match->{$chr}->{$id}->[$align]->[$c]->[3] + 1;
-                $match->{$chr}->{$id}->[$align]->[$c]->[3] =
-                    $row->{'v_end'} - $match->{$chr}->{$id}->[$align]->[$c]->[2] + 1;
-                $match->{$chr}->{$id}->[$align]->[$c]->[2] = $tmp_start;
+                    $row->{'v_end'} - $match->{$V_chr}->{$id}->[$align]->[$c]->[3] + 1;
+                $match->{$V_chr}->{$id}->[$align]->[$c]->[3] =
+                    $row->{'v_end'} - $match->{$V_chr}->{$id}->[$align]->[$c]->[2] + 1;
+                $match->{$V_chr}->{$id}->[$align]->[$c]->[2] = $tmp_start;
             }
 
             # sanity check: aligned region pairs must have same length
-            my $e_len = $match->{$chr}->{$id}->[$align]->[$c]->[1] - $match->{$chr}->{$id}->[$align]->[$c]->[0];
-            my $v_len = $match->{$chr}->{$id}->[$align]->[$c]->[3] - $match->{$chr}->{$id}->[$align]->[$c]->[2];
+            my $e_len = $match->{$V_chr}->{$id}->[$align]->[$c]->[1] - $match->{$V_chr}->{$id}->[$align]->[$c]->[0];
+            my $v_len = $match->{$V_chr}->{$id}->[$align]->[$c]->[3] - $match->{$V_chr}->{$id}->[$align]->[$c]->[2];
             $support->log_warning("Length mismatch: $e_len <> $v_len in block $id, alignment $align, stretch $c\n", 2) unless ($e_len == $v_len);
         }
     }
@@ -343,23 +344,24 @@ unless ($support->param('dry_run')) {
     ));
     $support->log("Adding assembly entries for alignments...\n");
     my $i;
-    foreach my $chr (sort _by_chr_num keys %{ $match }) {
+    foreach my $V_chr (sort _by_chr_num keys %{ $match }) {
         # get seq_region_id for Ensembl and Vega chromosome
-        my $V_sid = $E_sa->get_seq_region_id($E_sa->fetch_by_region('chromosome', $chr, undef, undef, undef, $support->param('assembly')));
-        my $E_sid = $E_sa->get_seq_region_id($E_sa->fetch_by_region('chromosome', $chr, undef, undef, undef, $support->param('ensemblassembly')));
+        my $E_chr = $ensembl_chr_map->{$V_chr};
+        my $V_sid = $E_sa->get_seq_region_id($E_sa->fetch_by_region('chromosome', $V_chr, undef, undef, undef, $support->param('assembly')));
+        my $E_sid = $E_sa->get_seq_region_id($E_sa->fetch_by_region('chromosome', $E_chr, undef, undef, undef, $support->param('ensemblassembly')));
 
-        foreach my $id (sort { $a <=> $b } keys %{ $match->{$chr} }) {
-            for (my $align = 0; $align < scalar(@{ $match->{$chr}->{$id} }); $align++) {
-                for (my $c = 0; $c < scalar(@{ $match->{$chr}->{$id}->[$align] }); $c++) {
-                    if ($match->{$chr}->{$id}->[$align]->[$c]) {
+        foreach my $id (sort { $a <=> $b } keys %{ $match->{$V_chr} }) {
+            for (my $align = 0; $align < scalar(@{ $match->{$V_chr}->{$id} }); $align++) {
+                for (my $c = 0; $c < scalar(@{ $match->{$V_chr}->{$id}->[$align] }); $c++) {
+                    if ($match->{$V_chr}->{$id}->[$align]->[$c]) {
                         $sth->execute(
                             $V_sid,
                             $E_sid,
-                            $match->{$chr}->{$id}->[$align]->[$c]->[2],
-                            $match->{$chr}->{$id}->[$align]->[$c]->[3],
-                            $match->{$chr}->{$id}->[$align]->[$c]->[0],
-                            $match->{$chr}->{$id}->[$align]->[$c]->[1],
-                            $match->{$chr}->{$id}->[$align]->[$c]->[4],
+                            $match->{$V_chr}->{$id}->[$align]->[$c]->[2],
+                            $match->{$V_chr}->{$id}->[$align]->[$c]->[3],
+                            $match->{$V_chr}->{$id}->[$align]->[$c]->[0],
+                            $match->{$V_chr}->{$id}->[$align]->[$c]->[1],
+                            $match->{$V_chr}->{$id}->[$align]->[$c]->[4],
                         );
                         $i++;
                     }
@@ -398,13 +400,13 @@ my $fmt3 = "%-8s%-12s%-5s%-10s%-10s%-10s%-10s\n";
 my $fmt4 = "%-8s%-12s%-5s%8.0f  %8.0f  %8.0f  %8.0f\n";
 $support->log_verbose(sprintf($fmt3, qw(CHR BLOCK ALIGNMENT E_START E_END V_START V_END)), 1);
 $support->log_verbose(('-'x63)."\n", 1);
-foreach my $chr (sort _by_chr_num keys %{ $match }) {
-    foreach my $id (sort { $a <=> $b } keys %{ $match->{$chr} }) {
-        for (my $align = 0; $align < scalar(@{ $match->{$chr}->{$id} }); $align++) {
-            for (my $c = 0; $c < scalar(@{ $match->{$chr}->{$id}->[$align] }); $c++) {
-                if ($match->{$chr}->{$id}->[$align]->[$c]) {
-                    $support->log_verbose(sprintf($fmt4, $chr, $id, $align+1, @{ $match->{$chr}->{$id}->[$align]->[$c] }), 1);
-                    my $l = $match->{$chr}->{$id}->[$align]->[$c]->[1] - $match->{$chr}->{$id}->[$align]->[$c]->[0];
+foreach my $V_chr (sort _by_chr_num keys %{ $match }) {
+    foreach my $id (sort { $a <=> $b } keys %{ $match->{$V_chr} }) {
+        for (my $align = 0; $align < scalar(@{ $match->{$V_chr}->{$id} }); $align++) {
+            for (my $c = 0; $c < scalar(@{ $match->{$V_chr}->{$id}->[$align] }); $c++) {
+                if ($match->{$V_chr}->{$id}->[$align]->[$c]) {
+                    $support->log_verbose(sprintf($fmt4, $V_chr, $id, $align+1, @{ $match->{$V_chr}->{$id}->[$align]->[$c] }), 1);
+                    my $l = $match->{$V_chr}->{$id}->[$align]->[$c]->[1] - $match->{$V_chr}->{$id}->[$align]->[$c]->[0];
                     $stats_total{'alignments'}++;
                     $stats_total{'short1_10'}++ if ($l < 11);
                     $stats_total{'short11_100'}++ if ($l > 10 and $l < 101);
@@ -427,7 +429,7 @@ $support->finish_log;
 
 =head2 found_match
 
-  Arg[1]      : String $chr - the chromosome name
+  Arg[1]      : String $V_chr - the chromosome name
   Arg[2]      : Int $id - block number (corresponds to tmp_align.tmp_align_id)
   Arg[3]      : Int $align - the alignment number in the blastz output
   Arg[4]      : Boolean $match_flag - flag indicating if last bp was a match
@@ -443,23 +445,23 @@ $support->finish_log;
 =cut
 
 sub found_match {
-    my ($chr, $id, $align, $match_flag, $j, $stats, $coords) = @_;
+    my ($V_chr, $id, $align, $match_flag, $j, $stats, $coords) = @_;
 
     # last position was a match
     if ($match_flag) {
         # adjust align block end
-        if ($match->{$chr}->{$id}->[$align]) {
-            my $c = scalar(@{ $match->{$chr}->{$id}->[$align] }) - 1;
-            $match->{$chr}->{$id}->[$align]->[$c]->[1] =
+        if ($match->{$V_chr}->{$id}->[$align]) {
+            my $c = scalar(@{ $match->{$V_chr}->{$id}->[$align] }) - 1;
+            $match->{$V_chr}->{$id}->[$align]->[$c]->[1] =
                 $coords->{'e_start'} + $j - $stats->{'e_gap'};
-            $match->{$chr}->{$id}->[$align]->[$c]->[3] =
+            $match->{$V_chr}->{$id}->[$align]->[$c]->[3] =
                 $coords->{'v_start'} + $j - $stats->{'v_gap'};
         }
     
     # last position was a non-match
     } else {
         # start a new align block
-        push @{ $match->{$chr}->{$id}->[$align] }, [
+        push @{ $match->{$V_chr}->{$id}->[$align] }, [
             $coords->{'e_start'} + $j - $stats->{'e_gap'},
             $coords->{'e_start'} + $j - $stats->{'e_gap'},
             $coords->{'v_start'} + $j - $stats->{'v_gap'},
@@ -480,17 +482,17 @@ sub found_match {
 =cut
 
 sub filter_overlaps {
-    foreach my $chr (sort keys %{ $match }) {
+    foreach my $V_chr (sort keys %{ $match }) {
         # rearrange the datastructure so that we can find overlaps
         my $coord_check;
-        foreach my $id (keys %{ $match->{$chr} }) {
-            for (my $align = 0; $align < scalar(@{ $match->{$chr}->{$id} }); $align++) {
-                for (my $c = 0; $c < scalar(@{ $match->{$chr}->{$id}->[$align] }); $c++) {
+        foreach my $id (keys %{ $match->{$V_chr} }) {
+            for (my $align = 0; $align < scalar(@{ $match->{$V_chr}->{$id} }); $align++) {
+                for (my $c = 0; $c < scalar(@{ $match->{$V_chr}->{$id}->[$align] }); $c++) {
                     push @{ $coord_check }, [
-                        $match->{$chr}->{$id}->[$align]->[$c]->[0],
-                        $match->{$chr}->{$id}->[$align]->[$c]->[1],
-                        $match->{$chr}->{$id}->[$align]->[$c]->[2],
-                        $match->{$chr}->{$id}->[$align]->[$c]->[3],
+                        $match->{$V_chr}->{$id}->[$align]->[$c]->[0],
+                        $match->{$V_chr}->{$id}->[$align]->[$c]->[1],
+                        $match->{$V_chr}->{$id}->[$align]->[$c]->[2],
+                        $match->{$V_chr}->{$id}->[$align]->[$c]->[3],
                         $id,
                         $align,
                         $c,
@@ -506,7 +508,7 @@ sub filter_overlaps {
         # guarantee that)
         my $last;
         foreach my $c (@e_sort) {
-            $support->log_warning("Overlapping Ensembl alignment at ".join(':', $chr, $c->[0], $c->[1])." (last_end ".$last->[1].")\n", 1) if ($last and $c->[0] <= $last->[1]);
+            $support->log_warning("Overlapping Ensembl alignment at ".join(':', $V_chr, $c->[0], $c->[1])." (last_end ".$last->[1].")\n", 1) if ($last and $c->[0] <= $last->[1]);
             $last = $c;
         }
 
@@ -514,11 +516,11 @@ sub filter_overlaps {
         my ($last, @seen);
         foreach my $c (@v_sort) {
             if ($last and $c->[2] <= $last->[3]) {
-                $support->log_verbose("Overlapping Vega alignment at ".join(':', $chr, $c->[2], $c->[3])." (last_end ".$last->[3].")\n", 1);
+                $support->log_verbose("Overlapping Vega alignment at ".join(':', $V_chr, $c->[2], $c->[3])." (last_end ".$last->[3].")\n", 1);
 
                 # if last alignment was longer, delete this one
                 if ($last->[3]-$last->[2] > $c->[3]-$c->[2]) {
-                    undef $match->{$chr}->{$c->[4]}->[$c->[5]]->[$c->[6]];
+                    undef $match->{$V_chr}->{$c->[4]}->[$c->[5]]->[$c->[6]];
 
                 # if last alignment was shorter, trace back and delete all
                 # overlapping shorter alignments
@@ -528,11 +530,11 @@ sub filter_overlaps {
                         if ($c->[2] <= $s->[3]) {
                             # earlier alignment shorter -> delete it
                             if ($s->[3]-$s->[2] < $c->[3]-$c->[2]) {
-                                undef $match->{$chr}->{$s->[4]}->[$s->[5]]->[$s->[6]];
+                                undef $match->{$V_chr}->{$s->[4]}->[$s->[5]]->[$s->[6]];
 
                             # this alignment shorter -> delete it
                             } else {
-                                undef $match->{$chr}->{$c->[4]}->[$c->[5]]->[$c->[6]];
+                                undef $match->{$V_chr}->{$c->[4]}->[$c->[5]]->[$c->[6]];
                                 $last = $s;
                                 last;
                             }

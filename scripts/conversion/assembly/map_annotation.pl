@@ -241,19 +241,21 @@ if ($support->param('prune')) {
 $support->log("Looping over chromosomes...\n");
 my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'));
 my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassembly'));
-foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
-    $support->log_stamped("Chromosome $chr...\n", 1);
+my $ensembl_chr_map = $support->get_ensembl_chr_mapping($V_dba, $support->param('assembly'));
+foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
+    $support->log_stamped("Chromosome $V_chr...\n", 1);
     
     # skip non-ensembl chromosomes (e.g. MHC haplotypes)
-    unless ($E_chrlength->{$chr}) {
+    my $E_chr = $ensembl_chr_map->{$V_chr};
+    unless ($E_chrlength->{$E_chr}) {
         $support->log("Chromosome not in Ensembl. Skipping.\n", 1);
         next;
     }
 
     # fetch chromosome slices
-    my $V_slice = $V_sa->fetch_by_region('chromosome', $chr, undef, undef,
+    my $V_slice = $V_sa->fetch_by_region('chromosome', $V_chr, undef, undef,
         undef, $support->param('assembly'));
-    my $E_slice = $E_sa->fetch_by_region('chromosome', $chr, undef, undef,
+    my $E_slice = $E_sa->fetch_by_region('chromosome', $E_chr, undef, undef,
         undef, $support->param('ensemblassembly'));
 
     $support->log("Looping over genes...\n", 1);
@@ -287,7 +289,7 @@ foreach my $chr ($support->sort_chromosomes($V_chrlength)) {
                 \@finished, \%all_protein_features);
         }
     }
-    $support->log("Done with chromosome $chr.\n", 1);
+    $support->log("Done with chromosome $V_chr.\n", 1);
 }
 $support->log("Done.\n");
 
