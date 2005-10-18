@@ -78,7 +78,7 @@ sub get_available_adaptors{
     'Attribute'            => 'Bio::EnsEMBL::DBSQL::AttributeAdaptor',
     'AssemblyExceptionFeature' => 'Bio::EnsEMBL::DBSQL::AssemblyExceptionFeatureAdaptor',
     'AssemblyMapper'       => 'Bio::EnsEMBL::DBSQL::AssemblyMapperAdaptor',
-    'Blast'                => 'Bio::EnsEMBL::External::BlastAdaptor',
+    # 'Blast'                => 'Bio::EnsEMBL::External::BlastAdaptor',
     # 'MetaContainer'        => 'Bio::EnsEMBL::DBSQL::MetaContainer',
     'CoordSystem'          => 'Bio::EnsEMBL::DBSQL::CoordSystemAdaptor',
     'CompressedSequence'   => 'Bio::EnsEMBL::DBSQL::CompressedSequenceAdaptor',

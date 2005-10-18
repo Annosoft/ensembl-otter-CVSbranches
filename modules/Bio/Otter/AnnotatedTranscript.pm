@@ -3,6 +3,7 @@ package Bio::Otter::AnnotatedTranscript;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Transcript;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Transcript);
 
@@ -10,9 +11,7 @@ sub new {
     my($class,@args) = @_;
     my $self = $class->SUPER::new(@args);
 
-    my ($transcript_info)  = $self->_rearrange([qw(
-						   INFO
-						   )],@args);
+    my ($transcript_info)  = rearrange([qw(INFO)], @args);
     
     $self->transcript_info($transcript_info);
     

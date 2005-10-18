@@ -3,6 +3,7 @@ package Bio::Otter::AnnotatedGene;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Gene;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Gene);
 
@@ -11,9 +12,7 @@ sub new {
 
   my $self = $class->SUPER::new(@args);
   
-  my ($gene_info)  = $self->_rearrange([qw(
-					   INFO
-					   )],@args);
+  my ($gene_info)  = rearrange([qw(INFO)], @args);
   
   $self->gene_info($gene_info);
 

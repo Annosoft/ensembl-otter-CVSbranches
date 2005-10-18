@@ -3,6 +3,7 @@ package Bio::Otter::Keyword;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Root;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Root);
 
@@ -12,11 +13,11 @@ sub new {
   my $self = bless {}, $class;
 
   my ($dbid,$name,$clone_info_id)  
-      = $self->_rearrange([qw(
-			      DBID
-			      NAME
-			      CLONE_INFO_ID
-			      )],@args);
+      = rearrange([qw(
+                      DBID
+                      NAME
+                      CLONE_INFO_ID
+                      )],@args);
 
   $self->dbID($dbid);
   $self->name($name);
