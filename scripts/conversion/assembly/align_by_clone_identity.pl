@@ -245,9 +245,12 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
                 # same clone start/end -> identical assembly
                 if ($E_clone->start == $V_clone->start and $E_clone->end == $V_clone->end) {
                     # check if clone is tagged to be skipped
-                    # this is to resolve some odd assembly differences,
+                    # this can be used to resolve some odd assembly differences,
                     # relevant clones will have to be tagged manually (for now;
                     # write script to do this from input list)
+                    # another use case is non-annotated clones in zebrafish
+                    # (they'll be tagged by annotation_status.pl, so you'll have
+                    # to run this script first)
                     my ($skip) = @{ $V_clone->get_all_Attributes('skip_clone') };
                     if ($skip) {
                         $support->log_verbose("Skipping matching Vega clone ($i)".
@@ -438,7 +441,7 @@ $support->log(sprintf($fmt1, "Clones only in Vega:", $stats_total{'V_only'}), 1)
 
 $support->log("\nNon-match block lengths:\n");
 $support->log(sprintf($fmt6, qw(E_CHR E_LENGTH V_CHR V_LENGTH)), 1);
-$support->log(('-'x35)."\n", 1);
+$support->log(('-'x42)."\n", 1);
 foreach my $block (sort { $a->[1] <=> $b->[1] } @block_length) {
     $support->log(sprintf("%-10s%10.0f  %-10s%10.0f\n", @{ $block }), 1);
 }
