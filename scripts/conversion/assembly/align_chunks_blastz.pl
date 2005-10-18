@@ -210,8 +210,8 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     my $V_chr_slice = $V_sa->fetch_by_region('chromosome', $V_chr, undef,
         undef, undef, $support->param('assembly'));
     my @noannot = @{ $V_chr_slice->get_all_MiscFeatures('NoAnnotation') || [] };
-    if (@noannot) {
-        my @annot = &invert_selection($V_chr_slice->length, \@noannot);
+    my @annot = &invert_selection($V_chr_slice->length, \@noannot);
+    if (scalar(@annot)) {
         
         foreach my $coord (@annot) {
             push @V_slices, $V_sa->fetch_by_region(
@@ -319,7 +319,7 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
 
     $support->log_stamped("Done with chromosome $V_chr.\n", 1);
 }
-$support->log_stamped("Done.\n");
+$support->log_stamped("Done.\n\n");
 
 # filter overlapping Vega alignment regions
 $support->log_stamped("Filtering overlapping Vega alignment regions...\n");
@@ -333,16 +333,28 @@ unless ($support->param('dry_run')) {
     # add assembly.mapping to meta table
     $support->log("Adding assembly.mapping entry to meta table...\n");
     my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
-    $E_dbh->do(qq(
-        INSERT INTO meta (meta_key, meta_value)
-        VALUES ('assembly.mapping', '$mappingstring')
+
+    # check if the meta entry already exists
+    my $sth = $E_dbh->prepare(qq(
+        SELECT * FROM meta
+        WHERE meta_key = 'assembly.mapping'
+        AND meta_value = '$mappingstring'
     ));
+    $sth->execute;
+    if ($sth->fetchrow_array) {
+        $support->log("assembly.mapping entry already present. Skipping.\n", 1);
+    } else {
+        $E_dbh->do(qq(
+            INSERT INTO meta (meta_key, meta_value)
+            VALUES ('assembly.mapping', '$mappingstring')
+        ));
+    }
     $support->log("Done.\n");
 }
 
 # cleanup
 $support->log_stamped("\nRemoving tmpdir...\n");
-#$aligner->remove_tempdir;
+$aligner->remove_tempdir;
 $support->log_stamped("Done.\n");
 
 # overall stats

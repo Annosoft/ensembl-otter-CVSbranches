@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/local/ensembl/bin/perl
 
 =head1 NAME
 
@@ -133,11 +133,17 @@ if ($support->param('help') or $support->error) {
     pod2usage(1);
 }
 
+$support->comma_to_list('chromosomes');
+
 # ask user to confirm parameters to proceed
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
+
+# connect to database and get adaptors
+my $E_dba = $support->get_database('evega', 'evega');
+my $E_dbh = $E_dba->dbc->db_handle;
 
 # get Vega chromosomes
 my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'));
@@ -155,19 +161,16 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
             logfile     => "align_chunks_blastz.$V_chr.log",
             chromosomes => $V_chr,
             interactive => 0,
-            binpath     => '/usr/local/ensembl/bin',
+            bindir      => '/usr/local/ensembl/bin',
         },
     });
     $support->log("Running align_chunks_blastz.pl via lsf...\n", 2);
 
-    my $cmd = qq(bsub -P vega
-                    -R'select[LINUX86]' \
-                    -o align_chunks_blastz.%J.out \
-                    -e align_chunks_blastz.%J.err
-                 align_chunks_blastz.pl $options
+    my $logpath = $support->param('logpath').'/lsf';
+    my $cmd = qq(bsub -R'type=LINUX86' -o $logpath/align_chunks_blastz.%J.out -e $logpath/align_chunks_blastz.%J.err ./align_chunks_blastz.pl $options
     );
 
-    system($cmd) == 0
+    system("$cmd") == 0
         or $support->throw("Error running align_chunks_blastz.pl: $!");
 
     $support->log_stamped("Done.\n", 2);
@@ -175,6 +178,17 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Done with chromosome $V_chr.\n", 1);
 }
 $support->log_stamped("Done.\n");
+
+unless ($support->param('dry_run')) {
+    # add assembly.mapping to meta table
+    $support->log("Adding assembly.mapping entry to meta table...\n");
+    my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
+    $E_dbh->do(qq(
+        INSERT INTO meta (meta_key, meta_value)
+        VALUES ('assembly.mapping', '$mappingstring')
+    ));
+    $support->log("Done.\n");
+}
 
 # finish logfile
 $support->finish_log;

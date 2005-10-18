@@ -78,7 +78,7 @@ sub create_tempdir {
     # create tmpdir to store input and output
     my $user = `whoami`;
     chomp $user;
-    my $tempdir = "/tmp/$user.".time;
+    my $tempdir = "/tmp/$user.".time.".".int(rand(1000));
     $self->support->log("Creating tmpdir $tempdir...\n");
     system("mkdir $tempdir") == 0 or
         $self->support->log_error("Can't create tmp dir $tempdir: $!\n");
