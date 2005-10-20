@@ -420,17 +420,6 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("\nDone with chromosome $V_chr.\n", 1);
 }
 
-# add assembly.mapping to meta table
-unless ($support->param('dry_run')) {
-    $support->log("Adding assembly.mapping entry to meta table...\n");
-    my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
-    $E_dbh->do(qq(
-        INSERT INTO meta (meta_key, meta_value)
-        VALUES ('assembly.mapping', '$mappingstring')
-    ));
-    $support->log("Done.\n");
-}
-
 # overall stats
 $support->log("\nOverall stats:\n");
 $support->log(sprintf($fmt1, "Identical clones:", $stats_total{'identical'}), 1);

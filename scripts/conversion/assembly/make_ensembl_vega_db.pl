@@ -349,6 +349,17 @@ $sql = qq(
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c meta entries.\n\n");
 
+# add assembly.mapping to meta table
+$support->log_stamped("Adding assembly.mapping entry to meta table...\n");
+my $mappingstring = 'chromosome:'.$support->param('assembly').
+    '|chromosome:'.$support->param('ensemblassembly');
+$sql = qq(
+    INSERT INTO $evega_db.meta (meta_key, meta_value)
+    VALUES ('assembly.mapping', '$mappingstring')
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done inserting $c meta entries.\n");
+
 # run update_external_dbs.pl
 my $options = $support->create_commandline_options({
     'allowed_params' => 1,

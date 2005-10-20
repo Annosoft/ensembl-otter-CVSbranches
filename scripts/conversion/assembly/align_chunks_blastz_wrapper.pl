@@ -2,8 +2,7 @@
 
 =head1 NAME
 
-align_chunks_blastz.pl - create whole genome alignment between chunks of two
-closely related assemblies using blastz
+align_chunks_blastz_wrapper.pl - lsf wrapper for align_chunks_blastz.pl
 
 =head1 SYNOPSIS
 
@@ -41,31 +40,8 @@ Specific options:
 
 =head1 DESCRIPTION
 
-This script is part of a series of scripts to transfer annotation from a
-Vega to an Ensembl assembly. See "Related scripts" below for an overview of the
-whole process.
-
-It creates a whole genome alignment between chunks of two closely related
-assemblies using blastz.
-
-=head1 RELATED SCRIPTS
-
-The whole Ensembl-vega database production process is done by these scripts:
-
-    ensembl-otter/scripts/conversion/assembly/make_ensembl_vega_db.pl
-    
-    (
-        ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
-    and
-        ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
-    )
-    or
-        ensembl-otter/scripts/conversion/assembly/align_chunks_blastz.pl
-
-    ensembl-otter/scripts/conversion/assembly/map_annotation.pl
-    ensembl-otter/scripts/conversion/assembly/finish_ensembl_vega_db.pl
-
-See documention in the respective script for more information.
+This script runs align_chunks_blastz.pl one chromosome at a time via lsf on the
+farm. See documention in align_chunks_blastz.pl for more information.
 
 =head1 LICENCE
 
@@ -167,6 +143,10 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log("Running align_chunks_blastz.pl via lsf...\n", 2);
 
     my $logpath = $support->param('logpath').'/lsf';
+    unless (-e $logpath) {
+        system("mkdir $logpath") == 0 or
+            $support->log_error("Can't create lsf log dir $logpath: $!\n");
+    }
     my $cmd = qq(bsub -R'type=LINUX86' -o $logpath/align_chunks_blastz.%J.out -e $logpath/align_chunks_blastz.%J.err ./align_chunks_blastz.pl $options
     );
 
@@ -178,17 +158,6 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Done with chromosome $V_chr.\n", 1);
 }
 $support->log_stamped("Done.\n");
-
-unless ($support->param('dry_run')) {
-    # add assembly.mapping to meta table
-    $support->log("Adding assembly.mapping entry to meta table...\n");
-    my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
-    $E_dbh->do(qq(
-        INSERT INTO meta (meta_key, meta_value)
-        VALUES ('assembly.mapping', '$mappingstring')
-    ));
-    $support->log("Done.\n");
-}
 
 # finish logfile
 $support->finish_log;

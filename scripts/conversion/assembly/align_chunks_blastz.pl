@@ -3,7 +3,7 @@
 =head1 NAME
 
 align_chunks_blastz.pl - create whole genome alignment between chunks of two
-closely related assemblies using blastz
+closely related assemblies using blastz from scratch
 
 =head1 SYNOPSIS
 
@@ -46,7 +46,9 @@ Vega to an Ensembl assembly. See "Related scripts" below for an overview of the
 whole process.
 
 It creates a whole genome alignment between chunks of two closely related
-assemblies using blastz.
+assemblies using blastz. It was originally written for zebrafish. Alignments
+are created between 30Mb chunks of Ensembl assembly and max. 10Mb chunks of
+annotated clones from the Vega assembly.
 
 =head1 RELATED SCRIPTS
 
@@ -56,7 +58,7 @@ The whole Ensembl-vega database production process is done by these scripts:
     
     (
         ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
-    and
+        and
         ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
     )
     or
@@ -329,27 +331,6 @@ $support->log_stamped("Done.\n");
 unless ($support->param('dry_run')) {
     # write alignments to assembly table
     $aligner->write_assembly($V_dba, $E_dbh, $E_sa);
-    
-    # add assembly.mapping to meta table
-    $support->log("Adding assembly.mapping entry to meta table...\n");
-    my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
-
-    # check if the meta entry already exists
-    my $sth = $E_dbh->prepare(qq(
-        SELECT * FROM meta
-        WHERE meta_key = 'assembly.mapping'
-        AND meta_value = '$mappingstring'
-    ));
-    $sth->execute;
-    if ($sth->fetchrow_array) {
-        $support->log("assembly.mapping entry already present. Skipping.\n", 1);
-    } else {
-        $E_dbh->do(qq(
-            INSERT INTO meta (meta_key, meta_value)
-            VALUES ('assembly.mapping', '$mappingstring')
-        ));
-    }
-    $support->log("Done.\n");
 }
 
 # cleanup
