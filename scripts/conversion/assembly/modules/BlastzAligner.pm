@@ -7,9 +7,48 @@ related assemblies and create assembly entries from it.
 
 =head1 SYNOPSIS
 
+my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
+my $aligner = BlastzAligner->new(-SUPPORT => $support);
+
+# create a tempdir for storing input and output
+$aligner->create_tempdir;
+
+# write sequences to fasta and nib files
+$aligner->write_sequence(
+    $ensembl_slice,
+    $support->param('ensemblassembly'), 
+    "ensembl_sequence.1"
+);
+$aligner->write_sequence(
+    $vega_slice,
+    $support->param('assembly'), 
+    "vega_sequence.1"
+);
+
+# run blastz
+$aligner->run_blastz("ensembl_sequence.1", "vega_sequence.1");
 
 =head1 DESCRIPTION
 
+This modules contains helper functions to generate a whole genome alignment
+between two closely related assemblies using blastz from scratch. Alignments
+are then stored in an Ensembl assembly table.
+
+The module is part of a series of scripts to transfer annotation from a Vega to
+an Ensembl assembly. See "Related scripts" below for an overview of the whole
+process.
+
+=head1 RELATED SCRIPTS
+
+The whole Ensembl-vega database production process is done by these scripts:
+
+    ensembl-otter/scripts/conversion/assembly/make_ensembl_vega_db.pl
+    ensembl-otter/scripts/conversion/assembly/align_by_clone_identity.pl
+    ensembl-otter/scripts/conversion/assembly/align_nonident_regions.pl
+    ensembl-otter/scripts/conversion/assembly/map_annotation.pl
+    ensembl-otter/scripts/conversion/assembly/finish_ensembl_vega_db.pl
+
+See documention in the respective script for more information.
 
 =head1 LICENCE
 
@@ -40,12 +79,14 @@ use constant FMT4 => "%-8s%-12s%-5s%8.0f  %8.0f  %8.0f  %8.0f\n";
 
 =head2 new
 
-  Arg[-SUPPORT] : 
-  Example       : 
-  Description   : 
-  Return type   : 
-  Exceptions    : 
-  Caller        : 
+  Arg[-SUPPORT] : a Bio::EnsEMBL::Utils::ConversionSupport object
+  Example       : my $support = new Bio::EnsEMBL::Utils::ConversionSupport(
+                    $SERVERROOT);
+                  my $aligner = BlastzAligner->new(-SUPPORT => $support);
+  Description   : object constructor method
+  Return type   : a BlastzAligner object
+  Exceptions    : none
+  Caller        : general
 
 =cut
 
@@ -61,14 +102,14 @@ sub new {
     return $self;
 }
 
-=head2 
+=head2 create_tempdir
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : $aligner->create_tempdir;
+  Description : Creates a temporary directory in /tmp with a semi-random name
+                (username.timestamp.randomnumber).
+  Return type : String - name of the tempdir created
+  Exceptions  : Thrown if tempdir can't be created
+  Caller      : general
 
 =cut
 
@@ -88,14 +129,13 @@ sub create_tempdir {
     return $tempdir;
 }
 
-=head2 
+=head2 remove_tempdir
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : $aligner->remove_tempdir;
+  Description : Removes a temporary directory created by $self->create_tempdir.
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -104,65 +144,20 @@ sub remove_tempdir {
     rmtree($self->tempdir) or $self->support->log_warning("Could not delete ".$self->tempdir.": $!\n");
 }
 
-=head2 
+=head2 write_sequence
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
-
-=cut
-
-sub write_single_sequences {
-    my ($self, $E_slice, $V_slice) = @_;
-
-    unless (ref($E_slice) eq 'Bio::EnsEMBL::Slice' 
-            and ref($V_slice) eq 'Bio::EnsEMBL::Slice') {
-        $self->support->log_error("You must supply an Ensembl and a Vega Bio::EnsEMBL::Slice.\n");
-    }
-    
-    my $tmpdir = $self->tempdir;
-    my $bindir = $self->support->param('bindir');
-    my $id = $self->id;
-
-    my $E_fh = $self->support->filehandle('>', "$tmpdir/e_seq.$id.fa");
-    my $V_fh = $self->support->filehandle('>', "$tmpdir/v_seq.$id.fa");
-
-    print $E_fh join(':', ">e_seq.$id dna:chromfrag chromosome",
-                          $self->support->param('ensemblassembly'),
-                          $E_slice->start,
-                          $E_slice->end,
-                          $E_slice->strand
-                    ), "\n";
-    print $E_fh $E_slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
-    close($E_fh);
-
-    print $V_fh join(':', ">v_seq.$id dna:chromfrag chromosome",
-                          $self->support->param('assembly'),
-                          $V_slice->start,
-                          $V_slice->end,
-                          $V_slice->strand
-                    ), "\n";
-    print $V_fh $V_slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
-    close($V_fh);
-
-    # convert fasta to nib (needed for lavToAxt)
-    system("$bindir/faToNib $tmpdir/e_seq.$id.fa $tmpdir/e_seq.$id.nib") == 0 or
-        $self->support->log_error("Can't run faToNib: $!\n");
-    system("$bindir/faToNib $tmpdir/v_seq.$id.fa $tmpdir/v_seq.$id.nib") == 0 or
-        $self->support->log_error("Can't run faToNib: $!\n");
-}
-
-=head2 
-
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Bio::EnsEMBL::Slice $slice - slice for which to write sequence
+  Arg[2]      : String $assembly - assembly name
+  Arg[3]      : String $basename1 - basename of single sequence file
+  Arg[4]      : (optional) String $basename2 - basename of multiple sequence
+                file
+  Example     : $aligner->write_sequence($slice, 'NCBI35', 'e_seq.1');
+  Description : Writes a slice's sequence to a fasta file and converts it to nib
+                format. Optionally appends the sequence to another
+                multi-sequence fasta file.
+  Return type : none
+  Exceptions  : thrown if faToNib or file appending fails
+  Caller      : general
 
 =cut
 
@@ -192,14 +187,15 @@ sub write_sequence {
     }
 }
 
-=head2 
+=head2 run_blastz
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : String $E_basename - basename of Ensembl fasta file
+  Arg[2]      : String $V_basename - basename of Vega fasta file
+  Example     : $aligner->run_blastz('e_seq.1', 'v_seq.1');
+  Description : Runs blastz between an Ensembl and multiple Vega sequences.
+  Return type : none
+  Exceptions  : thrown if blastz fails
+  Caller      : general
 
 =cut
 
@@ -215,14 +211,15 @@ sub run_blastz {
         $self->support->log_error("Can't run blastz: $!\n");
 }
 
-=head2 
+=head2 lav_to_axt
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : $aligner->lav_to_axt;
+  Description : Converts blastz output from lav to axt format. Target and query
+                sequences must be present in nib format in the temporary
+                directory for this to work.
+  Return type : none
+  Exceptions  : thrown if lavToAxt fails
+  Caller      : general
 
 =cut
 
@@ -236,14 +233,14 @@ sub lav_to_axt {
     system("$bindir/lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt") == 0 or $self->support->log_error("Can't run lavToAxt: $!\n");
 }
 
-=head2 
+=head2 find_best_alignment
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : $aligner->find_best_alignment;
+  Description : Finds the best set of non-overlapping alignments by running
+                axtBest.
+  Return type : none
+  Exceptions  : thrown if axtBest fails
+  Caller      : general
 
 =cut
 
@@ -257,14 +254,14 @@ sub find_best_alignment {
     system("$bindir/axtBest $tmpdir/blastz.$id.axt all $tmpdir/blastz.$id.best.axt") == 0 or $self->support->log_error("Can't run axtBest: $!\n");
 }
 
-=head2 
+=head2 parse_blastz_output
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : $aligner->parse_blastz_output;
+  Description : Reads a blastz alignment result from an axt file and creates
+                a datastructure containing ungapped alignments from it.
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -333,11 +330,11 @@ sub parse_blastz_output {
 
 =head2 found_match
 
-  Arg[4]      : Boolean $match_flag - flag indicating if last bp was a match
-  Arg[5]      : Int $j - current bp position in the alignment
-  Arg[7]      : Hashref $coords - alignment coordinates and strand from blastz
+  Arg[1]      : Boolean $match_flag - flag indicating if last bp was a match
+  Arg[2]      : Int $j - current bp position in the alignment
+  Arg[3]      : Hashref $coords - alignment coordinates and strand from blastz
                 output
-  Description : Populates a datastructure describing blocks of alignment
+  Description : Populates a datastructure describing blocks of alignment.
   Return type : none
   Exceptions  : none
   Caller      : internal
@@ -377,14 +374,18 @@ sub found_match {
 }
 
 
-=head2 
+=head2 adjust_coords
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Int $e_start - start of Ensembl block in chromosomal coords
+  Arg[2]      : Int $e_end - end of Ensembl block in chromosomal coords
+  Arg[3]      : Arrayref $V_coords - list of start/end pairs of Vega blocks in
+                chromosomal coords
+  Example     : my $V_coords = [ [1, 1000], [3000, 5000] ];
+                $aligner->adjust_coords(1, 30000000, $V_coords);
+  Description : Adjusts coordinates of blastz alignments to chromosomal coords.
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -422,7 +423,7 @@ sub adjust_coords {
 
 =head2 filter_overlaps
 
-  Description : Filters overlapping target (i.e. Vega) sequences in alignments.
+  Description : Filters overlapping query (i.e. Vega) sequences in alignments.
                 Longer alignments are preferred.
   Return type : none
   Exceptions  : none
@@ -506,14 +507,20 @@ sub filter_overlaps {
     }
 }
 
-=head2 
+=head2 write_assembly
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Bio::*::DBSQL::DBAdaptor $V_dba - Vega database adaptor
+  Arg[2]      : $E_dbh - Ensembl database handle
+  Arg[3]      : Bio::EnsEMBL::DBSQL::SliceAdaptor $E_sa - Ensembl SliceAdaptor
+  Example     : my $V_dba = $support->get_database('core');
+                my $E_dba = $support->get_database('evega', 'evega');
+                my $E_dbh = $E_dba->dbc->db_handle;
+                my $E_sa = $E_dba->get_SliceAdaptor;
+                $aligner->write_assembly($V_dba, $E_dbh, $E_sa);
+  Description : Writes assembly entries for blastz alignments to the database.
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -559,14 +566,15 @@ sub write_assembly {
     $self->support->log("Done inserting $i entries.\n");
 }
 
-=head2 
+=head2 stats_incr
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : String $code - stats code
+  Arg[2]      : Int $incr - number by which stats should be incremented
+  Example     : $aligner->stats_incr('total_alignments', 1);
+  Description : Increments stats.
+  Return type : Int - stat value after increment
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -576,14 +584,14 @@ sub stats_incr {
     return $self->{'_stats'}->{$code};
 }
 
-=head2 
+=head2 init_stats
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Array @codes - stats codes to initialise
+  Example     : $aligner->init_stats('match', 'mismatch', 'alignments');
+  Description : Initialises stats (i.e. sets to 0).
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -594,14 +602,14 @@ sub init_stats {
     }
 }
 
-=head2 
+=head2 get_stats
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : String $code - stats code
+  Example     : my $num_mismatches = $aligner->get_stats('mismatch');
+  Description : Stats getter.
+  Return type : Int - stats value
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -610,14 +618,14 @@ sub get_stats {
     return $self->{'_stats'}->{$code};
 }
 
-=head2 
+=head2 log_block_stats
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Int $indent - indentation level
+  Example     : $aligner->log_block_stats(3);
+  Description : Logs stats for an alignment block.
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -647,14 +655,13 @@ sub log_block_stats {
         qw(match mismatch gap bp);
 }
 
-=head2 
+=head2 log_overall_stats
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : $aligner->log_overall_stats;
+  Description : Logs overall alignment stats.
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
