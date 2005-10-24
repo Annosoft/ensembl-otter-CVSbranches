@@ -5,6 +5,7 @@ use strict;
 
 use FileHandle;
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::DBSQL::DBAdaptor);
 
@@ -14,12 +15,12 @@ sub new {
 
   my $self = $class->SUPER::new(@args);
 
-  my ($chr,$start,$end,$type)  = $self->_rearrange([qw(
-						       CHR
-						       START
-						       END
-						       TYPE
-						       )],@args);
+  my ($chr,$start,$end,$type)  = rearrange([qw(
+                                               CHR
+                                               START
+                                               END
+                                               TYPE
+                                               )],@args);
 
 
 
