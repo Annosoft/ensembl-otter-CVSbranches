@@ -7,6 +7,7 @@ umask 0002
 THISSCRIPT=`basename $0`
 ILIVEIN=`dirname $0` # this is where the script lives. can cd there.
 CVSBASE=..
+CALLED=`pwd`
 
 ## get to cvs check outs directory
 cd $ILIVEIN/$CVSBASE/..
@@ -22,10 +23,6 @@ $root/bioperl-0.7.2:\
 $root/CPAN
 
 export PERL5LIB
-
-HOME=$root
-
-export HOME
 
 cd ensembl-otter/scripts
 
