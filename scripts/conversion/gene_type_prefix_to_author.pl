@@ -103,13 +103,13 @@ my $sql = qq(
     WHERE   g.gene_id = gsi.gene_id
     AND     gsi.stable_id = gi.gene_stable_id
     AND     a.author_id = gi.author_id
-    GROUP BY g.type, gi.author_id
+    GROUP BY g.biotype, gi.author_id
 );
 my $sth1 = $dbh->prepare($sql);
 $sth1->execute;
 
 my %new_authors;
-while (my ($type, $id, $name, $email) = $sth1->fetchrow_arry) {
+while (my ($type, $id, $name, $email) = $sth1->fetchrow_array) {
     $type =~ /(.*):(.*)/;
 
     # nothing to do if biotype doesn't contain a colon
@@ -177,7 +177,7 @@ foreach my $author (keys %new_authors) {
     if ($support->param('dry_run')) {
         $support->log_verbose("$sql3\n");
     } else {
-        $dbh->do($sql2);
+        $dbh->do($sql3);
     }
     $support->log("Done.\n\n", 1);
 
@@ -189,7 +189,12 @@ $support->log("Done.\n\n");
 $support->log("Stripping prefixes from gene.biotype and transcript.biotype...\n");
 $sql = qq(
     UPDATE gene
-    SET biotype = SUBSTR_INDEX(biotype, ':', -1)
+    SET biotype = SUBSTRING_INDEX(biotype, ':', -1)
+);
+$dbh->do($sql) unless ($support->param('dry_run'));
+$sql = qq(
+    UPDATE transcript
+    SET biotype = SUBSTRING_INDEX(biotype, ':', -1)
 );
 $dbh->do($sql) unless ($support->param('dry_run'));
 $support->log("Done.\n\n");
