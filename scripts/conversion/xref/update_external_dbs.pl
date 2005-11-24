@@ -106,10 +106,14 @@ while (my $row = <IN>) {
     chomp($row);
     my @a = split(/\t/, $row);
     push @rows, {
-        'external_db_id'    => $a[0],
-        'db_name'           => $a[1],
-        'release'           => $a[2],
-        'status'            => $a[3],
+        'external_db_id'            => $a[0],
+        'db_name'                   => $a[1],
+        'release'                   => $a[2],
+        'status'                    => $a[3],
+        'dbprimary_acc_linkable'    => $a[4],
+        'display_label_linkable'    => $a[5],
+        'priority'                  => $a[6],
+        'db_display_name'           => $a[7],
     };
 }
 close(IN);
@@ -126,8 +130,10 @@ unless ($support->param('dry_run')) {
 $support->log("Inserting new external_db entries into db...\n");
 unless ($support->param('dry_run')) {
     my $sth = $dbh->prepare('
-        INSERT INTO external_db (external_db_id, db_name, release, status)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO external_db
+            (external_db_id, db_name, release, status, dbprimary_acc_linkable, 
+            display_label_linkable, priority, db_display_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ');
     foreach my $row (@rows) {
         $sth->execute(
@@ -135,6 +141,10 @@ unless ($support->param('dry_run')) {
                 $row->{'db_name'},
                 $row->{'release'},
                 $row->{'status'},
+                $row->{'dbprimary_acc_linkable'},
+                $row->{'display_label_linkable'},
+                $row->{'priority'},
+                $row->{'db_display_name'},
         );
     }
     $sth->finish();
