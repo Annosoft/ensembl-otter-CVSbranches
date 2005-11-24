@@ -100,6 +100,7 @@ my $author_def = {
             '7'         => [ 'Washu', 'jspieth@watson.wust' ],
             '14'        => [ 'Genoscope', 'ralph@genoscope.cns.fr' ],
             '16'        => [ 'JGI', 'UHellsten@lbl.gov' ],
+            '17'        => [ 'Broad', 'daved@broad.mit.edu' ],
             '18'        => [ 'Broad', 'daved@broad.mit.edu' ],
             '19'        => [ 'JGI', 'UHellsten@lbl.gov' ],
             '22'        => [ 'Sanger', 'chr22@sanger.ac.uk' ],
@@ -144,11 +145,21 @@ if ($support->param('dry_run')) {
 # delete old authors, insert new authors into database
 $support->log("Deleting old authors, inserting new authors into db...\n");
 $dbh->do('DELETE FROM author');
+
+# first add default author
 my ($author, $email) = @{ $chromosomes->{'default'} };
 $dbh->do("INSERT INTO author VALUES (1000, '$email', '$author')");
-my $i = 1001;
+
+# create list of unique other authors
+my %other;
 foreach my $chr (keys %{ $chromosomes->{'other'} }) {
-    my ($author, $email) = @{ $chromosomes->{'other'}->{$chr} };
+    $other{join("|", @{ $chromosomes->{'other'}->{$chr} }} = $chromosomes->{'other'}->{$chr};
+}
+
+# add other authors
+my $i = 1001;
+foreach my $a (sort keys %other) {
+    my ($author, $email) = @{ $other{$a} };
     $dbh->do("INSERT INTO author VALUES ($i, '$email', '$author')");
     $i++;
 }
