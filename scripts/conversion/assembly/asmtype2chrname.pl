@@ -268,6 +268,7 @@ unless ($support->param('dry_run')) {
 
 # loop over assembly types
 $support->log("Looping over chromosomes/assemblies...\n");
+my $i = 1;
 foreach my $row (@rows) {
     my ($chr, $chr_id, $ass_type, $length) = @$row;
     $support->log("Chr $chr, assembly.type $ass_type...\n", 1);
@@ -286,7 +287,7 @@ foreach my $row (@rows) {
     }
 
     # create fake chromosome
-    my $sql2 = "INSERT into chromosome values ($chr_id, '$chr_new', $length)";
+    my $sql2 = "INSERT into chromosome values ($i, '$chr_new', $length)";
     $support->log("$sql2\n", 2);
     unless ($support->param('dry_run')) {
         my $sth2 = $dbh->prepare($sql2);
@@ -294,12 +295,14 @@ foreach my $row (@rows) {
     }
 
     # update assembly table with new chromosome names
-    my $sql3 = "UPDATE assembly SET chromosome_id = $chr_id WHERE type = '$ass_type'";
+    my $sql3 = "UPDATE assembly SET chromosome_id = $i WHERE type = '$ass_type'";
     $support->log("$sql3\n", 2);
     unless ($support->param('dry_run')) {
         my $sth3 = $dbh->prepare($sql3);
         $sth3->execute;
     }
+
+    $i++;
 }
 
 # set assembly.type to VEGA for all chromosomes
