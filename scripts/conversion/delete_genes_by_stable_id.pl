@@ -2,11 +2,11 @@
 
 =head1 NAME
 
-create_ext_vega_db.pl - filter internal annotation from a Vega db
+delete_genes_by_stable_id.pl - filter internal annotation from a Vega db
 
 =head1 SYNOPSIS
 
-create_ext_vega_db.pl [options]
+delete_genes_by_stable_id.pl [options]
 
 General options:
     --conffile, --conf=FILE             read parameters from FILE
@@ -27,10 +27,24 @@ General options:
 
 Specific options:
 
-    --infile=FILE                       read list of stable IDs from FILE
+    --keep=FILE                         read list of stable IDs to *keep* from
+                                        FILE
+    --delete=FILE                       read list of stable IDs to *delete*
+                                        from FILE
+    --find_missing                      print list of genes in infile but not in
+                                        database
+    --outfile=FILE                      write list of missing genes to FILE
     
 =head1 DESCRIPTION
 
+Use this script to delete genes and all associated annotation (transcript,
+translations, xrefs, ...) from a Vega database. You can provide either a list
+of gene_stable_ids to keep (--keep=FILE) or to delete (--delete=FILE), where
+FILE is a list of gene_stable_ids, one per line.
+
+The script also checks if any genes in the list are not in the database and
+optionally prints a list of these genes (use --find_missing and
+--outfile=FILE).
 
 =head1 LICENCE
 
@@ -71,8 +85,19 @@ my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
 
 # parse options
 $support->parse_common_options(@_);
-$support->parse_extra_options('infile=s');
-$support->allowed_params($support->get_common_params, qw(infile));
+$support->parse_extra_options(
+    'keep=s',
+    'delete=s',
+    'outfile=s',
+    'find_missing',
+);
+$support->allowed_params(
+    $support->get_common_params,
+    'keep',
+    'delete',
+    'outfile',
+    'find_missing',
+);
 
 if ($support->param('help') or $support->error) {
     warn $support->error if $support->error;
@@ -85,16 +110,34 @@ $support->confirm_params;
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
 
-$support->check_required_params('infile');
-
 # connect to database and get adaptors
 my $dba = $support->get_database('ensembl');
 my $dbh = $dba->dbc->db_handle;
 
+# sanity check: you can only use either a list of gene_stable_id to keep or to
+# delete
+my ($action, $condition, $infile);
+if ($support->param('keep')) {
+    $infile = $support->param('keep');
+    $action = 'keep';
+    $condition = "NOT IN";
+} elsif ($support->param('delete')) {
+    $infile = $support->param('delete');
+    $action = 'delete';
+    $condition = "IN";
+} else {
+    $support->log_error("You must supply either a list of gene_stable_ids to delete or to keep.");
+}
+
+# make sure user knows what he's doing
+unless ($support->user_proceed("You decided to ".uc($action)." all genes $condition the list provided. Are you sure you want to proceed?")) {
+    exit(0);
+}
+
 # read list of stable IDs to keep in external db - everything else will be
 # deleted
-$support->log_stamped("Reading stable IDs to keep from file...\n");
-my $in = $support->filehandle('<', $support->param('infile'));
+$support->log_stamped("Reading stable IDs to ".$action." from file...\n");
+my $in = $support->filehandle('<', $infile);
 my @gene_stable_ids;
 while (<$in>) {
     chomp;
@@ -102,7 +145,44 @@ while (<$in>) {
 }
 close($in);
 my $gsi_list = "'" . join("', '", @gene_stable_ids) . "'";
-$support->log_stamped("Done reading ".scalar(@gene_stable_ids)." entries.\n\n");
+my $gnum_in_file = scalar(@gene_stable_ids);
+$support->log_stamped("Done reading $gnum_in_file entries.\n\n");
+
+# sanity check: check if all genes in the list are also in the database
+$support->log("Checking for missing genes...\n");
+my ($sql, $num);
+$sql = qq(
+    SELECT  stable_id
+    FROM    gene_stable_id
+    WHERE   stable_id IN ($gsi_list)
+);
+my @genes_in_db = map { $_->[0] } @{ $dbh->selectall_arrayref($sql) || [] };
+my $gnum_in_db = scalar(@genes_in_db);
+my $diff = $gnum_in_file - $gnum_in_db;
+if ($diff) {
+    $support->log_warning("Not all genes in the input file could be found in the db ($diff missing).\n");
+    # print list of missing stable IDs
+    if ($support->param('find_missing')) {
+        $support->log("Printing list of missing genes to file...\n", 1);
+        my $out = $support->filehandle('>', $support->param('outfile'));
+        my %seen;
+        @seen{@genes_in_db} = (1) x @genes_in_db;
+        foreach my $gsi (@gene_stable_ids) {
+            print $out "$gsi\n" unless $seen{$gsi};
+        }
+        $support->log("Done.\n", 1);
+        
+    # suggest to run with --find_missing option
+    } else {
+        $support->log("Please run the script with the --find_missing option and check to see what's wrong.\n");
+    }
+
+    # ask user if he wants to proceed regardless of the potential problem
+    unless ($support->user_proceed("\nData inconsistencies (see logfile). Would you like to proceed anyway?")) {
+        exit(0);
+    }
+}
+$support->log("Done.\n\n");
 
 if ($support->param('dry_run')) {
     $support->log("Nothing else to be done for dry run. Aborting.\n");
@@ -111,66 +191,104 @@ if ($support->param('dry_run')) {
 
 # delete all genes not in this list
 # also delete their transcripts, translations and related info
-my ($sql, $num);
-$support->log_stamped("Deleting internal genes, transcripts and translations...\n");
-$sql = qq(
-    DELETE QUICK IGNORE
-            g,
-            gsi,
-            gi,
-            cgi,
-            gn,
-            gr,
-            gs,
-            t,
-            tsi,
-            ti,
-            cti,
-            ta,
-            tr,
-            e,
-            tl,
-            tla,
-            tlsi,
-            pf
-    FROM
-            gene g,
-            gene_stable_id gsi,
-            gene_info gi,
-            current_gene_info cgi,
-            gene_name gn,
-            transcript t,
-            transcript_stable_id tsi,
-            transcript_info ti,
-            current_transcript_info cti
-    LEFT JOIN
-            gene_remark gr ON gr.gene_info_id = gi.gene_info_id
-    LEFT JOIN
-            gene_synonym gs ON gs.gene_info_id = gi.gene_info_id
-    LEFT JOIN
-            transcript_attrib ta ON ta.transcript_id = t.transcript_id
-    LEFT JOIN
-            transcript_remark tr ON tr.transcript_info_id = ti.transcript_info_id
-    LEFT JOIN
-            evidence e ON e.transcript_info_id = ti.transcript_info_id
-    LEFT JOIN
-            translation tl ON tl.transcript_id = t.transcript_id
-    LEFT JOIN
-            translation_attrib tla ON tla.translation_id = tl.translation_id
-    LEFT JOIN
-            translation_stable_id tlsi ON tlsi.translation_id = tl.translation_id
-    LEFT JOIN
-            protein_feature pf ON pf.translation_id = tl.translation_id
-    WHERE   gsi.stable_id NOT IN ($gsi_list)
-    AND     g.gene_id = gsi.gene_id
-    AND     gsi.stable_id = gi.gene_stable_id
-    AND     gsi.stable_id = cgi.gene_stable_id
-    AND     gi.gene_info_id = gn.gene_info_id
-    AND     t.gene_id = g.gene_id
-    AND     t.transcript_id = tsi.transcript_id
-    AND     tsi.stable_id = ti.transcript_stable_id
-    AND     tsi.stable_id = cti.transcript_stable_id
-);
+$support->log_stamped("Deleting genes, transcripts and translations...\n");
+# find out if we are dealing with an Ensembl or Vega schema
+my %schema;
+map { $_ =~ s/`//g; $schema{$_} = 1; } $dbh->tables;
+if ($schema{'gene_info'}) {
+    # delete statement for Vega schema
+    $sql = qq(
+        DELETE QUICK IGNORE
+                g,
+                gsi,
+                gi,
+                cgi,
+                gn,
+                gr,
+                gs,
+                t,
+                tsi,
+                ti,
+                cti,
+                ta,
+                tr,
+                e,
+                tl,
+                tla,
+                tlsi,
+                pf
+        FROM
+                gene g,
+                gene_stable_id gsi,
+                gene_info gi,
+                current_gene_info cgi,
+                gene_name gn,
+                transcript t,
+                transcript_stable_id tsi,
+                transcript_info ti,
+                current_transcript_info cti
+        LEFT JOIN
+                gene_remark gr ON gr.gene_info_id = gi.gene_info_id
+        LEFT JOIN
+                gene_synonym gs ON gs.gene_info_id = gi.gene_info_id
+        LEFT JOIN
+                transcript_attrib ta ON ta.transcript_id = t.transcript_id
+        LEFT JOIN
+                transcript_remark tr ON tr.transcript_info_id = ti.transcript_info_id
+        LEFT JOIN
+                evidence e ON e.transcript_info_id = ti.transcript_info_id
+        LEFT JOIN
+                translation tl ON tl.transcript_id = t.transcript_id
+        LEFT JOIN
+                translation_attrib tla ON tla.translation_id = tl.translation_id
+        LEFT JOIN
+                translation_stable_id tlsi ON tlsi.translation_id = tl.translation_id
+        LEFT JOIN
+                protein_feature pf ON pf.translation_id = tl.translation_id
+        WHERE   gsi.stable_id $condition ($gsi_list)
+        AND     g.gene_id = gsi.gene_id
+        AND     gsi.stable_id = gi.gene_stable_id
+        AND     gsi.stable_id = cgi.gene_stable_id
+        AND     gi.gene_info_id = gn.gene_info_id
+        AND     t.gene_id = g.gene_id
+        AND     t.transcript_id = tsi.transcript_id
+        AND     tsi.stable_id = ti.transcript_stable_id
+        AND     tsi.stable_id = cti.transcript_stable_id
+    );
+} else {
+    # delete statement for Ensembl schema
+    $sql = qq(
+        DELETE QUICK IGNORE
+                g,
+                gsi,
+                t,
+                tsi,
+                ta,
+                tl,
+                tla,
+                tlsi,
+                pf
+        FROM
+                gene g,
+                gene_stable_id gsi,
+                transcript t,
+                transcript_stable_id tsi
+        LEFT JOIN
+                transcript_attrib ta ON ta.transcript_id = t.transcript_id
+        LEFT JOIN
+                translation tl ON tl.transcript_id = t.transcript_id
+        LEFT JOIN
+                translation_attrib tla ON tla.translation_id = tl.translation_id
+        LEFT JOIN
+                translation_stable_id tlsi ON tlsi.translation_id = tl.translation_id
+        LEFT JOIN
+                protein_feature pf ON pf.translation_id = tl.translation_id
+        WHERE   gsi.stable_id $condition ($gsi_list)
+        AND     g.gene_id = gsi.gene_id
+        AND     t.gene_id = g.gene_id
+        AND     t.transcript_id = tsi.transcript_id
+    );
+}
 $num = $dbh->do($sql);
 $support->log_stamped("Done deleting $num records.\n\n");
 
