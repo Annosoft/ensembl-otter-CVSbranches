@@ -27,7 +27,7 @@ General options:
 
 Specific options:
 
-    --fix_xrefs, --fixxrefs             also fix xrefs
+    --fix_xrefs, --fixxrefs=0|1         also fix xrefs
 
 =head1 DESCRIPTION
 
