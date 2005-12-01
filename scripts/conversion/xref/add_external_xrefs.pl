@@ -195,6 +195,7 @@ my %extdb_def = (
 
 # loop over chromosomes
 $support->log("Looping over chromosomes: @chr_sorted\n\n");
+my $seen_xrefs;
 foreach my $chr (@chr_sorted) {
     $support->log_stamped("> Chromosome $chr (".$chr_length->{$chr}."bp).\n\n");
     
@@ -222,7 +223,7 @@ foreach my $chr (@chr_sorted) {
         if ($disp_xref) {
             $gene_name = $disp_xref->display_id;
         } else {
-            $support->log_warning("No display_xref found for gene $gid ($gsi).\n");
+            $support->log_warning("No display_xref found for gene $gid ($gsi). Skipping.\n");
             next;
         }
 
@@ -252,10 +253,17 @@ foreach my $chr (@chr_sorted) {
                     } else {
                         $display_id = $xid;
                     }
+
+                    # check if we already had an xref with the sme primary_id
+                    # and dbname, but different display_id; if so, bump up the
+                    # version to force the xref to be stored
+                    $seen_xrefs->{"$extdb:$xid"}->{$display_id} = 1;
+                    my $version = scalar(keys(%{ $seen_xrefs->{"$extdb:$xid"} }));
+
                     my $dbentry = Bio::EnsEMBL::DBEntry->new(
                             -primary_id => $xid,
                             -display_id => $display_id,
-                            -version    => 1,
+                            -version    => $version,
                             -release    => 1,
                             -dbname     => $extdb,
                     );
@@ -265,9 +273,14 @@ foreach my $chr (@chr_sorted) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
                         $ea->store($dbentry, $gid, 'Gene');
-                        $support->log("Storing $extdb xref $xid (dbID ".$dbentry->dbID.") for gene $gid.\n", 1);
+                        my $dbID;
+                        while ($dbID == 0) {
+                            $dbID = $dbentry->dbID;
+                        }
+                        $support->log("Storing $extdb xref $xid (dbID $dbID) for gene $gid.\n", 1);
                         if ($extdb_def{$extdb}->[1]) {
-                            $sth_display_xref->execute($dbentry->dbID, $gid);
+                            $sth_display_xref->execute($dbID, $gid);
+                            $support->log("Setting display_xref_id to $dbID.\n", 1);
                         }
                     }
                 }
@@ -284,10 +297,14 @@ foreach my $chr (@chr_sorted) {
                     } else {
                         $display_id = $xid;
                     }
+
+                    $seen_xrefs->{"$extdb:$xid"}->{$display_id} = 1;
+                    my $version = scalar(keys(%{ $seen_xrefs->{"$extdb:$xid"} }));
+
                     my $dbentry = Bio::EnsEMBL::DBEntry->new(
                             -primary_id => $xid,
                             -display_id => $display_id,
-                            -version    => 1,
+                            -version    => $version,
                             -release    => 1,
                             -dbname     => $extdb,
                     );
@@ -297,9 +314,14 @@ foreach my $chr (@chr_sorted) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
                         $ea->store($dbentry, $gid, 'Gene');
-                        $support->log("Storing $extdb xref $xid (dbID ".$dbentry->dbID.") for gene $gid.\n", 1);
+                        my $dbID;
+                        while ($dbID == 0) {
+                            $dbID = $dbentry->dbID;
+                        }
+                        $support->log("Storing $extdb xref $xid (dbID $dbID) for gene $gid.\n", 1);
                         if ($extdb_def{$extdb}->[1]) {
-                            $sth_display_xref->execute($dbentry->dbID, $gid);
+                            $sth_display_xref->execute($dbID, $gid);
+                            $support->log("Setting display_xref_id to $dbID.\n");
                         }
                     }
                 }
@@ -416,6 +438,7 @@ sub parse_hugo {
         my $i = 0;
         foreach my $fieldname (@fieldnames) {
             $xrefs->{$gene_name}->{$fieldname} ||= $fields[$i];
+            $i++;
         }
         
         push @{ $lcmap->{lc($gene_name)} }, $gene_name;
@@ -531,7 +554,7 @@ sub parse_locuslink {
                     EntrezGene      => $locus_id,
                     MarkerSymbol    => $mgi,
                 };
-                $support->log("Gene $gene_name: EntrezGene ID $locus_id\n", 2);
+                $support->log_verbose("Gene $gene_name: EntrezGene ID $locus_id\n", 2);
             }
             unless ($flag_found) {
                 $stats{'missing_symbol'}++;
