@@ -78,19 +78,23 @@ sub store_gene {
     my $name = $E_gene->stable_id;
     $name .= '/'.$E_gene->display_xref->display_id if($E_gene->display_xref);
     $support->log("Storing gene $name\n", 3);
-    $E_ga->store($E_gene);
+    eval {
+        $E_ga->store($E_gene);
 
-    # protein features
-    foreach my $transcript (@{ $E_gene->get_all_Transcripts }) {
-        if ($transcript->translation and
-            $protein_features->{$transcript->stable_id}) {
-            
-            $support->log("storing protein features\n", 3);
-            foreach my $pf (@{ $protein_features->{$transcript->stable_id} }) {
-                $E_pfa->store($pf, $transcript->translation->dbID);
+        # protein features
+        foreach my $transcript (@{ $E_gene->get_all_Transcripts }) {
+            if ($transcript->translation and
+                $protein_features->{$transcript->stable_id}) {
+                
+                $support->log("storing protein features\n", 3);
+                foreach my $pf (@{ $protein_features->{$transcript->stable_id} }) {
+                    $E_pfa->store($pf, $transcript->translation->dbID);
+                }
             }
         }
-    }
+    };
+
+    $support->log_warning($@) if ($@);
 
     return;
 }
