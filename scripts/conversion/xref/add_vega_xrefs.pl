@@ -31,8 +31,8 @@ Specific options:
                                         (or read list from FILE)
     --gene_type=TYPE                    only process genes of type TYPE
     --start_gid=NUM                     start at gene with gene_id NUM
-    --prune                             delete all xrefs and
-                                        gene.display_xref_ids before
+    --prune                             delete all xrefs (except Interpro) and
+                                        gene/transcript.display_xref_ids before
                                         running the script
 
 =head1 DESCRIPTION
@@ -121,13 +121,34 @@ my $sth_gene = $dba->dbc->prepare("update gene set display_xref_id=? where gene_
 my $sth_trans = $dba->dbc->prepare("update transcript set display_xref_id=? where transcript_id=?");
 
 # delete all xrefs if --force option is used
-if ($support->param('prune') and $support->user_proceed('Would you really like to delete all xrefs before running this script?')) {
-    $support->log("Deleting all xrefs...\n");
-    $dba->dbc->do(qq(DELETE FROM xref));
-    $support->log("Done.\n");
+if ($support->param('prune') and $support->user_proceed('Would you really like to delete all xrefs (except Interpro) before running this script?')) {
+
+    my $num;
+    
+    # xrefs
+    $support->log("Deleting all xrefs (except Interpro)...\n");
+    $num = $dba->dbc->do(qq(
+        DELETE x
+        FROM xref x, external_db ed
+        WHERE x.external_db_id = ed.external_db_id
+        AND ed.db_name <> 'Interpro'
+    ));
+    $support->log("Done deleting $num entries.\n");
+
+    # object_xrefs
+    $support->log("Deleting all object_xrefs...\n");
+    $num = $dba->dbc->do(qq(DELETE FROM object_xref));
+    $support->log("Done deleting $num entries.\n");
+
+    # gene.display_xref_id
     $support->log("Resetting gene.display_xref_id...\n");
-    $dba->dbc->do(qq(UPDATE gene set display_xref_id = 0));
-    $support->log("Done.\n");
+    $num = $dba->dbc->do(qq(UPDATE gene set display_xref_id = 0));
+    $support->log("Done resetting $num genes.\n");
+    
+    # transcript.display_xref_id
+    $support->log("Resetting transcript.display_xref_id...\n");
+    $num = $dba->dbc->do(qq(UPDATE transcript set display_xref_id = 0));
+    $support->log("Done resetting $num transcripts.\n");
 }
 
 my $found = 0;
