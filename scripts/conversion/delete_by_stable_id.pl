@@ -179,14 +179,14 @@ $support->finish_log;
 ### END main ###
 
 
-=head2 
+=head2 read_infile
 
-  Arg[1]      : 
-  Example     : 
-  Description : read list of stable IDs to keep or delete
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : String $infile - name of file to read stable IDs from
+  Example     : my ($gene_stable_ids) = &read_infile('/my/input/file.txt');
+  Description : read list of stable IDs to keep or delete from file
+  Return type : Arrayref - listref of stable IDs
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
@@ -210,17 +210,21 @@ sub read_infile {
 
     $support->log_stamped("Done reading ".scalar(@gene_stable_ids)." genes, ".scalar(@trans_stable_ids)." transcripts.\n\n");
 
-    return \@gene_stable_ids, \@trans_stable_ids
+    return \@gene_stable_ids, \@trans_stable_ids;
 }
 
 =head2 check_missing
 
-  Arg[1]      : 
-  Example     : 
-  Description : check if all genes in the list are also in the database
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Arg[1]      : Arrayref $gene_stable_ids - listref of gene stable IDs
+  Arg[2]      : Arrayref $trans_stable_ids - listref of transcript stable IDs
+  Example     : &check_missing($gene_stable_ids, $trans_stable_ids);
+  Description : Check if all genes/transcripts in the list are also in the
+                database. Warn if this is not the case, and print list of
+                missing stable IDs on request (use --find_missing and --outfile
+                options).
+  Return type : none
+  Exceptions  : none
+  Caller      : general
 
 =cut
 
@@ -285,14 +289,18 @@ sub check_missing {
     $support->log("Done.\n\n");
 }
 
-=head2 
+=head2 delete_genes
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
+  Arg[1]      : Arrayref $gene_stable_ids - listref of gene stable IDs
+  Arg[2]      : String $schema - db schema (ensembl|vega)
+  Arg[3]      : String $condition - condition to use in WHERE clause (IN|NOT IN)
+  Example     : my $deleted += &delete_genes($gene_stable_ids, 'vega', 'IN');
+  Description : Deletes all genes (and associated transcripts and translations)
+                in the list provided. Knows how to deal with Vega and Ensembl
+                schemas.
   Return type : 0 if no genes to delete, number of records deleted otherwise
-  Exceptions  : 
-  Caller      : 
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
@@ -408,15 +416,18 @@ sub delete_genes {
     return($num);
 }
 
-=head2 
+=head2 delete_transcripts
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
+  Arg[1]      : Arrayref $trans_stable_ids - listref of transcript stable IDs
+  Arg[2]      : String $schema - db schema (ensembl|vega)
+  Arg[3]      : String $condition - condition to use in WHERE clause (IN|NOT IN)
+  Example     : my $deleted += &delete_transcripts($trans_stable_ids, 'vega', 'IN');
+  Description : Deletes all transcripts (and associated translations) in the
+                list provided. Knows how to deal with Vega and Ensembl schemas.
   Return type : 0 if no transcripts to delete, number of records deleted
                 otherwise
-  Exceptions  : 
-  Caller      : 
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
@@ -568,14 +579,14 @@ sub delete_transcripts {
     return($num);
 }
 
-=head2 
+=head2 delete_exons
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : &delete_exons;
+  Description : Delete exons (and associated supporting evidence) that don't
+                belong to a transcript anymore.
+  Return type : none
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
@@ -604,14 +615,13 @@ sub delete_exons {
     $support->log_stamped("Done deleting $num records.\n\n");
 }
 
-=head2 
+=head2 delete_xrefs
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : &delete_xrefs;
+  Description : Delete xrefs no longer attached to an Ensembl object
+  Return type : none
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
@@ -758,14 +768,13 @@ sub delete_xrefs {
     $support->log_stamped("Done.\n\n");
 }
 
-=head2 
+=head2 optimize_tables
 
-  Arg[1]      : 
-  Example     : 
-  Description : 
-  Return type : 
-  Exceptions  : 
-  Caller      : 
+  Example     : &optimize_tables;
+  Description : Optimises database tables.
+  Return type : none
+  Exceptions  : none
+  Caller      : internal
 
 =cut
 
