@@ -120,7 +120,7 @@ my $ea = $dba->get_DBEntryAdaptor();
 my $sth_gene = $dba->dbc->prepare("update gene set display_xref_id=? where gene_id=?");
 my $sth_trans = $dba->dbc->prepare("update transcript set display_xref_id=? where transcript_id=?");
 
-# delete all xrefs if --force option is used
+# delete all xrefs if --prune option is used
 if ($support->param('prune') and $support->user_proceed('Would you really like to delete all xrefs (except Interpro) before running this script?')) {
 
     my $num;
@@ -221,9 +221,9 @@ foreach my $chr (@chr_sorted) {
         $dbentry->status('KNOWN');
         $gene->add_DBEntry($dbentry);
         unless ($support->param('dry_run')) {
-            $ea->store($dbentry, $gid, 'Gene');
-            $sth_gene->execute($dbentry->dbID, $gid);
-            $support->log("Stored xref ".$dbentry->dbID." for gene $gid.\n", 1);
+            my $dbID = $ea->store($dbentry, $gid, 'Gene');
+            $sth_gene->execute($dbID, $gid);
+            $support->log("Stored xref $dbID for gene $gid.\n", 1);
         }
 
         # loop over transcripts
@@ -250,9 +250,9 @@ foreach my $chr (@chr_sorted) {
                     );
             $dbentry->status('KNOWN');
             unless ($support->param('dry_run')) {
-                $ea->store($dbentry, $tid, 'Transcript');
-                $sth_trans->execute($dbentry->dbID, $tid);
-                $support->log("Stored xref ".$dbentry->dbID." for transcript $tid.\n", 2);
+                my $dbID = $ea->store($dbentry, $tid, 'Transcript');
+                $sth_trans->execute($dbID, $tid);
+                $support->log("Stored xref $dbID for transcript $tid.\n", 2);
             }
 
             # translations
