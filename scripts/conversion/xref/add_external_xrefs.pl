@@ -38,6 +38,9 @@ Specific options:
     --mismatch                          correct case mismatches in the db
                                         (NOTE: this option overrides
                                             dry_run!)
+    --prune                             reset to the state before running this
+                                        script (i.e. after running
+                                        add_vega_xrefs.pl)
 
 =head1 DESCRIPTION
 
@@ -104,6 +107,7 @@ $support->parse_extra_options(
     'locuslinkfile=s',
     'refseqfile=s',
     'mismatch',
+    'prune',
 );
 $support->allowed_params(
     $support->get_common_params,
@@ -114,6 +118,7 @@ $support->allowed_params(
     'locuslinkfile',
     'refseqfile',
     'mismatch',
+    'prune',
 );
 
 if ($support->param('help') or $support->error) {
@@ -143,6 +148,7 @@ if ($support->param('mismatch')) {
 # connect to database and get adaptors (caching features on one slice only)
 # get an ensembl database for better performance (no otter tables are needed)
 my $dba = $support->get_database('ensembl');
+my $dbh = $dba->dbc->db_handle;
 $Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
@@ -154,6 +160,44 @@ my $sth_display_xref = $dba->dbc->prepare("UPDATE gene SET display_xref_id=? WHE
 # statement handles for fixing case errors
 my $sth_case1 = $dba->dbc->prepare("UPDATE gene_name set name = ? WHERE name = ?");
 my $sth_case2 = $dba->dbc->prepare("UPDATE xref set display_label = ? WHERE display_label = ?");
+
+# delete all external xrefs if --prune option is used; basically this resets
+# xrefs to the state after running add_vega_xrefs.pl
+if ($support->param('prune') and $support->user_proceed('Would you really like to delete all *external* xrefs before running this script?')) {
+
+    my $num;
+    
+    # xrefs
+    $support->log("Deleting all external xrefs...\n");
+    $num = $dba->dbc->do(qq(
+        DELETE x
+        FROM xref x, external_db ed
+        WHERE x.external_db_id = ed.external_db_id
+        AND ed.db_name not in ('Vega_gene', 'Vega_transcript',
+                               'Vega_translation', 'Interpro')
+    ));
+    $support->log("Done deleting $num entries.\n");
+
+    # object_xrefs
+    $support->log("Deleting orphan object_xrefs...\n");
+    $num = $dba->dbc->do(qq(
+        DELETE ox
+        FROM object_xref ox
+        LEFT JOIN xref x ON ox.xref_id = x.xref_id
+        WHERE x.xref_id IS NULL
+    ));
+    $support->log("Done deleting $num entries.\n");
+
+    # gene.display_xref_id
+    $support->log("Resetting gene.display_xref_id...\n");
+    $num = $dba->dbc->do(qq(
+        UPDATE gene g, gene_stable_id gsi, xref x
+        SET g.display_xref_id = x.xref_id
+        WHERE g.gene_id = gsi.gene_id
+        AND gsi.stable_id = x.dbprimary_acc
+    ));
+    $support->log("Done resetting $num genes.\n");
+}
 
 my @gene_stable_ids = $support->param('gene_stable_id');
 my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
@@ -272,15 +316,30 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        $ea->store($dbentry, $gid, 'Gene');
-                        my $dbID;
-                        while ($dbID == 0) {
-                            $dbID = $dbentry->dbID;
+                        my $dbID = $ea->store($dbentry, $gid, 'Gene');
+
+                        # apparently, this xref had been stored already, so get
+                        # xref_id from db
+                        unless ($dbID) {
+                            my $sql = qq(
+                                SELECT x.xref_id
+                                FROM xref x, external_db ed
+                                WHERE x.external_db_id = ed.external_db_id
+                                AND x.dbprimary_acc = '$xid'
+                                AND x.version = $version
+                                AND ed.db_name = '$extdb'
+                            );
+                            ($dbID) = @{ $dbh->selectall_arrayref($sql) || [] };
                         }
-                        $support->log("Storing $extdb xref $xid (dbID $dbID) for gene $gid.\n", 1);
-                        if ($extdb_def{$extdb}->[1]) {
-                            $sth_display_xref->execute($dbID, $gid);
-                            $support->log("Setting display_xref_id to $dbID.\n", 1);
+                        
+                        if ($dbID) {
+                            $support->log("Stored $extdb xref $xid (dbID $dbID) for gene $gid.\n", 1);
+                            if ($extdb_def{$extdb}->[1]) {
+                                $support->log("Setting display_xref_id to $dbID.\n", 1);
+                                $sth_display_xref->execute($dbID, $gid);
+                            }
+                        } else {
+                            $support->log_warning("No dbID for gene $gid, primary_id $xid, display_id $display_id, version $version, dbname $extdb.\n", 1);
                         }
                     }
                 }
@@ -313,15 +372,28 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        $ea->store($dbentry, $gid, 'Gene');
-                        my $dbID;
-                        while ($dbID == 0) {
-                            $dbID = $dbentry->dbID;
+                        my $dbID = $ea->store($dbentry, $gid, 'Gene');
+
+                        unless ($dbID) {
+                            my $sql = qq(
+                                SELECT x.xref_id
+                                FROM xref x, external_db ed
+                                WHERE x.external_db_id = ed.external_db_id
+                                AND x.dbprimary_acc = '$xid'
+                                AND x.version = $version
+                                AND ed.db_name = '$extdb'
+                            );
+                            ($dbID) = @{ $dbh->selectall_arrayref($sql) || [] };
                         }
-                        $support->log("Storing $extdb xref $xid (dbID $dbID) for gene $gid.\n", 1);
-                        if ($extdb_def{$extdb}->[1]) {
-                            $sth_display_xref->execute($dbID, $gid);
-                            $support->log("Setting display_xref_id to $dbID.\n");
+                        
+                        if ($dbID) {
+                            $support->log("Stored $extdb xref $xid (dbID $dbID) for gene $gid.\n", 1);
+                            if ($extdb_def{$extdb}->[1]) {
+                                $support->log("Setting display_xref_id to $dbID.\n", 1);
+                                $sth_display_xref->execute($dbID, $gid);
+                            }
+                        } else {
+                            $support->log_warning("No dbID for gene $gid, primary_id $xid, display_id $display_id, version $version, dbname $extdb.\n", 1);
                         }
                     }
                 }
