@@ -286,19 +286,47 @@ foreach my $chr (@chr_sorted) {
 
         # we have a match
         if ($xrefs->{$gene_name}) {
+            # change gene name for aliases
+            my $new_name = $xrefs->{$gene_name}->{'_display_id'} || $gene_name;
+            if ($gene_name ne $new_name) {
+                $support->log("Changing gene name to $new_name.\n", 1);
+
+                # also change transcript names
+                $support->log("Changing transcript names...\n", 1);
+                my $num;
+                foreach my $trans (@{ $gene->get_all_Transcripts }) {
+                    my $tid = $trans->dbID;
+                    my $trans_name = $trans->display_xref->display_id;
+                    if ($trans_name =~ /(\-\d+)$/) {
+                        $num += $dbh->do(qq(
+                            UPDATE xref x, external_db ed, transcript t
+                            SET x.display_label = '$new_name$1'
+                            WHERE x.external_db_id = ed.external_db_id
+                            AND ed.db_name = 'Vega_transcript'
+                            AND t.display_xref_id = x.xref_id
+                            AND t.transcript_id = $tid
+                        )) unless ($support->param('dry_run'));
+                    } else {
+                        $support->log_warning("Not updating transcript name $trans_name: unexpected transcript name.\n", 2);
+                    }
+                }
+                $support->log("Done changing $num transcript names.\n", 1);
+            }
+
             # the sort is important so that MarkerSymbol superseeds EntrezGene
             # when setting display_xrefs
             foreach my $extdb (sort keys %extdb_def) {
                 if (my $xid = $xrefs->{$gene_name}->{$extdb}) {
                     $stats{$extdb}++;
+
                     my $display_id;
                     if ($extdb_def{$extdb}->[1]) {
-                        $display_id = $gene_name;
+                        $display_id = $new_name;
                     } else {
                         $display_id = $xid;
                     }
 
-                    # check if we already had an xref with the sme primary_id
+                    # check if we already had an xref with the same primary_id
                     # and dbname, but different display_id; if so, bump up the
                     # version to force the xref to be stored
                     $seen_xrefs->{"$extdb:$xid"}->{$display_id} = 1;
@@ -512,6 +540,9 @@ sub parse_hugo {
             $xrefs->{$gene_name}->{$fieldname} ||= $fields[$i];
             $i++;
         }
+
+        # set display_id
+        $xrefs->{$gene_name}->{'_display_id'} = $gene_name;
         
         push @{ $lcmap->{lc($gene_name)} }, $gene_name;
 
@@ -525,6 +556,7 @@ sub parse_hugo {
 
             # store alternative name mapping in temporary hash
             @{ $alt_symbols->{$alt_symbol} }{@fieldnames} = @fields;
+            $alt_symbols->{$alt_symbol}->{'_display_id'} = $gene_name;
             push @{ $lcmap->{lc($alt_symbol)} }, $alt_symbol;
         }
     }
@@ -533,7 +565,7 @@ sub parse_hugo {
     # now loop over alternative symbols and add them to %xref if the symbol
     # name doesn't exist yet
     foreach my $symbol (keys %$alt_symbols) {
-        foreach my $fieldname (@fieldnames) {
+        foreach my $fieldname (@fieldnames, '_display_id') {
             $xrefs->{$symbol}->{$fieldname} ||= $alt_symbols->{$symbol}->{$fieldname};
         }
     }
