@@ -134,6 +134,7 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapWriteDotZmap{
         print $fh $content;
         return 1;
     }
+    close $fh;
     return 0;
 }
 
@@ -151,14 +152,21 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapDotZmapContent{
     my $seq      ||= 0;
     my $writebck ||= 0;
     my $style    ||= "";#"ZMap.styles";
-    my $sets     ||= join(" ", qw(Transcript Putative Processed_pseudogene Unprocessed_pseudogene
-                                  RepeatMasker RepeatMasker_LINE RepeatMasker_SINE
-                                  trf Predicted_CpG_island 
-                                  vertebrate_mRNA EST_Human EST_Mouse EST_Other EST
-                                  BLASTX ensembl Fgenesh Genscan
-                                  genomewise REFSEQ 
-                                  Saturated_BLASTX Saturated_EST
-                                  Saturated_EST_Human Saturated_vertebrate_mRNA));
+    # for now we'll get the list of method names and write them into featuresets.
+    # the featuresets list controls the order of columns/style and so we get them
+    # ordered by right priority...
+    my @methods    = $self->zMapListMethodNames_ordered();
+    my $sets     ||= join(" ", @methods);
+    if(0){
+        my @l = qw(Transcript Putative Processed_pseudogene Unprocessed_pseudogene
+                   RepeatMasker RepeatMasker_LINE RepeatMasker_SINE
+                   trf Predicted_CpG_island 
+                   vertebrate_mRNA EST_Human EST_Mouse EST_Other EST
+                   BLASTX ensembl Fgenesh Genscan
+                   genomewise REFSEQ 
+                   Saturated_BLASTX Saturated_EST
+                   Saturated_EST_Human Saturated_vertebrate_mRNA);
+    }
     my $content    = sprintf($fmt,
                              $protocol,
                              $username,
@@ -187,6 +195,17 @@ sub MenuCanvasWindow::XaceSeqChooser::zMapZmapDir {
         die "Can't mkdir('$path') : $!\n" unless -d $path;
     }
     return $path;
+}
+
+sub MenuCanvasWindow::XaceSeqChooser::zMapListMethodNames_ordered{
+    my $self = shift;
+    my @list = ();
+    my $collection = $self->AceDatabase->get_default_MethodCollection;
+    foreach my $method (sort {$a->right_priority <=> $b->right_priority}
+                        @{$collection->get_all_Methods}) {
+        push(@list, $method->name);
+    }
+    return @list
 }
 
 #===========================================================
