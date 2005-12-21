@@ -174,7 +174,7 @@ if ($support->param('prune') and $support->user_proceed('Would you really like t
         FROM xref x, external_db ed
         WHERE x.external_db_id = ed.external_db_id
         AND ed.db_name not in ('Vega_gene', 'Vega_transcript',
-                               'Vega_translation', 'Interpro')
+                               'Vega_translation', 'Interpro', 'CCDS')
     ));
     $support->log("Done deleting $num entries.\n");
 

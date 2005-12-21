@@ -67,7 +67,7 @@ BEGIN {
 use Getopt::Long;
 use Pod::Usage;
 use Bio::EnsEMBL::Utils::ConversionSupport;
-use Bio::Ensembl::Analysis;
+use Bio::EnsEMBL::Analysis;
 
 $| = 1;
 
