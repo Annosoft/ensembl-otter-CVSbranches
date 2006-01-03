@@ -292,7 +292,7 @@ $c = $dbh->{'evega'}->do($sql);
 $support->log_stamped("Done transfering $c tranlation_attrib entries.\n\n");
 
 # meta
-my $mappingstring = 'chromosome:'.$support->param('assembly').'|chromosome:'.$support->param('ensemblassembly');
+my $mappingstring = 'chromosome:'.$support->param('assembly').'#chromosome:'.$support->param('ensemblassembly');
 $support->log_stamped("Removing assembly.mapping $mappingstring from meta table...\n");
 $sql = qq(
     DELETE FROM meta

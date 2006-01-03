@@ -254,6 +254,16 @@ my %nonref;
 print "\nPlease pick the NON-reference sequence (will be stored as\n";
 print "assembly_exception) for each of the following pairs.\n";
 print "Enter 1 or 2 for first or second sequence.\n";
+
+# make backup copy of the assembly table
+unless ($support->param('dry_run')) {
+    $support->log("Making backup copy of assembly table...\n", 2);
+    $dbh->do('DROP TABLE IF EXISTS assembly_backup');
+    $dbh->do('CREATE TABLE assembly_backup SELECT * FROM assembly');
+    $support->log("Done.\n");
+}
+
+# loop over regions
 foreach my $pair (keys %pairs) {
     print "    $pair: ";
     my $input = <>;
@@ -299,12 +309,6 @@ foreach my $pair (keys %pairs) {
         }
 
         # delete entries from assembly for non-reference
-        $support->log("Making backup copy of assembly table...\n", 2);
-        unless ($support->param('dry_run')) {
-            $dbh->do('DROP TABLE IF EXISTS assembly_backup');
-            $dbh->do('CREATE TABLE assembly_backup SELECT * FROM assembly');
-            $support->log("Done.\n", 2);
-        }
         $support->log("Deleting from assembly...\n", 2);
         my $contig_list = join("', '", @nonref_contigs);
         unless ($support->param('dry_run')) {
