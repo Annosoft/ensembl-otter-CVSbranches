@@ -201,7 +201,6 @@ sub read_infile {
     while (<$in>) {
         chomp $_;
 		my ($id) = $_ =~ /(\w+)/;
-		warn $id;
         if ($id =~ /^OTT...G/) {
             push @gene_stable_ids, $id;
         } elsif ($id =~ /^OTT...T/) {
