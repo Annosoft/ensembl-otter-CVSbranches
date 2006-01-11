@@ -5,6 +5,7 @@ package Bio::Otter::GeneInfo;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Utils::Argument qw(rearrange);
+use Bio::EnsEMBL::Utils::Exception qw(throw warning);
 
 sub new {
   my($class,@args) = @_;
