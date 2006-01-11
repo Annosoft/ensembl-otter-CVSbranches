@@ -199,11 +199,13 @@ sub read_infile {
     my @gene_stable_ids = ();
     my @trans_stable_ids = ();
     while (<$in>) {
-        chomp;
-        if ($_ =~ /^OTT...G/) {
-            push @gene_stable_ids, $_;
-        } elsif ($_ =~ /^OTT...T/) {
-            push @trans_stable_ids, $_;
+        chomp $_;
+		my ($id) = $_ =~ /(\w+)/;
+		warn $id;
+        if ($id =~ /^OTT...G/) {
+            push @gene_stable_ids, $id;
+        } elsif ($id =~ /^OTT...T/) {
+            push @trans_stable_ids, $id;
         }
     }
     close($in);
