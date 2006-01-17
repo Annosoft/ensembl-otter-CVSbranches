@@ -781,6 +781,7 @@ sub otter_to_ace {
 	      $str .= qq{EMBL_dump_info DE_line "$rem"\n};
 	    }
 	    else {
+            ### Shouldn't this be a Remark?
 	      $str .= qq{Annotation_remark "$rem"\n};
 	    }
 	}
@@ -860,12 +861,12 @@ sub ace_transcript_seq_objs_from_genes{
         foreach my $tran (@{ $gene->get_all_Transcripts }) {
             my $tran_name = $tran->transcript_info->name || $tran->stable_id;
 
-            $str .= qq{\n-D Sequence : "$tran_name"\n\n};
-
-            $str .= "Sequence : \"" . $tran_name . "\"\n";
-            $str .= "Transcript_id \"" . $tran->stable_id . "\"\n";
-            $str .= "Source \"" . $slice->display_id . "\"\n";
-            $str .= "Locus \"" . $gene_name . "\"\n";
+            $str .=
+                qq{\n-D Sequence : "$tran_name"\n\n}
+                . qq{Sequence : "$tran_name"\n}
+                . sprintf(qq{Transcript_id "%s"\n}, $tran->stable_id)
+                . sprintf(qq{Source "%s"\n},        $slice->display_id)
+                . qq{Locus "$gene_name"\n};
             if (my $author = $tran->transcript_info->author) {
                 my $name  = $author->name;
                 # author has a unique key in the database
@@ -1129,6 +1130,9 @@ sub ace_to_otter {
         $chr_start,
         $chr_end,
         $dna,
+        %seen_stable,   # Keeps a record of gene, transcript and translation
+                        # stable IDs so that we don't end up with multiple genes
+                        # or transcripts with the same stable IDs.
     );
 
  # Main parsing loop - might be more effecient to split on objects (ie: $/ = "")
@@ -1237,8 +1241,7 @@ sub ace_to_otter {
                     $at->end($end);
                     $at->strand($strand);
 
-                    my $assembly_tag_set = $curr_seq->{'assembly_tag_set'} ||=
-                      [];
+                    my $assembly_tag_set = $curr_seq->{'assembly_tag_set'} ||= [];
                     push @$assembly_tag_set, $at;
                 }
 
@@ -1253,7 +1256,7 @@ sub ace_to_otter {
                     my $type = ace_unescape($1);
                     my ($start, $end, $strand) = decide_strand($2, $3);
                     my $score = $4;
-                    my $label = ace_unescape($5);
+                    my $label = $5 ? ace_unescape($5) : undef;
 
                     my $ana = $logic_ana{$type} ||=
                       Bio::EnsEMBL::Analysis->new(-LOGIC_NAME => $type);
@@ -1283,8 +1286,8 @@ sub ace_to_otter {
                 elsif (/^Source_Exons $INT $INT (?:$STRING)?/x) {
                     my $oldstart = $1;
                     my $oldend   = $2;
-                    my $stableid =
-                      ace_unescape($3);    # Will not always have a stable_id
+                    # Will not always have a stable_id
+                    my $stableid = $3 ? ace_unescape($3) : undef;
 
                     my $tstart  = $curr_seq->{start};
                     my $tend    = $curr_seq->{end};
@@ -1343,19 +1346,25 @@ sub ace_to_otter {
                 elsif (/^Method $STRING/x) {
                     my $meth = ace_unescape($1);
                     # Strip any prefix from the method
-                    $meth =~ s/^[A-Z_]+://;
+                    $meth =~ s/^[^:]+://;
                     $curr_seq->{Method} = $meth;
                 }
                 elsif (/^(Processed_mRNA|Pseudogene)/) {
                     $curr_seq->{$1} = 1;
                 }
-                elsif (
-/^(Transcript_id|Translation_id|Transcript_author|Accession) $STRING/x
-                  )
-                {
+                elsif (/^(Transcript_id|Translation_id) $STRING/x) {
+                    my $stable = ace_unescape($2);
+                    if ($seen_stable{$stable}) {
+                        warn "Already seen stable_id on another object, ignoring: '$stable'\n";
+                    } else {
+                        $curr_seq->{$1} = $stable;
+                        $seen_stable{$stable} = 1;
+                    }
+                }
+                elsif (/^(Transcript_author|Accession) $STRING/x) {
                     $curr_seq->{$1} = ace_unescape($2);
                 }
-                elsif (/^Sequence_version $INT/x) {
+               elsif (/^Sequence_version $INT/x) {
                     $curr_seq->{Sequence_version} = $1;
                 }
             }
@@ -1382,8 +1391,17 @@ sub ace_to_otter {
                     my $tran_list = $cur_gene->{transcripts} ||= [];
                     push @$tran_list, ace_unescape($1);
                 }
-                elsif (/^(Locus_(?:id|author)) $STRING/x) {
-                    $cur_gene->{$1} = ace_unescape($2);
+                elsif (/^Locus_id $STRING/x) {
+                    my $stable = ace_unescape($1);
+                    if ($seen_stable{$stable}) {
+                        warn "Already seen stable_id on another object, ignoring: '$stable'\n";
+                    } else {
+                        $cur_gene->{'Locus_id'} = $stable;
+                        $seen_stable{$stable} = 1;
+                    }
+                }
+                elsif (/^Locus_author $STRING/x) {
+                    $cur_gene->{'Locus_author'} = ace_unescape($1);
                 }
                 elsif (/^Truncated/) {
                     $cur_gene->{Truncated} = 1;
@@ -2339,7 +2357,7 @@ sub gene_type_from_transcript_set {
     my $class_set = {};
     foreach my $transcript (@$transcripts) {
         my $class = $transcript->transcript_info->class->name;
-        $class =~ s/^([^:]+)://;    # Strip leading GD. etc ...
+        $class =~ s/^[^:]+://;    # Strip leading GD: etc ...
         $class =~ s/_trunc$//;
         if ($class eq 'Artifact') {
             $has_artifact = 1;
