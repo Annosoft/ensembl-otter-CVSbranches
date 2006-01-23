@@ -82,10 +82,10 @@ sub biotype {
   return $self->{'biotype'};
 }
 
-sub confidence {
+sub status {
   my $self = shift;
-  $self->{'confidence'} = shift if(@_);
-  return $self->{'confidence'};
+  $self->{'status'} = shift if(@_);
+  return $self->{'status'};
 }
 
 sub description {
@@ -129,6 +129,23 @@ sub move_cdna_coding_end {
   my $self = shift;
   my $offset = shift;
   $self->{'cdna_coding_end'} += $offset;
+}
+
+sub transcript_attribs {
+  my $self = shift;
+  $self->{'transcript_attribs'} = shift if(@_);
+  return $self->{'transcript_attribs'};
+}
+
+sub add_TranscriptSupportingFeature {
+    my ($self, $sf) = @_;
+    push @{ $self->{'transcript_supporting_features'} }, $sf;
+}
+
+sub get_all_TranscriptSupportingFeatures {
+    my $self = shift;
+    $self->{'transcript_supporting_features'} ||= [];
+    return $self->{'transcript_supporting_features'};
 }
 
 

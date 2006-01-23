@@ -57,23 +57,6 @@ Features transfer include:
     - supporting features and associated dna/protein_align_features
     - protein features
 
-It uses Bio::EnsEMBL::ChainedAssemblyMapper to remap feature coordinates. This
-mapper has to be configured manually at the moment by editing
-Bio::EnsEMBL::DBSQL::AssemblyMapperAdaptor. At the time of writing these were
-lines 183-192:
-
-  if(@mapping_path == 2) {
-    # 1 step regular mapping
-#   $asm_mapper = Bio::EnsEMBL::AssemblyMapper->new($self, @mapping_path);
-
-    # If you want multiple pieces on two seqRegions to map to each other
-    # uncomment following. AssemblyMapper assumes only one mapped piece per
-    # contig
-    $asm_mapper = Bio::EnsEMBL::ChainedAssemblyMapper->new( $self, $mapping_path[0], undef, $mapping_path[1] );
-    $self->{'_asm_mapper_cache'}->{$key} = $asm_mapper;
-    return $asm_mapper;
-  }
-
 Currently, only complete transfers are considered. This is the easiest way to
 ensure that the resulting gene structures are identical to the original ones.
 For future release, there are plans to store incomplete matches by using the
@@ -117,7 +100,6 @@ use vars qw($SERVERROOT);
 BEGIN {
     $SERVERROOT = "$Bin/../../../..";
     unshift(@INC, "./modules");
-    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
     unshift(@INC, "$SERVERROOT/ensembl/modules");
     unshift(@INC, "$SERVERROOT/bioperl-live");
 }
@@ -334,12 +316,35 @@ sub transfer_transcript {
     $E_transcript->stable_id($transcript->stable_id);
     $E_transcript->version($transcript->version);
     $E_transcript->biotype($transcript->biotype);
-    $E_transcript->confidence($transcript->confidence);
+    $E_transcript->status($transcript->status);
     $E_transcript->description($transcript->description);
     $E_transcript->created_date($transcript->created_date);
     $E_transcript->modified_date($transcript->modified_date);
     $E_transcript->cdna_coding_start($transcript->cdna_coding_start);
     $E_transcript->cdna_coding_end($transcript->cdna_coding_end);
+    $E_transcript->transcript_attribs($transcript->get_all_Attributes);
+
+    # transcript supporting evidence
+    foreach my $sf (@{ $transcript->get_all_supporting_features }) {
+        # map coordinates
+        my @coords = $mapper->map(
+                $sf->seq_region_name,
+                $sf->seq_region_start,
+                $sf->seq_region_end,
+                $sf->seq_region_strand,
+                $V_cs,
+        );
+        if (@coords == 1) {
+            my $c = $coords[0];
+            unless ($c->isa('Bio::EnsEMBL::Mapper::Gap')) {
+                $sf->start($c->start);
+                $sf->end($c->end);
+                $sf->strand($c->strand);
+                $sf->slice($E_slice);
+                $E_transcript->add_TranscriptSupportingFeature($sf);
+            }
+        }
+    }
 
     # protein features
     if (defined($transcript->translation)) {

@@ -142,10 +142,12 @@ sub make_Transcript {
     $transcript->stable_id($itrans->stable_id);
     $transcript->version($itrans->version);
     $transcript->biotype($itrans->biotype);
-    $transcript->confidence($itrans->confidence);
+    $transcript->status($itrans->status);
     $transcript->description($itrans->description);
     $transcript->created_date($itrans->created_date);
     $transcript->modified_date($itrans->modified_date);
+    $transcript->add_Attributes(@{ $itrans->transcript_attribs });
+    $transcript->add_supporting_features(@{ $itrans->get_all_TranscriptSupportingFeatures });
 
     $support->log_verbose("making final transcript for ".$itrans->stable_id."\n", 4);
 

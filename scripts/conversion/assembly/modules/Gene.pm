@@ -46,9 +46,10 @@ sub store_gene {
     $E_gene->created_date($V_gene->created_date);
     $E_gene->modified_date($V_gene->modified_date);
     $E_gene->biotype($V_gene->biotype);
-    $E_gene->confidence($V_gene->confidence);
+    $E_gene->status($V_gene->status);
     $E_gene->description($V_gene->description);
     $E_gene->source($V_gene->source);
+    $E_gene->add_Attributes(@{ $V_gene->get_all_Attributes });
 
     # add reference to the original Vega gene
     $E_gene->add_DBEntry(Bio::EnsEMBL::DBEntry->new
@@ -58,7 +59,7 @@ sub store_gene {
              -release    => 1,
              -display_id => $V_gene->stable_id));
 
-    # rename transcripts and add to gene
+    # add transcripts to gene
     foreach my $E_trans (@{ $E_transcripts }) {
         $E_gene->add_Transcript($E_trans);
     }
