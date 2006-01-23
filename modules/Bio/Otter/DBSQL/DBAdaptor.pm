@@ -107,6 +107,7 @@ sub get_available_adaptors{
     'SimpleFeature'        => 'Bio::EnsEMBL::DBSQL::SimpleFeatureAdaptor',
     'Slice'                => 'Bio::EnsEMBL::DBSQL::SliceAdaptor',
     'SupportingFeature'    => 'Bio::EnsEMBL::DBSQL::SupportingFeatureAdaptor',
+    'TranscriptSupportingFeature'    => 'Bio::EnsEMBL::DBSQL::TranscriptSupportingFeatureAdaptor',
     # 'Transcript'           => 'Bio::EnsEMBL::DBSQL::TranscriptAdaptor',
     'Translation'          => 'Bio::EnsEMBL::DBSQL::TranslationAdaptor'
   );
