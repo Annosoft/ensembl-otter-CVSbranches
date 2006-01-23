@@ -71,7 +71,6 @@ use vars qw($SERVERROOT);
 
 BEGIN {
     $SERVERROOT = "$Bin/../../..";
-    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
     unshift(@INC, "$SERVERROOT/ensembl/modules");
     unshift(@INC, "$SERVERROOT/bioperl-live");
 }
@@ -354,6 +353,8 @@ sub delete_genes {
             LEFT JOIN
                     gene_synonym gs ON gs.gene_info_id = gi.gene_info_id
             LEFT JOIN
+                    gene_attrib ga ON ga.gene_id = g.gene_id
+            LEFT JOIN
                     transcript_attrib ta ON ta.transcript_id = t.transcript_id
             LEFT JOIN
                     transcript_remark tr ON tr.transcript_info_id = ti.transcript_info_id
@@ -395,6 +396,8 @@ sub delete_genes {
                     gene_stable_id gsi,
                     transcript t,
                     transcript_stable_id tsi
+            LEFT JOIN
+                    gene_attrib ga ON ga.gene_id = g.gene_id
             LEFT JOIN
                     transcript_attrib ta ON ta.transcript_id = t.transcript_id
             LEFT JOIN
@@ -790,6 +793,7 @@ sub optimize_tables {
         gene_name
         gene_remark
         gene_synonym
+        gene_attrib
         transcript
         transcript_stable_id
         transcript_info
