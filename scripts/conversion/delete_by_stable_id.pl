@@ -359,6 +359,8 @@ sub delete_genes {
             LEFT JOIN
                     transcript_remark tr ON tr.transcript_info_id = ti.transcript_info_id
             LEFT JOIN
+                    transcript_supporting_feature tsf ON tsf.transcript_id = t.transcript_id
+            LEFT JOIN
                     evidence e ON e.transcript_info_id = ti.transcript_info_id
             LEFT JOIN
                     translation tl ON tl.transcript_id = t.transcript_id
@@ -400,6 +402,8 @@ sub delete_genes {
                     gene_attrib ga ON ga.gene_id = g.gene_id
             LEFT JOIN
                     transcript_attrib ta ON ta.transcript_id = t.transcript_id
+            LEFT JOIN
+                    transcript_supporting_feature tsf ON tsf.transcript_id = t.transcript_id
             LEFT JOIN
                     translation tl ON tl.transcript_id = t.transcript_id
             LEFT JOIN
@@ -472,6 +476,8 @@ sub delete_transcripts {
             LEFT JOIN
                     transcript_remark tr ON tr.transcript_info_id = ti.transcript_info_id
             LEFT JOIN
+                    transcript_supporting_feature tsf ON tsf.transcript_id = t.transcript_id
+            LEFT JOIN
                     evidence e ON e.transcript_info_id = ti.transcript_info_id
             LEFT JOIN
                     translation tl ON tl.transcript_id = t.transcript_id
@@ -502,6 +508,8 @@ sub delete_transcripts {
                     transcript_stable_id tsi
             LEFT JOIN
                     transcript_attrib ta ON ta.transcript_id = t.transcript_id
+            LEFT JOIN
+                    transcript_supporting_feature tsf ON tsf.transcript_id = t.transcript_id
             LEFT JOIN
                     translation tl ON tl.transcript_id = t.transcript_id
             LEFT JOIN
@@ -800,6 +808,7 @@ sub optimize_tables {
         current_transcript_info
         transcript_attrib
         transcript_remark
+        transcript_supporting_feature
         evidence
         translation
         translation_attrib
