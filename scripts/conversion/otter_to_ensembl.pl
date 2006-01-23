@@ -27,7 +27,29 @@ General options:
 
 Specific options:
 
+    --chromosomes, --chr=LIST           only process LIST chromosomes
+
 =head1 DESCRIPTION
+
+This script stores all Vega-specific information needed for web display in core
+Ensembl schema tables by putting data from gene_info/transcript_info and
+related tables into gene_attrib and transcript_attrib. These mappings are done
+at the moment:
+
+    source                                  target              attrib code
+    -----------------------------------------------------------------------
+    author.author_name                      gene_attrib         author
+    gene_synonym.name                       gene_attrib         synonym
+    gene_remark.remark                      gene_attrib         remark
+    author.author_name                      transcript_attrib   author
+    transcript_remark.remark                transcript_attrib   remark
+    transcript_info.cds_start_not_found     transcript_attrib   remark
+    transcript_info.cds_end_not_found       transcript_attrib   remark
+    transcript_info.mRNA_start_not_found    transcript_attrib   remark
+    transcript_info.mRNA_end_not_found      transcript_attrib   remark
+    transcript_class.name                   transcript_attrib   transcr_class
+
+After running this script, the webcode no longer requires to load ensembl-otter.
 
 
 =head1 LICENCE
@@ -108,16 +130,16 @@ foreach my $chr ($support->sort_chromosomes) {
         $support->log_verbose($gene->display_xref->display_id." (".$gene->stable_id.")...\n", 1);
         
         # create attributes for all Vega-specific annotation
-        my $attributes = [];
+        my $gene_attribs = [];
         
         # author
-        push @{ $attributes }, Bio::EnsEMBL::Attribute->new(
+        push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
             -CODE => 'author',
             -NAME => 'Author',
             -DESCRIPTION => 'Group resonsible for Vega annotation',
             -VALUE => $gene->gene_info->author->name
         );
-        push @{ $attributes }, Bio::EnsEMBL::Attribute->new(
+        push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
             -CODE => 'author_email',
             -NAME => 'Author email address',
             -DESCRIPTION => 'Author\'s email address',
@@ -126,7 +148,7 @@ foreach my $chr ($support->sort_chromosomes) {
 
         # gene_synonym
         foreach my $syn ($gene->gene_info->synonym) {
-            push @{ $attributes }, Bio::EnsEMBL::Attribute->new(
+            push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
                 -CODE => 'synonym',
                 -NAME => 'Synonym',
                 -DESCRIPTION => 'Synonymous names',
@@ -137,7 +159,7 @@ foreach my $chr ($support->sort_chromosomes) {
         # gene_remark
         foreach my $remark ($gene->gene_info->remark) {
             # save remarks as long as they are not just whitespace!
-            push @{ $attributes }, Bio::EnsEMBL::Attribute->new(
+            push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
                 -CODE => 'remark',
                 -NAME => 'Remark',
                 -DESCRIPTION => 'Annotation remark',
@@ -146,9 +168,83 @@ foreach my $chr ($support->sort_chromosomes) {
         }
 
         # store attributes
-        $support->log_verbose("Storing ".scalar(@$attributes)." gene attributes.\n", 2);
+        $support->log_verbose("Storing ".scalar(@$gene_attribs)." gene attributes.\n", 2);
         unless ($support->param('dry_run')) {
-            $aa->store_on_Gene($gene, $attributes);
+            $aa->store_on_Gene($gene, $gene_attribs);
+        }
+
+        # loop over transcripts
+        foreach my $transcript (@{ $gene->get_all_Transcripts }) {
+            $support->log_verbose($transcript->display_xref->display_id." (".$transcript->stable_id.")...\n", 2);
+            
+            my $trans_attribs = [];
+
+            # author
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'author',
+                -NAME => 'Author',
+                -DESCRIPTION => 'Group resonsible for Vega annotation',
+                -VALUE => $transcript->transcript_info->author->name
+            );
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'author_email',
+                -NAME => 'Author email address',
+                -DESCRIPTION => 'Author\'s email address',
+                -VALUE => $transcript->transcript_info->author->email
+            );
+
+            # transcript_remark
+            foreach my $remark ($transcript->transcript_info->remark) {
+                # save remarks as long as they are not just whitespace!
+                push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                    -CODE => 'remark',
+                    -NAME => 'Remark',
+                    -DESCRIPTION => 'Annotation remark',
+                    -VALUE => $remark->remark
+                ) if ($remark->remark =~ /\S/);
+            }
+
+            # start/end_not_found tags: store as remarks
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'remark',
+                -NAME => 'Remark',
+                -DESCRIPTION => 'Annotation remark',
+                -VALUE => 'CDS start not found'
+            ) if ($transcript->transcript_info->cds_start_not_found);
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'remark',
+                -NAME => 'Remark',
+                -DESCRIPTION => 'Annotation remark',
+                -VALUE => 'CDS end not found',
+            ) if ($transcript->transcript_info->cds_end_not_found);
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'remark',
+                -NAME => 'Remark',
+                -DESCRIPTION => 'Annotation remark',
+                -VALUE => 'mRNA start not found',
+            ) if ($transcript->transcript_info->mRNA_start_not_found);
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'remark',
+                -NAME => 'Remark',
+                -DESCRIPTION => 'Annotation remark',
+                -VALUE => 'mRNA end not found',
+            ) if ($transcript->transcript_info->mRNA_end_not_found);
+
+            # transcript_class
+            # NOTE: this is stored as an attribute only temporarily; eventually
+            # it should be replaced by proper biotype/status entries
+            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+                -CODE => 'transcr_class',
+                -NAME => 'Transcript class',
+                -DESCRIPTION => 'Transcript class',
+                -VALUE => $transcript->transcript_info->class->name
+            );
+            
+            # store attributes
+            $support->log_verbose("Storing ".scalar(@$trans_attribs)." transcript attributes.\n", 3);
+            unless ($support->param('dry_run')) {
+                $aa->store_on_Transcript($transcript, $trans_attribs);
+            }
         }
     }
 
