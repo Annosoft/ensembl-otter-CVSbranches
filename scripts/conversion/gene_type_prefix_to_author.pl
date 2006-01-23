@@ -56,7 +56,6 @@ use vars qw($SERVERROOT);
 
 BEGIN {
     $SERVERROOT = "$Bin/../../..";
-    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
     unshift(@INC, "$SERVERROOT/ensembl/modules");
     unshift(@INC, "$SERVERROOT/bioperl-live");
 }
@@ -85,7 +84,7 @@ $support->confirm_params;
 $support->init_log;
 
 # connect to database and get adaptors
-my $dba = $support->get_database('otter');
+my $dba = $support->get_database('core');
 my $dbh = $dba->dbc->db_handle;
 
 # get all gene.biotype prefix / author combinations
