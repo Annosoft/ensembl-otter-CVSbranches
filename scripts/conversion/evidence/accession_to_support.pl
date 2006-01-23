@@ -124,11 +124,18 @@ $Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $aa = $dba->get_AnalysisAdaptor();
-# statement handle for storing supporting evidence
-my $sql = "insert into supporting_feature
-           (exon_id, feature_id, feature_type)
-           values(?, ?, ?)";
-my $sth = $dba->dbc->prepare($sql);
+
+# statement handles for storing supporting evidence
+my $sth = $dba->dbc->prepare(qq(
+    INSERT INTO supporting_feature
+        (exon_id, feature_id, feature_type)
+    VALUES(?, ?, ?)
+));
+my $sth1 = $dba->dbc->prepare(qq(
+    INSERT INTO transcript_supporting_feature
+        (transcript_id, feature_id, feature_type)
+    VALUES(?, ?, ?)
+));
 
 my @gene_stable_ids = $support->param('gene_stable_id');
 my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
@@ -176,6 +183,7 @@ foreach my $chr (@chr_sorted) {
         
         $stats{'genes'}++;
         my %se_hash = ();
+        my %tse_hash = ();
         my $gene_has_support = 0;
         $support->log_verbose("Gene $gene_name ($gid, $gsi) on slice ".
                         $gene->slice->name."... ".
@@ -217,6 +225,16 @@ foreach my $chr (@chr_sorted) {
                 foreach my $hitname (keys %$sf) {
                     if ($hitname eq $acc) {
                         foreach my $hit (@{ $sf->{$hitname} }) {
+                            # store transcript supporting evidence
+                            if ($trans->end >= $hit->[0] && $trans->start <= $hit->[1]) {
+                                # store unique evidence identifier in hash
+                                $tse_hash{$trans->dbID.":".$hit->[2].":".$hit->[3]} = 1;
+                                
+                                $match = 1;
+                                $gene_has_support++;
+                                $transcript_has_support++;
+                            }
+                        
                             # loop over exons and look for overlapping
                             # similarity features
                             foreach my $exon (@exons) {
@@ -224,10 +242,6 @@ foreach my $chr (@chr_sorted) {
                                     $support->log_verbose("Matches similarity feature with dbID ".$hit->[2].".\n", 3);
                                     # store unique evidence identifier in hash
                                     $se_hash{$exon->dbID.":".$hit->[2].":".$hit->[3]} = 1;
-                                    
-                                    $match = 1;
-                                    $gene_has_support++;
-                                    $transcript_has_support++;
                                 }
                             }
                         }
@@ -246,6 +260,15 @@ foreach my $chr (@chr_sorted) {
                        scalar(keys %se_hash)." unique).\n", 1);
 
         # store supporting evidence in db
+        unless ($support->param('dry_run')) {
+            foreach my $tse (keys %tse_hash) {
+                eval {
+                    $sth1->execute(split(":", $tse));
+                };
+                $support->log_warning("$gsi: $@\n", 1) if ($@);
+            }
+        }
+
         if ($gene_has_support and !$support->param('dry_run')) {
             $support->log_verbose("Storing supporting evidence... ".
                            $support->date_and_mem."\n", 1);
