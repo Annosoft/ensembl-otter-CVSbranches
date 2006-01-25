@@ -55,7 +55,6 @@ use Data::Dumper;
 
 BEGIN {
     $SERVERROOT = "$Bin/../../../..";
-    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
     unshift(@INC, "$SERVERROOT/ensembl/modules");
     unshift(@INC, "$SERVERROOT/bioperl-live");
 }
