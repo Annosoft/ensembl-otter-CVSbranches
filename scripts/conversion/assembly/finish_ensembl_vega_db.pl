@@ -145,6 +145,57 @@ $dbh->{'evega'} = $dba->{'evega'}->dbc->db_handle;
 my $ensembl_db = $support->param('ensembldbname');
 my $vega_db = $support->param('dbname');
 
+# transfer Ensembl chromosomes and whole genome alignment into Vega
+$support->log_stamped("Transfer whole genome alignment into Vega...\n");
+# seq_region
+$support->log("Seq regions...\n", 1);
+my $ensemblassembly = $support->param('ensemblassembly');
+my $vegaassembly = $support->param('assembly');
+$sql = qq(
+    INSERT INTO $vega_db.seq_region
+    SELECT sr.*
+    FROM seq_region sr, coord_system cs
+    WHERE sr.coord_system_id = cs.coord_system_id
+    AND cs.name = 'chromosome'
+    AND cs.version = '$ensemblassembly'
+);
+#$c = $dbh->{'evega'}->do($sql);
+$support->log_stamped("Done storing $c seq_region entries.\n", 1);
+# coord_system
+$support->log("Coordinate system...\n", 1);
+$sql = qq(
+    INSERT INTO $vega_db.coord_system
+    SELECT cs.coord_system_id, cs.name, cs.version, cs.rank+100, cs.attrib
+    FROM coord_system cs
+    WHERE cs.name = 'chromosome'
+    AND cs.version = '$ensemblassembly'
+);
+$c = $dbh->{'evega'}->do($sql);
+$support->log_stamped("Done storing $c coord_system entries.\n", 1);
+# assembly
+$support->log("Assembly...\n", 1);
+$sql = qq(
+    INSERT INTO $vega_db.assembly
+    SELECT a.*
+    FROM    assembly a,
+            seq_region sr1,
+            seq_region sr2,
+            coord_system cs1,
+            coord_system cs2
+    WHERE a.asm_seq_region_id = sr1.seq_region_id
+    AND a.cmp_seq_region_id = sr2.seq_region_id
+    AND sr1.coord_system_id = cs1.coord_system_id
+    AND sr2.coord_system_id = cs2.coord_system_id
+    AND cs1.name = 'chromosome'
+    AND cs2.name = 'chromosome'
+    AND cs1.version = '$vegaassembly'
+    AND cs2.version = '$ensemblassembly'
+);
+$c = $dbh->{'evega'}->do($sql);
+$support->log_stamped("Done storing $c assembly entries.\n", 1);
+$support->log_stamped("Done.\n");
+
+=cut
 # delete from assembly, seq_region, coord_system, dna,
 # dnac, repeat_consensus, repeat_feature
 $support->log_stamped("Deleting assembly...\n");
@@ -290,8 +341,21 @@ $sql = qq(
 $c = $dbh->{'evega'}->do($sql);
 $support->log_stamped("Done transfering $c tranlation_attrib entries.\n\n");
 
+=cut
 # meta
 my $mappingstring = 'chromosome:'.$support->param('assembly').'#chromosome:'.$support->param('ensemblassembly');
+# transfer assembly mapping into Vega
+$support->log_stamped("Transfering assembly.mapping $mappingstring into Vega...\n");
+$sql = qq(
+    INSERT INTO $vega_db.meta
+    SELECT * from meta
+    WHERE meta_key = 'assembly.mapping'
+    AND meta_value = '$mappingstring'
+);
+$c = $dbh->{'evega'}->do($sql);
+$support->log_stamped("Done transfering $c meta entries.\n");
+=cut
+# delete assembly mapping from ensembl-vega
 $support->log_stamped("Removing assembly.mapping $mappingstring from meta table...\n");
 $sql = qq(
     DELETE FROM meta
@@ -315,6 +379,7 @@ $sql = qq(
 );
 $c = $dbh->{'evega'}->do($sql);
 $support->log_stamped("Done adjusting $c meta_coord entries.\n\n");
+=cut
 
 
 # finish logfile
