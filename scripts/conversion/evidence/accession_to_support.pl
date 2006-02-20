@@ -9,6 +9,7 @@ accession_to_support.pl - script to add supporting evidence to a Vega database
 accession_to_support.pl [options]
 
 General options:
+
     --conffile, --conf=FILE             read parameters from FILE
                                         (default: conf/Conversion.ini)
 
@@ -26,6 +27,7 @@ General options:
     -h, --help, -?                      print help (this message)
 
 Specific options:
+
     --chromosomes, --chr=LIST           only process LIST chromosomes
     --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
                                         (or read list from FILE)
