@@ -50,6 +50,7 @@ includes:
     - deleting data not needed any more (eg dna, repeats)
     - updating seq_region_ids to match those in the core Ensembl db
     - transfer selenocysteines
+    - transfer the whole genome assembly information back into the Vega db
 
 =head1 RELATED SCRIPTS
 
