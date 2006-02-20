@@ -198,7 +198,7 @@ $dbh->{'evega'} = $dba->{'evega'}->dbc->db_handle;
 # transfer chromosome seq_regions from Vega db (with same internal IDs and
 # names as in source db)
 my $c = 0;
-my $vegaassembly = $support->param('vegaassembly');
+my $vegaassembly = $support->param('assembly');
 $support->log_stamped("Transfering Vega chromosome seq_regions...\n");
 $sql = qq(
     INSERT INTO $evega_db.seq_region
