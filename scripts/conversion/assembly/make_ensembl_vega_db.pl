@@ -198,6 +198,7 @@ $dbh->{'evega'} = $dba->{'evega'}->dbc->db_handle;
 # transfer chromosome seq_regions from Vega db (with same internal IDs and
 # names as in source db)
 my $c = 0;
+my $vegaassembly = $support->param('vegaassembly');
 $support->log_stamped("Transfering Vega chromosome seq_regions...\n");
 $sql = qq(
     INSERT INTO $evega_db.seq_region
@@ -205,6 +206,7 @@ $sql = qq(
     FROM seq_region sr, coord_system cs
     WHERE sr.coord_system_id = cs.coord_system_id
     AND cs.name = 'chromosome'
+    AND cs.version = '$vegaassembly'
 );
 $c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c seq_regions.\n\n");
@@ -313,6 +315,7 @@ $sql = qq(
     SELECT coord_system_id, name, version, rank+100, attrib
     FROM coord_system cs
     WHERE cs.name = 'chromosome'
+    AND cs.version = '$vegaassembly'
 );
 $c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
 $sql = qq(
