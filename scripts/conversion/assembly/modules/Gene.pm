@@ -95,7 +95,7 @@ sub store_gene {
         }
     };
 
-    $support->log_warning($@) if ($@);
+    $support->log_warning("(this might be a fatal error, so please check!) ".$@) if ($@);
 
     return;
 }

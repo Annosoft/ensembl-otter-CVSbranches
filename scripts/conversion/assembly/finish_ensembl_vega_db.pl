@@ -146,19 +146,31 @@ $dbh->{'evega'} = $dba->{'evega'}->dbc->db_handle;
 my $ensembl_db = $support->param('ensembldbname');
 my $vega_db = $support->param('dbname');
 
-# determine max(seq_region_id) and max(coord_system_id) in Vega seq_region
-# you'll need this to adjust Ensembl seq_regions back to their original state
-my $sth = $dbh->{'vega'}->prepare("SELECT MAX(seq_region_id) FROM seq_region");
+my $ensemblassembly = $support->param('ensemblassembly');
+my $vegaassembly = $support->param('assembly');
+
+# determine adjustment factors for Ensembl seq_region_ids and coord_system_ids
+$sql = qq(
+    SELECT MAX(seq_region_id)
+    FROM seq_region sr, coord_system cs
+    WHERE sr.coord_system_id = cs.coord_system_id
+    AND cs.name = 'chromosome'
+    AND cs.version = '$vegaassembly'
+);
+my $sth = $dbh->{'evega'}->prepare($sql);
 $sth->execute;
 my ($max_sri) = $sth->fetchrow_array;
 my $E_sri_adjust = 10**(length($max_sri));
-$sth = $dbh->{'vega'}->prepare("SELECT MAX(coord_system_id) FROM seq_region");
+$sql = qq(
+    SELECT coord_system_id
+    FROM coord_system cs
+    WHERE cs.name = 'chromosome'
+    AND cs.version = '$vegaassembly'
+);
+$sth = $dbh->{'evega'}->prepare($sql);
 $sth->execute;
 my ($max_csi) = $sth->fetchrow_array;
 my $E_csi_adjust = 10**(length($max_csi));
-
-my $ensemblassembly = $support->param('ensemblassembly');
-my $vegaassembly = $support->param('assembly');
 
 ## transfer Ensembl chromosomes and whole genome alignment into Vega
 if ($support->user_proceed("Would you like to transfer the whole genome alignment back into Vega?")) {
