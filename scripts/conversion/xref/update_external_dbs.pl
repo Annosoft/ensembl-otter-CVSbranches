@@ -107,7 +107,7 @@ while (my $row = <IN>) {
     push @rows, {
         'external_db_id'            => $a[0],
         'db_name'                   => $a[1],
-        'release'                   => $a[2],
+        'db_release'                   => $a[2],
         'status'                    => $a[3],
         'dbprimary_acc_linkable'    => $a[4],
         'display_label_linkable'    => $a[5],
@@ -119,7 +119,7 @@ close(IN);
 $support->log("Done reading ".scalar(@rows)." entries.\n");
 
 # delete all entries from external_db
-$support->log("Deleting all entries from exteranl_db...\n");
+$support->log("Deleting all entries from external_db...\n");
 unless ($support->param('dry_run')) {
     my $num = $dbh->do('DELETE FROM external_db');
     $support->log("Done deleting $num rows.\n");
@@ -130,7 +130,7 @@ $support->log("Inserting new external_db entries into db...\n");
 unless ($support->param('dry_run')) {
     my $sth = $dbh->prepare('
         INSERT INTO external_db
-            (external_db_id, db_name, release, status, dbprimary_acc_linkable, 
+            (external_db_id, db_name, db_release, status, dbprimary_acc_linkable, 
             display_label_linkable, priority, db_display_name)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ');
@@ -138,7 +138,7 @@ unless ($support->param('dry_run')) {
         $sth->execute(
                 $row->{'external_db_id'}, 
                 $row->{'db_name'},
-                $row->{'release'},
+                $row->{'db_release'},
                 $row->{'status'},
                 $row->{'dbprimary_acc_linkable'},
                 $row->{'display_label_linkable'},
