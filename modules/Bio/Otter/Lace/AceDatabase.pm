@@ -25,7 +25,6 @@ use Bio::EnsEMBL::Ace::Filter::Gene::Halfwise;
 use Bio::EnsEMBL::Ace::Filter::Gene::Predicted;
 use Bio::EnsEMBL::Ace::Filter::Similarity::DnaSimilarity;
 use Bio::EnsEMBL::Ace::Filter::Similarity::ProteinSimilarity;
-use Bio::EnsEMBL::Ace::Filter::Similarity::RefSeq;
 use Bio::EnsEMBL::Ace::Filter::SimpleFeature;
 
 sub new {
@@ -196,22 +195,26 @@ sub ace_from_contig_list {
         my $xml = Bio::Otter::Lace::TempFile->new;
         $xml->name('lace.xml');
         my $write = $xml->write_file_handle;
-        print $write $client->get_xml_for_contig_from_Dataset($ctg, $ds);
-
+        my $xml_string = $client->get_xml_for_contig_from_Dataset($ctg, $ds);
+        print $write $xml_string ;
+       
         ### Nasty that genes and slice arguments are in
         ### different order in these two subroutines
                 
       
         my ($genes, $slice, $sequence, $tiles, $feature_set) =
             Bio::Otter::Converter::XML_to_otter($xml->read_file_handle);
+        
         $ace .= Bio::Otter::Converter::otter_to_ace($slice, $genes, $tiles, $sequence, $feature_set);
         # We need to record which dataset each slice came
         # from so that we know where to save it back to.
         my $slice_name = $slice->display_id;
         $self->save_slice_dataset($slice_name, $ds);
     }
+    
     return $ace;
 }
+
 
 sub save_slice_dataset {
     my( $self, $slice_name, $dataset ) = @_;
@@ -350,7 +353,7 @@ sub save_otter_slice {
 
 sub unlock_all_slices {
     my( $self ) = @_;
-
+    
     my $sd_h = $self->slice_dataset_hash;
     foreach my $name (keys %$sd_h) {
         my $ds = $sd_h->{$name};
@@ -358,9 +361,10 @@ sub unlock_all_slices {
     }
 }
 
+# name argument is the name of the slice in format [chr_name].[start_coord]-[end_coord] , 
 sub unlock_otter_slice {
     my( $self, $name, $dataset ) = @_;
-    
+       
     confess "Missing slice name argument"   unless $name;
     confess "Missing DatsSet argument"      unless $dataset;
 
@@ -385,6 +389,7 @@ sub unlock_otter_slice {
     $ace_txt =~ s{^\s*//.+}{\n}mg;  # Strip comments
     
     return $client->unlock_otter_ace($ace_txt, $dataset);
+    
 }
 
 sub aceperl_db_handle {
@@ -428,9 +433,8 @@ sub make_database_directory {
         confess "Error running '$tar_command' exit($?)";
     }
     
-    # These two acefiles from the tar file need to get parsed
+    # This acefile from the tar file needs to get parsed
     $self->add_acefile("$home/rawdata/methods.ace");
-    $self->add_acefile("$home/rawdata/misc.ace");
     
     $self->make_passwd_wrm;
     $self->edit_displays_wrm;
@@ -542,7 +546,7 @@ sub initialize_database {
 }
 
 sub write_pipeline_data {
-    my( $self, $ss ) = @_;
+    my( $self, $ss, $ace_file ) = @_;
 
     my $dataset = $self->Client->get_DataSet_by_name($ss->dataset_name);
     $dataset->selected_SequenceSet($ss);    # Not necessary?
@@ -561,10 +565,15 @@ sub write_pipeline_data {
     my $factory = $self->{'_pipeline_data_factory'} ||= $self->make_AceDataFactory($ens_db, $species);
     
     # create file for output and add it to the acedb object
-    my $ace_file = $self->home . "/rawdata/pipeline.ace";
-    $self->add_acefile($ace_file);
-    my $fh = gensym();
-    open $fh, "> $ace_file" or confess "Can't write to '$ace_file' : $!";
+    $ace_file ||= $self->home . "/rawdata/pipeline.ace";
+    my $fh;
+    if(ref($ace_file) eq 'GLOB'){
+        $fh = $ace_file;
+    }else{ 
+        $fh = gensym();
+        $self->add_acefile($ace_file);
+        open $fh, "> $ace_file" or confess "Can't write to '$ace_file' : $!";
+    }
     $factory->file_handle($fh);
 
     my $slice_adaptor = $ens_db->get_SliceAdaptor();
@@ -611,28 +620,6 @@ sub make_AceDataFactory {
     # $factory->add_all_Filters($ensdb);   
     my $ana_adaptor = $ens_db->get_AnalysisAdaptor;
 
-    ## note: most of the list here is taken from the previous version, 
-    ## currently only the uncommented ones seem to be in the database   
-    ## N.B. keys should be lowercase!!
-    my %logic_tag_method = (
-        'est2genome_human'  => [qw{             EST_homol  EST_Human     }],
-        'est2genome_mouse'  => [qw{             EST_homol  EST_Mouse     }],
-        'est2genome_fish'   => [qw{             EST_homol  EST_Fish      }],
-        'est2genome_other'  => [qw{             EST_homol  EST           }],
-        'refseq_human'      => [qw{             DNA_homol  REFSEQ           }],
-        'vertrna'           => [qw{ vertebrate_mRNA_homol  vertebrate_mRNA  }],
-        'swall'             => [qw{                 swall  BLASTX           }],
-#        'eponine'           => [qw{                     0  EPONINE          }],
-
-#        'Full_dbGSS'        => [qw{             GSS_homol  GSS_eg           }],
-#        'Full_dbSTS'        => [qw{             STS_homol  STS_eg           }],
-#        'sccd'              => [qw{             EST_homol  egag             }],
-#        'riken_mouse_cdnal' => [qw{             EST_homol  riken_mouse_cdna }],
-#        'primer'            => [qw{             DNA_homol  primer           }],
-
-#        'zfishEST'          => [qw{             EST_homol  EST_eg-fish      }],
-        );
-    
     ##----------code to add all of the ace filters to data factory-----------------------------------
 
     my $fetch_all_pipeline_data = Bio::Otter::Lace::Defaults::fetch_pipeline_switch();
@@ -666,17 +653,17 @@ sub make_AceDataFactory {
 	next unless $logic_to_load->{$logic_name};
 	# class successfully required already.
 	my $class = $module_options->{$logic_name}->{'module'};
+        my $filt;
 	# check there is an analysis
         if (my $ana = $ana_adaptor->fetch_by_logic_name($logic_name)) {
-            my $filt = $class->new;
+            $filt = $class->new;
             $filt->analysis_object($ana);
-
-	    # Does the logic_name have a tag & method?
-	    $filt->homol_tag($logic_tag_method{$logic_name}->[0]) 
-		if $logic_tag_method{$logic_name}->[0];
-            $filt->method_tag($logic_tag_method{$logic_name}->[1])
-		if $logic_tag_method{$logic_name}->[1];
-
+        } elsif($module_options->{$logic_name}->{'create_without_ana'}){
+            $filt = $class->new();
+        } else {
+            warn "No analysis called '$logic_name'\n";
+        }
+        if($filt){
 	    # find the options for the filter?
 	    foreach my $option(keys (%{$module_options->{"$logic_name"}})){
 		# warn "checking $filt for method $option\n";
@@ -688,8 +675,6 @@ sub make_AceDataFactory {
 
 	    # add the filter to the factory
             $factory->add_AceFilter($filt);
-        } else {
-            warn "No analysis called '$logic_name'\n";
         }
     }
         

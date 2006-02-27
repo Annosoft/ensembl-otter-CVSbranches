@@ -14,24 +14,6 @@ use vars qw(@ISA);
 @ISA = qw ( Bio::EnsEMBL::DBSQL::GeneAdaptor);
 
 
-# This is assuming the otter info and the ensembl genes are in the same database 
-# and so have the same adaptor
-
-sub new {
-    my ($class,$dbobj) = @_;
-
-    my $self = {};
-    bless $self,$class;
-
-    if( !defined $dbobj || !ref $dbobj ) {
-        $self->throw("Don't have a db [$dbobj] for new adaptor");
-    }
-
-    $self->db($dbobj);
-
-    return $self;
-}
-
 =head2 fetch_by_stable_id
 
  Title   : fetch_by_stable_id
@@ -442,6 +424,133 @@ sub fetch_all_by_DBEntry {
     }
   }
   return \@genes;
+}
+
+=head2 fetch_all_by_Slice_and_author
+
+  Arg [1]    : Bio::EnsEMBL::Slice $slice
+               the slice from which to obtain features
+  Arg [2]    : (optional) string author
+               author of the features retrieved
+  Arg [3]    : (optional) string $logic_name
+               the logic name of the type of features to obtain
+  Example    : $fts = $a->fetch_all_by_Slice($slice, 'Havana', 'otter');
+  Description: Returns a list of features created from the database which are 
+               are on the Slice defined by $slice and which were annotated by
+               author $author. If $logic_name is defined, only features with an
+               analysis of type $logic_name will be returned.
+  Returntype : listref of Bio::EnsEMBL::Genes in Slice coordinates
+               NOTE: genes are not annotated (this function is designed for
+               drawing genes, so speed is critical)
+  Exceptions : none
+  Caller     : general
+
+=cut
+
+sub fetch_all_by_Slice_and_author {
+    my ($self, $slice, $author, $logic_name) = @_;
+    $self->_tables("gene_info", "gi");
+    $self->_tables("author", "au");
+    $self->_left_join("gene_info", "gsi.stable_id = gi.gene_stable_id");
+    $self->_left_join("author", "gi.author_id = au.author_id");
+    my $constraint = qq(au.author_name = '$author');
+    
+    return $self->fetch_all_by_Slice_constraint($slice, $constraint, $logic_name);
+}
+
+=head2 set_transcript_type
+
+  Arg[1]      : arrayref $genes
+                list of Bio::EnsEMBL::Gene objects
+  Example     : my $genes = $gene_adaptor->get_all_Genes;
+                $gene_adaptor->set_transcript_type($genes);
+  Description : Sets the transcript type based on gene type in transcript class
+  Return type : none
+  Exceptions  : thrown when no gene list is provided
+  Caller      : general
+
+=cut
+
+sub set_transcript_type {
+    my ($self, $genes) = @_;
+    if (! defined($genes)) {
+        $self->throw("You must provide a listref of genes to set the transcript type");
+    }
+
+    my $sth = $self->prepare("
+        SELECT  tc.name
+        FROM
+                transcript_info ti,
+                transcript_class tc
+        WHERE   ti.transcript_class_id = tc.transcript_class_id
+        AND     ti.transcript_stable_id = ?
+    ");
+
+    foreach my $gene (@$genes) {
+        my $gt = $gene->type;
+        foreach my $tr (@{$gene->get_all_Transcripts}) {
+            $sth->execute($tr->stable_id);
+            while (my ($tr_class) = $sth->fetchrow_array) {
+                if ($gt eq 'Novel_CDS' and $tr_class ne 'Coding') {
+                    $tr->type('Novel_Transcript');
+                } else {
+                    $tr->type($gt);
+                }
+            }
+        }
+    }
+}
+
+# _tables
+#  Arg [1]    : (optional) string $table
+#               table name to add
+#  Arg [2]    : (optional) string $alias
+#               table alias
+#  Description: PROTECTED implementation of superclass abstract method
+#               getter/setter for names, aliases of the tables to use for
+#               queries
+#  Returntype : list of listrefs of strings
+#  Exceptions : none
+#  Caller     : internal
+
+sub _tables {
+    my ($self, $table, $alias) = @_;
+    my @tables = $self->SUPER::_tables;
+    $self->{'_tables'} ||= \@tables;
+    if (defined($table)) {
+        # return if the alias already exists
+        foreach (@{ $self->{'_tables'} }) {
+            return if ($_->[0] eq $table and $_->[1] eq $alias);
+        }
+        push @{$self->{'_tables'}}, [$table, $alias];
+    }
+    return @{$self->{'_tables'}};
+}
+
+# _left_join
+#  Arg [1]    : (optional) string $table
+#               table name
+#  Arg [2]    : (optional) string $condition
+#               condition for left join
+#  Description: PROTECTED implementation of superclass abstract method
+#               getter/setter for names, conditions of left joins to use in
+#               queries
+#  Returntype : list of listrefs of strings
+#  Exceptions : none
+#  Caller     : internal
+
+sub _left_join {
+    my ($self, $table, $condition) = @_;
+    my @left = $self->SUPER::_left_join;
+    $self->{'_left_join'} ||= \@left;
+    if (defined($table)) {
+        # return if the condition already exists
+        foreach (@{ $self->{'_left_join'} }) {
+            return if ($_->[0] eq $table and $_->[1] eq $condition);
+        }
+        push @{$self->{'_left_join'}}, [$table, $condition];
+    }
+    return @{$self->{'_left_join'}};
 }
 
 1;
