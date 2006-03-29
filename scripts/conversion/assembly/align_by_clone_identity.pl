@@ -321,7 +321,7 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     } else {
         # last clone was a non-match, adjust non-matching clone count
         if ($nomatch->{$V_chr}) {
-            my $c = scalar(@{ $nomatch->{$V_chr} || [] }) - 1;
+            my $c = scalar(@{ $nomatch->{$V_chr} }) - 1;
             $nomatch->{$V_chr}->[$c]->[2] = scalar(@E_clones) - $nomatch->{$V_chr}->[$c]->[2];
             $nomatch->{$V_chr}->[$c]->[5] = scalar(@V_clones) - $nomatch->{$V_chr}->[$c]->[5];
         }
@@ -371,7 +371,7 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     # stats for this chromosome
     $stats_chr{'E_only'} = scalar(@E_clones) - $stats_chr{'identical'} - $stats_chr{'mismatch'};
     $stats_chr{'V_only'} = scalar(@V_clones) - $stats_chr{'identical'} - $stats_chr{'mismatch'};
-    for (my $c = 0; $c < scalar(@{ $match->{$V_chr} } || []); $c++) {
+    for (my $c = 0; $c < scalar(@{ $match->{$V_chr} || [] }); $c++) {
         $stats_chr{'E_matchlength'} += $match->{$V_chr}->[$c]->[1] - $match->{$V_chr}->[$c]->[0];
         $stats_chr{'V_matchlength'} += $match->{$V_chr}->[$c]->[4] - $match->{$V_chr}->[$c]->[3];
     }
