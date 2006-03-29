@@ -313,14 +313,18 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     # adjust the final clone count
     if ($match_flag) {
         # last clone was a match, adjust matching clone count
-        my $c = scalar(@{ $match->{$V_chr} || [] }) - 1;
-        $match->{$V_chr}->[$c]->[2] = scalar(@E_clones) - $match->{$V_chr}->[$c]->[2];
-        $match->{$V_chr}->[$c]->[5] = scalar(@V_clones) - $match->{$V_chr}->[$c]->[5];
+        if ($match->{$V_chr}) {
+            my $c = scalar(@{ $match->{$V_chr} }) - 1;
+            $match->{$V_chr}->[$c]->[2] = scalar(@E_clones) - $match->{$V_chr}->[$c]->[2];
+            $match->{$V_chr}->[$c]->[5] = scalar(@V_clones) - $match->{$V_chr}->[$c]->[5];
+        }
     } else {
         # last clone was a non-match, adjust non-matching clone count
-        my $c = scalar(@{ $nomatch->{$V_chr} || [] }) - 1;
-        $nomatch->{$V_chr}->[$c]->[2] = scalar(@E_clones) - $nomatch->{$V_chr}->[$c]->[2];
-        $nomatch->{$V_chr}->[$c]->[5] = scalar(@V_clones) - $nomatch->{$V_chr}->[$c]->[5];
+        if ($nomatch->{$V_chr}) {
+            my $c = scalar(@{ $nomatch->{$V_chr} || [] }) - 1;
+            $nomatch->{$V_chr}->[$c]->[2] = scalar(@E_clones) - $nomatch->{$V_chr}->[$c]->[2];
+            $nomatch->{$V_chr}->[$c]->[5] = scalar(@V_clones) - $nomatch->{$V_chr}->[$c]->[5];
+        }
     }
 
     # filter single assembly inserts from non-aligned blocks (i.e. cases where 
