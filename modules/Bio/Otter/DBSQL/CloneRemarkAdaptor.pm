@@ -11,21 +11,18 @@ use vars qw(@ISA);
 sub _generic_sql_fetch {
     my( $self, $where_clause, @param ) = @_;
 
-    my $sql = q{
+    my $sth = $self->prepare(q{
         SELECT clone_remark_id
           , remark
           , clone_info_id
         FROM clone_remark
         } . $where_clause .
-        q{ ORDER BY clone_remark_id };
-    my $sth = $self->prepare($sql);
-    #warn "Running '$sql' with (@param)";
+        q{ ORDER BY clone_remark_id });
     $sth->execute(@param);
 
     my @remark;
 
     while (my $row = $sth->fetch) {
-        #warn "remark: ", $row->[1];
         my $remark = new Bio::Otter::CloneRemark;
         $remark->dbID(         $row->[0]);
         $remark->remark(       $row->[1]);
