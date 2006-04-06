@@ -221,6 +221,7 @@ foreach my $format ($support->param('xrefformat')) {
     &$parser($xrefs, $lcmap);
 
     # set as primary xref (will be used as display_xref)
+	# (set to zero if you don't want any)
     $primary{$format} = 1;
 }
 use strict 'refs';
@@ -259,7 +260,6 @@ foreach my $chr (@chr_sorted) {
     foreach my $gene (@$genes) {
         my $gsi = $gene->stable_id;
         my $gid = $gene->dbID;
-        
         # catch missing display_xrefs here!!
         my $disp_xref = $gene->display_xref;
         my $gene_name;
@@ -343,7 +343,7 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        my $dbID = $ea->store($dbentry, $gid, 'Gene');
+                        my $dbID = $ea->store($dbentry, $gene, 'gene');
 
                         # apparently, this xref had been stored already, so get
                         # xref_id from db
@@ -399,7 +399,7 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        my $dbID = $ea->store($dbentry, $gid, 'Gene');
+                        my $dbID = $ea->store($dbentry, $gene, 'gene');
 
                         unless ($dbID) {
                             my $sql = qq(
@@ -636,7 +636,7 @@ sub parse_locuslink {
             } else {
                 $flag_org = 2;
             }
-        } elsif (/^OFFICIAL_SYMBOL: (\w+)/) {
+        } elsif ((/^OFFICIAL_SYMBOL: (\w+)/) || (/^PREFERRED_SYMBOL: (\w+)/)) {
             if ($flag_org == 1) {
                 $gene_name = $1;
                 push @{ $lcmap->{lc($gene_name)} }, $gene_name;
