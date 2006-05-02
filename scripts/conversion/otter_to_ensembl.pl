@@ -170,7 +170,7 @@ foreach my $chr ($support->sort_chromosomes) {
         # store attributes
         $support->log_verbose("Storing ".scalar(@$gene_attribs)." gene attributes.\n", 2);
         unless ($support->param('dry_run')) {
-            $aa->store_on_Gene($gene, $gene_attribs);
+            $aa->store_on_Gene($gene->dbID, $gene_attribs);
         }
 
         # loop over transcripts
@@ -243,7 +243,7 @@ foreach my $chr ($support->sort_chromosomes) {
             # store attributes
             $support->log_verbose("Storing ".scalar(@$trans_attribs)." transcript attributes.\n", 3);
             unless ($support->param('dry_run')) {
-                $aa->store_on_Transcript($transcript, $trans_attribs);
+                $aa->store_on_Transcript($transcript->dbID, $trans_attribs);
             }
         }
     }
