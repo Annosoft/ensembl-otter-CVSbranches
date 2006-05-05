@@ -349,20 +349,25 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
         $support->log("Done inserting $c entries.\n", 1);
     }
 
+	use Data::Dumper;
+
     # store non-aligned blocks in tmp_align table
     unless ($support->param('dry_run')) {
         if ($nomatch->{$V_chr}) {
             $support->log("Storing non-aligned blocks in tmp_align table...\n", 1);
             my $c;
             for ($c = 0; $c < scalar(@{ $nomatch->{$V_chr} }); $c++) {
-                $sth2->execute(
+#				warn Dumper($nomatch->{$V_chr}->[$c]);
+                eval {
+					$sth2->execute(
                     $nomatch->{$V_chr}->[$c]->[6],
                     $nomatch->{$V_chr}->[$c]->[0],
                     $nomatch->{$V_chr}->[$c]->[1],
                     $V_chr,
                     $nomatch->{$V_chr}->[$c]->[3],
                     $nomatch->{$V_chr}->[$c]->[4],
-                );
+								  );
+				};
             }
             $support->log("Done inserting $c entries.\n", 1);
         }
