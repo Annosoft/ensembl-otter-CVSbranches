@@ -61,64 +61,92 @@ my $def_score = 0.5;
 
 sub paste_eucomm_data {
     my ($self, $genomic_feature) = @_;
-    
-    my ($class, $name, $start, $end) = $self->class_object_start_end_from_clipboard;
-    if (! $class or $class ne 'Sequence') {
+
+    my ($class, $name, $clip_start, $clip_end) =
+      $self->class_object_start_end_from_clipboard;
+    if (!$class or $class ne 'Sequence') {
         return;
     }
-    
-    if ($start > $end) {
-        ($start, $end) = ($end, $start);
-    }
-    
-    my $otter = $self->get_otter_ids_of_overlapping_exons($name, $start, $end);
-    return unless keys %$otter;
 
-    # Decrease start if start from clipboard is less
-    if (my $gf_start = $genomic_feature->{'start'}) {
-        $genomic_feature->{'start'} = $start if $start < $gf_start;
-    } else {
-        $genomic_feature->{'start'} = $start;
+    if ($clip_start > $clip_end) {
+        ($clip_start, $clip_end) = ($clip_end, $clip_start);
     }
 
-    # Increase end if end from clipboard is greater
-    if (my $gf_end = $genomic_feature->{'end'}) {
-        $genomic_feature->{'end'} = $end if $end > $gf_end;
-    } else {
-        $genomic_feature->{'end'} = $end;
+    # Parse the old otter exon IDs from the existing text field
+    my $display_otter = {};
+    my $text = $genomic_feature->{'display_label'};
+    foreach my $id (grep /E\d{11}$/, split /[^A-Z0-9]+/, $text) {
+        $display_otter->{$id} = 1;
     }
-    
+
+    my ($otter, $start, $end, $exon_length) =
+      $self->get_overlapping_exon_otter_id_start_end($name, $clip_start, $clip_end, $display_otter);
+
+    # Don't change anything if search failed
+    return unless $otter;
+
+    $genomic_feature->{'start'} = $start;
+    $genomic_feature->{'end'}   = $end;
+
     # Default the score to 1 if not set
     $genomic_feature->{'score'} ||= 1;
-    
-    my $text = $genomic_feature->{'display_label'};
-    foreach my $id (split /\s+/, $text) {
-        $otter->{$id} = 1;
-    }
-    my $str = join(' ', sort keys %$otter);
+
+    my $count = keys %$otter;
+    my $str = sprintf "%d exon%s phase %d from %s (%s)",
+        $count,
+        $count > 1 ? 's' : '',
+        $exon_length % 3,
+        $name,
+        join(' ', sort keys %$otter);
     $genomic_feature->{'display_label'} = $str;
 }
 
-sub get_otter_ids_of_overlapping_exons {
-    my( $self, $name, $start, $end ) = @_;
-    
+sub get_overlapping_exon_otter_id_start_end {
+    my ($self, $name, $search_start, $search_end, $display_otter) = @_;
+
     #warn "Looking for CDS exons in '$name' that overlap $start -> $end";
-    
+
     my $search_exon = Hum::Ace::Exon->new;
-    $search_exon->start($start);
-    $search_exon->end($end);
-    
-    my $otter = {};
+    $search_exon->start($search_start);
+    $search_exon->end($search_end);
+
     my $subseq = $self->XaceSeqChooser->get_SubSeq($name) or return;
     return unless $subseq->translation_region_is_set;
+
+    my $new_otter = {};
+    my $exon_length_total = 0;
+    my ($start, $end);
+    my $in_zone = 0;
+    #warn "Looking for $search_start - $search_end and (", join(', ', map "'$_'", keys %$display_otter), ")";
     foreach my $exon ($subseq->get_all_CDS_Exons) {
-        if ($exon->overlaps($search_exon)) {
-            if (my $id = $exon->otter_id) {
-                $otter->{$id} = 1;
+        my $id = $exon->otter_id
+          or next;
+        #warn "Looking at '$id'\n";
+        if ($display_otter->{$id} or $exon->overlaps($search_exon)) {
+            #warn "Found exon '$id'\n";
+            $in_zone = 1;
+            $new_otter->{$id} = 1;
+            $exon_length_total += $exon->length;
+            if ($start) {
+                $start = $exon->start if $exon->start < $start;
+            } else {
+                $start = $exon->start;
             }
+            if ($end) {
+                $end = $exon->end if $exon->end > $end;
+            } else {
+                $end = $exon->end;
+            }
+        } else {
+            # Makes it impossible to select non-consecutive exons
+            last if $in_zone;
         }
     }
-    return $otter;
+    if ($in_zone) {
+        return ($new_otter, $start, $end, $exon_length_total);
+    } else {
+        return;
+    }
 }
 
 
@@ -173,27 +201,33 @@ sub stored_ace_dump {
 # -------------[create ace representation]---------------------
 
 sub ace_and_vector_dump {
-    my($self) = @_;
-    
+    my ($self) = @_;
+
     my $header = qq{Sequence "} . $self->slice_name . qq{"\n};
 
-    my $ace_text = $header."-D Feature\n\n";
-    my @vectors = ();
+    my $ace_text = $header . "-D Feature\n\n";
+    my @vectors  = ();
 
-    if(keys %{$self->{_gfs}}) {
+    if (keys %{ $self->{_gfs} }) {
 
         $ace_text .= $header;
 
-        for my $subhash (sort {$a->{start} <=> $b->{start}} values %{$self->{_gfs}}) {
+        for my $subhash (
+            sort { $a->{start} <=> $b->{start} || $a->{end} <=> $b->{end} }
+            values %{ $self->{_gfs} })
+        {
             my $gf_type = $subhash->{gf_type};
             my ($start, $end) =
                 ($subhash->{strand} == 1)
-                ? ($subhash->{start}, $subhash->{end})
-                : ($subhash->{end}, $subhash->{start});
+              ? ($subhash->{start}, $subhash->{end})
+              : ($subhash->{end}, $subhash->{start});
             my $score = $subhash->{score} || $def_score;
-            my $display_label = $subhash->{display_label} || $signal_info{$gf_type}{fullname};
-            
-            $ace_text .= join(' ', 'Feature', qq{"$gf_type"}, $start, $end, $score, qq{"$display_label"\n});
+            my $display_label = $subhash->{display_label}
+              || $signal_info{$gf_type}{fullname};
+
+            $ace_text .= join(' ',
+                'Feature', qq{"$gf_type"}, $start, $end, $score,
+                qq{"$display_label"\n});
 
             push @vectors, [ $gf_type, $start, $end, $score, $display_label ];
         }
@@ -308,7 +342,7 @@ sub change_of_gf_type_callback {
     my @enable  = (-state => 'normal',   -background => 'white');
     my @disable = (-state => 'disabled', -background => 'grey' );
     $genomic_feature->{score_entry}->configure(
-        $si->{edit_score} ? @enable : @disable
+        $si->{edit_score}         ? @enable : @disable
     );
     $genomic_feature->{display_label_entry}->configure(
         $si->{edit_display_label} ? @enable : @disable
@@ -380,11 +414,6 @@ sub add_genomic_feature {
        -textvariable => \$genomic_feature->{display_label},
        -width        => 24,
     )->pack(@pack);
-    my $paste_otter_exon_ids = sub {
-        $self->paste_otter_exon_ids($genomic_feature->{display_label_entry});
-    };
-    $genomic_feature->{display_label_entry}->bind('<Control-e>', $paste_otter_exon_ids);
-    $genomic_feature->{display_label_entry}->bind('<Control-E>', $paste_otter_exon_ids);
 
     my $delete_button = $subframe->Button(
         -text    => 'Delete',
@@ -424,7 +453,7 @@ sub add_genomic_feature {
                     $self->paste_label_callback($genomic_feature,
                         'display_label_entry', $x);
                 },
-                Tk::Ev('x')
+                Tk::Ev('x') # Needed by default Entry paste handler
             ]
         );
     }
