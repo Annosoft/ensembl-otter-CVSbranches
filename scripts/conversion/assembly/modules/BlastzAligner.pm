@@ -104,9 +104,11 @@ sub new {
 
 =head2 create_tempdir
 
+  Arg[1]      : String $tmpdir - temporary directory name
   Example     : $aligner->create_tempdir;
   Description : Creates a temporary directory in /tmp with a semi-random name
-                (username.timestamp.randomnumber).
+                (username.timestamp.randomnumber). Alternatively, you can pass
+                it the name of a directory to use.
   Return type : String - name of the tempdir created
   Exceptions  : Thrown if tempdir can't be created
   Caller      : general
@@ -115,15 +117,23 @@ sub new {
 
 sub create_tempdir {
     my $self = shift;
+    my $tempdir = shift;
 
-    # create tmpdir to store input and output
-    my $user = `whoami`;
-    chomp $user;
-    my $tempdir = "/tmp/$user.".time.".".int(rand(1000));
-    $self->support->log("Creating tmpdir $tempdir...\n");
-    system("mkdir $tempdir") == 0 or
-        $self->support->log_error("Can't create tmp dir $tempdir: $!\n");
-    $self->support->log("Done.\n");
+    if ($tempdir) {
+      unless (-d $tempdir) {
+        $self->support->log_error("Can't find tempdir $tempdir: $!");
+      }
+
+    } else {
+      # create tmpdir to store input and output
+      my $user = `whoami`;
+      chomp $user;
+      $tempdir = "/tmp/$user.".time.".".int(rand(1000));
+      $self->support->log("Creating tmpdir $tempdir...\n");
+      system("mkdir $tempdir") == 0 or
+          $self->support->log_error("Can't create tmp dir $tempdir: $!\n");
+      $self->support->log("Done.\n");
+    }
 
     $self->tempdir($tempdir);
     return $tempdir;
@@ -167,19 +177,22 @@ sub write_sequence {
     my $tmpdir = $self->tempdir;
     my $bindir = $self->support->param('bindir');
 
-    my $fh = $self->support->filehandle('>', "$tmpdir/$basename1.fa");
-    print $fh join(':', ">$basename1 dna:chromfrag chromosome",
-                          $assembly,
-                          $slice->start,
-                          $slice->end,
-                          $slice->strand
-                    ), "\n";
-    print $fh $slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
-    close($fh);
+    unless (-e "$tmpdir/$basename1.fa") {
+      my $fh = $self->support->filehandle('>', "$tmpdir/$basename1.fa");
+      print $fh join(':', ">$basename1 dna:chromfrag chromosome",
+                            $assembly,
+                            $slice->start,
+                            $slice->end,
+                            $slice->strand
+                      ), "\n";
+      print $fh $slice->get_repeatmasked_seq(undef, 1)->seq, "\n";
+      close($fh);
+    }
     
     # convert fasta to nib (needed for lavToAxt)
-    system("$bindir/faToNib $tmpdir/$basename1.fa $tmpdir/$basename1.nib") == 0
-        or $self->support->log_error("Can't run faToNib: $!\n");
+    unless (-e "$tmpdir/$basename1.nib") {
+      system("$bindir/faToNib $tmpdir/$basename1.fa $tmpdir/$basename1.nib") == 0 or $self->support->log_error("Can't run faToNib: $!\n");
+    }
 
     if ($basename2) {
         system("cat $tmpdir/$basename1.fa >> $tmpdir/$basename2.fa") == 0 or
@@ -207,8 +220,11 @@ sub run_blastz {
     my $id = $self->id;
 
     my $blastz_cmd = qq($bindir/blastz $tmpdir/$E_basename.fa $tmpdir/$V_basename.fa Q=blastz_matrix.txt T=0 L=10000 H=2200 Y=3400 > $tmpdir/blastz.$id.lav);
-    system($blastz_cmd) == 0 or
+
+    unless (-e "$tmpdir/blastz.$id.lav") {
+      system($blastz_cmd) == 0 or
         $self->support->log_error("Can't run blastz: $!\n");
+    }
 }
 
 =head2 lav_to_axt
@@ -230,7 +246,9 @@ sub lav_to_axt {
     my $bindir = $self->support->param('bindir');
     my $id = $self->id;
 
-    system("$bindir/lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt") == 0 or $self->support->log_error("Can't run lavToAxt: $!\n");
+    unless (-e "$tmpdir/blastz.$id.axt") {
+      system("$bindir/lavToAxt $tmpdir/blastz.$id.lav $tmpdir $tmpdir $tmpdir/blastz.$id.axt") == 0 or $self->support->log_error("Can't run lavToAxt: $!\n");
+    }
 }
 
 =head2 find_best_alignment
@@ -251,7 +269,9 @@ sub find_best_alignment {
     my $bindir = $self->support->param('bindir');
     my $id = $self->id;
 
-    system("$bindir/axtBest $tmpdir/blastz.$id.axt all $tmpdir/blastz.$id.best.axt") == 0 or $self->support->log_error("Can't run axtBest: $!\n");
+    unless (-e "$tmpdir/blastz.$id.best.axt") {
+      system("$bindir/axtBest $tmpdir/blastz.$id.axt all $tmpdir/blastz.$id.best.axt") == 0 or $self->support->log_error("Can't run axtBest: $!\n");
+    }
 }
 
 =head2 parse_blastz_output
@@ -326,6 +346,35 @@ sub parse_blastz_output {
         
         $i++;
     }
+}
+
+=head2 cleanup_tmpfiles
+
+  Arg[1-N]    : (optional) list @files - additional tmp files to delete
+  Example     : $self->cleanup_tmpfiles('e_seq.fa', 'v_seq.fa');
+  Description : deletes temporary files
+  Return type : none
+  Exceptions  : Warning if file cannot be deleted
+  Caller      : general
+  Status      : stable
+
+=cut
+
+sub cleanup_tmpfiles {
+  my $self = shift;
+  my @files = @_;
+  
+  my $tmpdir = $self->tempdir;
+  my $id = $self->id;
+
+  push @files,
+    "blastz.$id.lav",
+    "blastz.$id.axt",
+    "blastz.$id.best.axt";
+
+  foreach my $file (@files) {
+    unlink("$tmpdir/$file") or $self->support->log_warning("Couldn't delete file $file: $!");
+  }
 }
 
 =head2 found_match
@@ -530,7 +579,7 @@ sub write_assembly {
     my $ensembl_chr_map = $self->support->get_ensembl_chr_mapping($V_dba, $self->support->param('assembly'));
 
     my $sth = $E_dbh->prepare(qq(
-        INSERT INTO assembly (asm_seq_region_id, cmp_seq_region_id, asm_start,
+        INSERT IGNORE INTO assembly (asm_seq_region_id, cmp_seq_region_id, asm_start,
             asm_end, cmp_start, cmp_end, ori)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ));

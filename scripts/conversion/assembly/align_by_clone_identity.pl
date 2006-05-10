@@ -201,8 +201,8 @@ my $fmt4 = "%10.0f  %10.0f  %7.0f   %10.0f  %10.0f  %7.0f\n";
 my $fmt5 = "%-35s%10s\n";
 my $fmt6 = "%-10s%-12s%-10s%-12s\n";
 my $sth1 = $E_dbh->prepare(qq(
-    INSERT INTO assembly (asm_seq_region_id, cmp_seq_region_id, asm_start,
-        asm_end, cmp_start, cmp_end, ori)
+    INSERT IGNORE INTO assembly (asm_seq_region_id, cmp_seq_region_id,
+        asm_start, asm_end, cmp_start, cmp_end, ori)
     VALUES (?, ?, ?, ?, ?, ?, 1)
 ));
 my $sth2 = $E_dbh->prepare(qq(INSERT INTO tmp_align values(NULL, ?, ?, ?, ?, ?, ?)));
@@ -569,10 +569,10 @@ sub found_nomatch {
         # start a new non-align block
         push @{ $nomatch->{$V_chr} }, [
             $E_seg->from_start,
-            undef,
+            $E_seg->from_end,
             $j,
             $V_seg->from_start,
-            undef,
+            $V_seg->from_end,
             $i,
             $E_chr,
         ];

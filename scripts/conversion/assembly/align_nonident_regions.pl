@@ -36,7 +36,10 @@ Specific options:
                                         username USER
     --evegapass=PASS                    use ensembl-vega (target) database
                                         passwort PASS
+    --chromosomes, --chr=LIST           only process LIST chromosomes
     --bindir=DIR                        look for program binaries in DIR
+    --tmpfir=DIR                        use DIR for temporary files (useful for
+                                        re-runs after failure)
 
 =head1 DESCRIPTION
 
@@ -119,6 +122,8 @@ $support->parse_extra_options(
     'evegapass=s',
     'evegadbname=s',
     'bindir=s',
+    'tmpdir=s',
+    'chromosomes|chr=s@',
 );
 $support->allowed_params(
     $support->get_common_params,
@@ -128,6 +133,8 @@ $support->allowed_params(
     'evegapass',
     'evegadbname',
     'bindir',
+    'tmpdir',
+    'chromosomes',
 );
 
 if ($support->param('help') or $support->error) {
@@ -153,12 +160,17 @@ my $E_sa = $E_dba->get_SliceAdaptor;
 my $aligner = BlastzAligner->new(-SUPPORT => $support);
 
 # create tmpdir to store input and output
-$aligner->create_tempdir;
+$aligner->create_tempdir($support->param('tmpdir'));
 
 # loop over non-aligned regions in tmp_align table
 $support->log_stamped("Looping over non-aligned blocks...\n");
 
-my $sth = $E_dbh->prepare(qq(SELECT * FROM tmp_align));
+my $sql = qq(SELECT * FROM tmp_align);
+if ($support->param('chromosomes')) {
+  my $chr_string = join(", ", $support->param('chromosomes'));
+  $sql .= " WHERE v_seq_region_name IN ($chr_string)";
+}
+my $sth = $E_dbh->prepare($sql);
 $sth->execute;
 
 while (my $row = $sth->fetchrow_hashref) {
@@ -224,6 +236,16 @@ while (my $row = $sth->fetchrow_hashref) {
         $row->{'e_start'},
         $row->{'e_end'},
         { $id => [ $row->{'v_start'}, $row->{'v_end'} ] }
+    );
+    $support->log("Done.\n", 2);
+
+    # cleanup temp files
+    $support->log("Cleaning up temp files...\n", 2);
+    $aligner->cleanup_tmpfiles(
+      "$E_basename.fa",
+      "$E_basename.nib",
+      "$V_basename.fa",
+      "$V_basename.nib",
     );
     $support->log("Done.\n", 2);
 
