@@ -3,6 +3,7 @@ package Bio::Otter::CloneRemark;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Root;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Root);
 
@@ -11,7 +12,7 @@ sub new {
 
   my $self = bless {}, $class;
 
-  my ($dbid,$remark,$info_id)  = $self->_rearrange([qw(
+  my ($dbid,$remark,$info_id)  = rearrange([qw(
                             DBID
                             REMARK
                             CLONE_INFO_ID

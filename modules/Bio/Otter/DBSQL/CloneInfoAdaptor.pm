@@ -22,7 +22,7 @@ sub fetch_by_dbID {
 
     my $sth = $self->prepare(q{
         SELECT clone_info_id
-          , clone_id
+          , seq_region_id
           , author_id
           , FROM_UNIXTIME(timestamp)
         FROM clone_info
@@ -42,13 +42,13 @@ sub fetch_by_cloneID {
 
     my $sth = $self->prepare(q{
         SELECT i.clone_info_id
-          , i.clone_id
+          , i.seq_region_id
           , i.author_id
           , FROM_UNIXTIME(i.timestamp)
         FROM clone_info i
           , current_clone_info c
         WHERE c.clone_info_id = i.clone_info_id
-          AND c.clone_id = ?
+          AND c.seq_region_id = ?
         });
     $sth->execute($id);
 
@@ -104,7 +104,7 @@ sub store {
     # Store a new row in the clone_info table and get clone_info_id
     my $sth = $self->prepare(q{
     INSERT INTO clone_info(clone_info_id
-          , clone_id
+          , seq_region_id
           , author_id
           , timestamp)
     VALUES (NULL,?,?,NOW())
@@ -135,7 +135,7 @@ sub store {
     
     # Set as current
     my $set_current = $self->prepare(q{
-        REPLACE INTO current_clone_info(clone_id
+        REPLACE INTO current_clone_info(seq_region_id
               , clone_info_id)
         VALUES (?,?)
         });

@@ -2,16 +2,15 @@ package Bio::Otter::TranscriptRemark;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Root;
 
-@ISA = qw(Bio::EnsEMBL::Root);
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 sub new {
   my($class,@args) = @_;
 
   my $self = bless {}, $class;
 
-  my ($dbid,$remark,$info_id)  = $self->_rearrange([qw(
+  my ($dbid,$remark,$info_id)  = rearrange([qw(
                             DBID
                             REMARK
                             TRANSCRIPT_INFO_ID
