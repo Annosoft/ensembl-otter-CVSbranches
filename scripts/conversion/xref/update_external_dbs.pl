@@ -107,7 +107,7 @@ while (my $row = <IN>) {
     push @rows, {
         'external_db_id'            => $a[0],
         'db_name'                   => $a[1],
-        'db_release'                   => $a[2],
+        'release'                   => $a[2],
         'status'                    => $a[3],
         'dbprimary_acc_linkable'    => $a[4],
         'display_label_linkable'    => $a[5],
@@ -130,7 +130,7 @@ $support->log("Inserting new external_db entries into db...\n");
 unless ($support->param('dry_run')) {
     my $sth = $dbh->prepare('
         INSERT INTO external_db
-            (external_db_id, db_name, db_release, status, dbprimary_acc_linkable, 
+            (external_db_id, db_name, release, status, dbprimary_acc_linkable, 
             display_label_linkable, priority, db_display_name)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ');
@@ -138,7 +138,7 @@ unless ($support->param('dry_run')) {
         $sth->execute(
                 $row->{'external_db_id'}, 
                 $row->{'db_name'},
-                $row->{'db_release'},
+                $row->{'release'},
                 $row->{'status'},
                 $row->{'dbprimary_acc_linkable'},
                 $row->{'display_label_linkable'},

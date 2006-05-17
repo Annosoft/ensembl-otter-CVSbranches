@@ -221,7 +221,7 @@ foreach my $chr (@chr_sorted) {
         $dbentry->status('KNOWN');
         $gene->add_DBEntry($dbentry);
         unless ($support->param('dry_run')) {
-            my $dbID = $ea->store($dbentry, $gid, 'Gene');
+            my $dbID = $ea->store($dbentry, $gene, 'Gene');
             $sth_gene->execute($dbID, $gid);
             $support->log("Stored xref $dbID for gene $gid.\n", 1);
         }
@@ -250,7 +250,7 @@ foreach my $chr (@chr_sorted) {
                     );
             $dbentry->status('KNOWN');
             unless ($support->param('dry_run')) {
-                my $dbID = $ea->store($dbentry, $tid, 'Transcript');
+                my $dbID = $ea->store($dbentry, $trans, 'Transcript');
                 $sth_trans->execute($dbID, $tid);
                 $support->log("Stored xref $dbID for transcript $tid.\n", 2);
             }
@@ -270,7 +270,7 @@ foreach my $chr (@chr_sorted) {
                         );
                 $dbentry->status('KNOWN');
                 unless ($support->param('dry_run')) {
-                    $ea->store($dbentry, $trans->translation->dbID, 'Translation');
+                    $ea->store($dbentry, $translation, 'Translation');
                     $support->log("Stored xref ".$dbentry->dbID." for translation $tlid.\n", 2);
                 }
             }

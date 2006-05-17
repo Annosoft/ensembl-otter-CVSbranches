@@ -31,7 +31,7 @@ Specific options:
     --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
                                         (or read list from FILE)
     --xrefformat=FORMAT                 input file format FORMAT
-                                        (hugo|locuslink|refseq)
+                                        (hugo|locuslink|refseq|ensemblxref)
     --hugofile=FILE                     read Hugo input from FILE
     --locuslinkfile=FILE                read LocusLink input from FILE
     --refseqfile=FILE                   read Refseq input from FILE
@@ -44,8 +44,8 @@ Specific options:
 
 =head1 DESCRIPTION
 
-This script parses input files from various sources (HUGO, LocusLink, RefSeq)
-and adds xrefs to the databases covered by the respective input source. If
+This script parses input files from various sources (HUGO, LocusLink, RefSeq and an Ensembl
+database) and adds xrefs to the databases covered by the respective input source. If
 appropriate, display name of genes is set accordingly.
 
 Currently, these input formats are supported:
@@ -54,6 +54,7 @@ Currently, these input formats are supported:
                    ('All data' in text format)
     locuslink   => ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz
     refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
+    ensemblxref => use core ensembl database
 
 For human, a combination of locuslink and hugo can be used by specifying both
 as source (NOTE: order matters, locuslink has to be read first!)
@@ -105,6 +106,11 @@ $support->parse_extra_options(
     'hugofile=s',
     'locuslinkfile=s',
     'refseqfile=s',
+    'ensemblhost=s',
+    'ensemblport=s',
+    'ensembluser=s',
+    'ensemblpass=s',
+    'ensembldbname=s',
     'mismatch',
     'prune',
 );
@@ -116,6 +122,11 @@ $support->allowed_params(
     'hugofile',
     'locuslinkfile',
     'refseqfile',
+    'ensemblhost',
+    'ensemblport',
+    'ensembluser',
+    'ensemblpass',
+    'ensembldbname',
     'mismatch',
     'prune',
 );
@@ -208,32 +219,51 @@ my $species = $support->get_species_scientific_name($dba);
 
 # sanity checks
 $support->check_required_params('xrefformat');
-my %allowed_formats = map { $_ => 1 } qw(hugo refseq locuslink);
+my %allowed_formats = map { $_ => 1 } qw(hugo refseq locuslink ensemblxref);
 
 # parse input file
-$support->log_stamped("Reading xref input files...\n");
+
 no strict 'refs';
 my %primary;
 my $xrefs = {};
 my $lcmap = {};
-foreach my $format ($support->param('xrefformat')) {
-    my $parser = "parse_$format";
-    &$parser($xrefs, $lcmap);
+if ($support->param('xrefformat') ne 'ensemblxref') {
+	$support->log_stamped("Reading xref input files...\n");
+	foreach my $format ($support->param('xrefformat')) {
+		my $parser = "parse_$format";
+		&$parser($xrefs, $lcmap);
 
-    # set as primary xref (will be used as display_xref)
-    $primary{$format} = 1;
+		# set as primary xref (will be used as display_xref)
+		# (set to zero if you don't want any)
+		$primary{$format} = 1;
+	}
 }
+else {
+	$support->log_stamped("No input files read, using E! database\n");
+	&parse_ensdb($xrefs,$lcmap);
+	#need to make this species specific for %extdb_def below
+	$primary{'ensemblxref'} = 1;
+}
+
 use strict 'refs';
 $support->log_stamped("Done.\n\n");
 
+#use Data::Dumper;
+#warn Dumper($xrefs);
+#exit;
+
+
 # define what to do with each type of xref
+
+## need to fix this to set display xref for correct species
 my %extdb_def = (
-    HUGO                => [ 'KNOWN', $primary{'hugo'} ],
-    EntrezGene          => [ 'KNOWNXREF', $primary{'hugo'} || $primary{'locuslink'} ],
-    MarkerSymbol        => [ 'KNOWNXREF', $primary{'locuslink'} ],
+    HUGO                => [ 'KNOWN', $primary{'hugo'}],# || $primary{'ensemblxref'} ],
+    EntrezGene          => [ 'KNOWNXREF', $primary{'hugo'} || $primary{'locuslink'}],# || $primary{'ensemblxref'} ],
+    MarkerSymbol        => [ 'KNOWNXREF', $primary{'locuslink'} || $primary{'ensemblxref'} ],
     RefSeq_dna          => [ 'KNOWN', 0 ],
     MIM                 => [ 'KNOWNXREF', 0 ],
     'Uniprot/SWISSPROT' => [ 'KNOWN', 0 ],
+    Ens_Mm_gene         => [ 'XREF', 0 ],
 );
 
 # loop over chromosomes
@@ -259,7 +289,6 @@ foreach my $chr (@chr_sorted) {
     foreach my $gene (@$genes) {
         my $gsi = $gene->stable_id;
         my $gid = $gene->dbID;
-        
         # catch missing display_xrefs here!!
         my $disp_xref = $gene->display_xref;
         my $gene_name;
@@ -343,7 +372,7 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        my $dbID = $ea->store($dbentry, $gid, 'Gene');
+                        my $dbID = $ea->store($dbentry, $gene, 'gene');
 
                         # apparently, this xref had been stored already, so get
                         # xref_id from db
@@ -399,7 +428,7 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        my $dbID = $ea->store($dbentry, $gid, 'Gene');
+                        my $dbID = $ea->store($dbentry, $gene, 'gene');
 
                         unless ($dbID) {
                             my $sql = qq(
@@ -467,6 +496,70 @@ $support->finish_log;
 
 
 ### end main ###
+
+
+=head2 parse_ensdb
+
+  Arg[1]      : Hashref $xrefs - keys: gene names, values: hashref (extDB =>
+                extID)
+  Arg[2]      : Hashref $lcmap - keys: lowercase gene names, values: list of
+                gene names (with case preserved)
+  Example     : &parse_ensdb($xrefs, $lcmap);
+                foreach my $gene (keys %$xrefs) {
+                    foreach my $extdb (keys %{ $xrefs->{$gene} }) {
+                        print "DB $extdb, extID ".$xrefs->{$gene}->{$extdb}."\n";
+                    }
+                }
+  Description : Parses xrefs from an E! core database
+  Return type : none
+  Exceptions  : thrown if database can't be read
+  Caller      : internal
+
+=cut
+
+sub parse_ensdb {
+	my ($xrefs, $lcmap) = @_;
+	$dba = $support->get_database('ensembl', 'ensembl');
+	my $e_dbname = $support->param('ensembldbname');
+    $support->log_stamped("Retrieving xrefs from $e_dbname...\n", 1);
+	my $sa = $dba->get_SliceAdaptor();
+	foreach my $chr ( @{$sa->fetch_all('chromosome')} ) {
+		my $chr_name = $chr->seq_region_name;
+		$support->log("Looking at chromosome $chr_name\n",1);
+		foreach my $gene ( @{$chr->get_all_Genes} ) {
+			my $stable_id = $gene->stable_id;
+			my $disp_xref = $gene->display_xref;
+			my $gene_name;
+			if ($disp_xref) {
+				$gene_name = $disp_xref->display_id;
+			}
+			next unless ($gene_name);
+#			warn "name = >$gene_name<";
+#			warn "stable_id = $stable_id";
+			if (exists($xrefs->{$gene_name})) {
+				$support->log_warning("Ensembl gene $gene_name not unique, deleting stable id $stable_id\n");
+				delete($xrefs->{$gene_name}{'Ens_Mm_gene'});
+			}
+			else {
+				$support->log_verbose("Storing Ensembl stable_id $stable_id\n",1);
+				
+				## need to make this key ('Ens_Mm_gene') species sensitive - see also above deletion
+
+				$xrefs->{$gene_name}{'Ens_Mm_gene'} = $stable_id;
+				#store lower case gene name for curation
+				push @{ $lcmap->{lc($gene_name)} }, $gene_name;
+			}
+			my @db_entries = @{$gene->get_all_DBLinks()};
+			foreach my $dbe (@db_entries){
+				my $db_name = $dbe->dbname;
+				my $dbid = $dbe->display_id(); 
+				$xrefs->{$gene_name}{$db_name} = $dbid;
+			}
+		}
+	}
+}
+
+
 
 
 =head2 parse_hugo
@@ -636,7 +729,7 @@ sub parse_locuslink {
             } else {
                 $flag_org = 2;
             }
-        } elsif (/^OFFICIAL_SYMBOL: (\w+)/) {
+        } elsif ((/^OFFICIAL_SYMBOL: (\w+)/) || (/^PREFERRED_SYMBOL: (\w+)/)) {
             if ($flag_org == 1) {
                 $gene_name = $1;
                 push @{ $lcmap->{lc($gene_name)} }, $gene_name;

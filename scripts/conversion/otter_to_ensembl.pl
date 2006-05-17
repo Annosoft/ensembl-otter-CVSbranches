@@ -47,7 +47,6 @@ at the moment:
     transcript_info.cds_end_not_found       transcript_attrib   remark
     transcript_info.mRNA_start_not_found    transcript_attrib   remark
     transcript_info.mRNA_end_not_found      transcript_attrib   remark
-    transcript_class.name                   transcript_attrib   transcr_class
 
 After running this script, the webcode no longer requires to load ensembl-otter.
 
@@ -124,7 +123,6 @@ foreach my $chr ($support->sort_chromosomes) {
     $support->log_stamped("> Chr $chr\n");
 
     my $slice = $sa->fetch_by_region('chromosome', $chr);
-
     # loop over genes
     foreach my $gene (@{ $ga->fetch_by_Slice($slice) }) {
         $support->log_verbose($gene->display_xref->display_id." (".$gene->stable_id.")...\n", 1);
@@ -230,16 +228,6 @@ foreach my $chr ($support->sort_chromosomes) {
                 -VALUE => 'mRNA end not found',
             ) if ($transcript->transcript_info->mRNA_end_not_found);
 
-            # transcript_class
-            # NOTE: this is stored as an attribute only temporarily; eventually
-            # it should be replaced by proper biotype/status entries
-            push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
-                -CODE => 'transcr_class',
-                -NAME => 'Transcript class',
-                -DESCRIPTION => 'Transcript class',
-                -VALUE => $transcript->transcript_info->class->name
-            );
-            
             # store attributes
             $support->log_verbose("Storing ".scalar(@$trans_attribs)." transcript attributes.\n", 3);
             unless ($support->param('dry_run')) {

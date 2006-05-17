@@ -118,6 +118,10 @@ my $author_def = {
     '9615'   => {
         'default'    => [ 'zfish', 'zfish-help@sanger.ac.uk' ],
     },
+    # Sus scrofa
+    '9823'   => {
+        'default'    => [ 'Havana', 'vega@sanger.ac.uk' ],
+    },
 };
 
 # determine species from database
@@ -152,8 +156,9 @@ $dbh->do("INSERT INTO author VALUES (1000, '$email', '$author')");
 
 # create list of unique other authors
 my %other;
+
 foreach my $chr (keys %{ $chromosomes->{'other'} }) {
-    $other{join("|", @{ $chromosomes->{'other'}->{$chr} }} = $chromosomes->{'other'}->{$chr};
+    $other{join("|", @{ $chromosomes->{'other'}->{$chr} })} = $chromosomes->{'other'}->{$chr};
 }
 
 # add other authors
