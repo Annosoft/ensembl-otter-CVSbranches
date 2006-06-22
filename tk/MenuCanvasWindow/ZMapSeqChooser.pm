@@ -1,6 +1,6 @@
 ### MenuCanvasWindow::ZmapSeqChooser
 
-package MenuCanvasWindow::XaceSeqChooser;
+package MenuCanvasWindow::ZMapSeqChooser;
 
 use strict;
 use Carp qw{ cluck confess };
@@ -8,10 +8,10 @@ use ZMap::Connect qw(:all);
 use Sys::Hostname;
 use Tie::Watch;
 use Hum::Ace::LocalServer;
+use MenuCanvasWindow::ZMapExonCanvas;
 use Data::Dumper;
 
 my $ZMAP_DEBUG = 1;
-
 #==============================================================================#
 #
 # WARNING: THESE ARE INJECTED METHODS!!!!
@@ -50,7 +50,7 @@ my $ZMAP_MENUS = {
     'New'     => [\&new_command,$replace],
 };
 
-sub zMap_make_exoncanvas_edit_window{
+sub MenuCanvasWindow::XaceSeqChooser::zMap_make_exoncanvas_edit_window{
     my( $self, $sub ) = @_;
     
     my $sub_name = $sub->name;
@@ -73,7 +73,7 @@ sub zMap_make_exoncanvas_edit_window{
     return $ec;
 }
 
-sub zMapReplaceMenuCommands {
+sub MenuCanvasWindow::XaceSeqChooser::zMapReplaceMenuCommands {
     my ($self) = @_;
 
     return unless $ZMAP_MENUS;
@@ -118,7 +118,7 @@ sub zMapReplaceMenuCommands {
     $ZMAP_MENUS = undef;
 
 }
-sub zMapLaunchZmap {
+sub MenuCanvasWindow::XaceSeqChooser::zMapLaunchZmap {
     my( $self ) = @_;
 
     #$self->zMapReplaceMenuCommands();
@@ -136,8 +136,8 @@ sub zMapLaunchZmap {
     my $pid = fork_exec(\@e, $ref, 0, sub { 
         my ($info) = @_;
         flush_bad_windows;
-        use Data::Dumper;                
-        warn "INFO: ", Dumper($info);
+        #use Data::Dumper;                
+        #warn "INFO: ", Dumper($info);
     });
 
     if($pid){
@@ -148,18 +148,15 @@ sub zMapLaunchZmap {
         $self->message($mess);
     }
 }
-sub zMapKillZmap {
+sub MenuCanvasWindow::XaceSeqChooser::zMapKillZmap {
     my( $self ) = @_;
     
     if (my $pid = $self->zMapProcessIDList) {
-        my $mainWindowName = 'ZMap port #' . $self->AceDatabase->ace_server->port;
-        my $xr = xclient_with_name($mainWindowName, 0, "$self")
-            or return;
-        $xr->send_commands('<zmap action="shutdown" />');
-        ### Check shutdown by checking property set by ZMap?
+        warn "Killing zmap process '$pid'\n";
+        CORE::kill 9, $pid;
     }
 }
-sub zMapProcessIDList {
+sub MenuCanvasWindow::XaceSeqChooser::zMapProcessIDList {
     my( $self, $zmap_process_id ) = @_;
     
     if ($zmap_process_id) {
@@ -167,7 +164,7 @@ sub zMapProcessIDList {
     }
     return $self->{'_zMap_ZMAP_PROCESS_ID'};
 }
-sub zMapInsertZmapConnector{
+sub MenuCanvasWindow::XaceSeqChooser::zMapInsertZmapConnector{
     my ($self) = @_;
     my $zc = $self->{'_zMap_ZMAP_CONNECTOR'};
     if(!$zc){
@@ -179,11 +176,11 @@ sub zMapInsertZmapConnector{
     }
     return $zc;
 }
-sub zMapZmapConnector{
+sub MenuCanvasWindow::XaceSeqChooser::zMapZmapConnector{
     return shift->zMapInsertZmapConnector(@_);
 }
 
-sub zMapWriteDotZmap{
+sub MenuCanvasWindow::XaceSeqChooser::zMapWriteDotZmap{
     my ($self) = @_;
     my $dir    = $self->zMapZmapDir();
     my $file   = "${dir}/ZMap";
@@ -202,94 +199,51 @@ sub zMapWriteDotZmap{
     return 0;
 }
 
-sub zMapDotZmapContent{
+sub MenuCanvasWindow::XaceSeqChooser::zMapDotZmapContent{
     my ($self) = @_;
-
-    return
-        $self->zMapZMapDefaults
-      . $self->zMapWindowDefaults
-      . $self->zMapBlixemDefaults
-      . $self->zMapServerDefaults
-      ;
-}
-
-sub zMapServerDefaults {
-    my ($self) = @_;
+#    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\nstylesfile = "%s"\n}\n`;
+#    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\n}\n`;
+    my $fmt = qq`source\n{\nurl = "%s://%s:%s@%s:%d"\nsequence = %s\nwriteback = %s\nfeaturesets = "%s"\n}\n`;
+    # make the content
     
     my $server = $self->AceDatabase->ace_server;
     
-    my $protocol    = 'acedb';
-    my $username    = 'any';
-    my $password    = 'any';
-
-    my $url = sprintf q{"%s://%s:%s@%s:%d"},
-        $protocol,
-        $username, $password,
-        $server->host, $server->port;
-    
-    return $self->formatZmapDefaults(
-        'source',
-        url         => $url,
-        writeback   => 'false',
-        sequence    => 'true',
-        featuresets => sprintf(q{"%s"}, join ' ', $self->zMapListMethodNames_ordered),
-        # Can specify a stylesfile instead of featuresets
-    );
-}
-
-sub zMapZMapDefaults {
-    my ($self) = @_;
-    
-    return $self->formatZmapDefaults(
-        'ZMap',
-        qw{
-            show_mainwindow     false
-        }
-    );
-}
-
-sub zMapBlixemDefaults {
-    my ($self) = @_;
-    
-    return $self->formatZmapDefaults(
-        'blixem',
-        qw{
-            netid       "pubseq"
-            port        22100
-            script      "blixem"
-            scope       40000
-            homol_max   0
-        }
-    );
-    # script could also be "blixem_standalone" sh wrapper (if needed)
-}
-
-sub zMapWindowDefaults {
-    my ($self) = @_;
-    
-    return $self->formatZmapDefaults(
-        'ZMapWindow',
-        qw{
-            feature_line_width          1
-            feature_spacing             4.0
-            colour_column_highlight     "CornSilk"
-        }
-    );
-}
-
-sub formatZmapDefaults {
-    my ($self, $key, %defaults) = @_;
-    
-    my $def_str = "\n$key\n{\n";
-    while (my ($setting, $value) = each %defaults) {
-        $def_str .= qq{$setting = $value\n};
+    my $protocol ||= "acedb";
+    my $username ||= "any";
+    my $password ||= "any";
+    my $host     ||= $server->host;
+    my $port     ||= $server->port;
+    my $seq      ||= 0;
+    my $writebck ||= 0;
+    my $style    ||= "";#"ZMap.styles";
+    # for now we'll get the list of method names and write them into featuresets.
+    # the featuresets list controls the order of columns/style and so we get them
+    # ordered by right priority...
+    my @methods    = $self->zMapListMethodNames_ordered();
+    my $sets     ||= join(" ", @methods);
+    if(0){
+        my @l = qw(Transcript Putative Processed_pseudogene Unprocessed_pseudogene
+                   RepeatMasker RepeatMasker_LINE RepeatMasker_SINE
+                   trf Predicted_CpG_island 
+                   vertebrate_mRNA EST_Human EST_Mouse EST_Other EST
+                   BLASTX ensembl Fgenesh Genscan
+                   genomewise REFSEQ 
+                   Saturated_BLASTX Saturated_EST
+                   Saturated_EST_Human Saturated_vertebrate_mRNA);
     }
-    $def_str .= "}\n";
-    
-    return $def_str;
+    my $content    = sprintf($fmt,
+                             $protocol,
+                             $username,
+                             $password,
+                             $host,
+                             $port,
+                             ($seq ? 'true' : 'false'),
+                             ($writebck ? 'true' : 'false'),
+                             $style || $sets);
+    return $content . qq`\n\nZMap\n{\nshow_mainwindow = false\n}\n`;
 }
 
-sub zMapZmapDir {
+sub MenuCanvasWindow::XaceSeqChooser::zMapZmapDir {
     my( $self, $zmap_dir ) = @_;
     warn "Set using the Config file please.\n" if $zmap_dir;
     my $ace_path = $self->ace_path();
@@ -301,7 +255,7 @@ sub zMapZmapDir {
     return $path;
 }
 
-sub zMapListMethodNames_ordered{
+sub MenuCanvasWindow::XaceSeqChooser::zMapListMethodNames_ordered{
     my $self = shift;
     my @list = ();
     my $collection = $self->AceDatabase->get_default_MethodCollection;
@@ -314,24 +268,24 @@ sub zMapListMethodNames_ordered{
 
 #===========================================================
 
-sub zMapCurrentXclient{
+sub MenuCanvasWindow::XaceSeqChooser::zMapCurrentXclient{
     my ($self) = @_;
     return xclient_with_name(${$self->zMapEntryRef}, 0, "$self");
 }
-sub zMapEntryRef{
+sub MenuCanvasWindow::XaceSeqChooser::zMapEntryRef{
     my ($self) = @_;
     my $n = '';
     $self->{'_zMap_ENTRY_REF'} ||= \$n;
     return $self->{'_zMap_ENTRY_REF'};
 }
-sub zMapSetEntryValue{
+sub MenuCanvasWindow::XaceSeqChooser::zMapSetEntryValue{
     my ($self, $value) = @_;
     my $ref = $self->zMapEntryRef();
     $$ref   = $value;
 }
 
 
-sub zMapRegisterClient{
+sub MenuCanvasWindow::XaceSeqChooser::zMapRegisterClient{
     my ($self, $request) = @_;
     my $mainWindowName = 'ZMap port #' . $self->AceDatabase->ace_server->port;
     my $p  = parse_request($request);
@@ -378,7 +332,7 @@ sub zMapRegisterClient{
 
 #===========================================================
 
-sub zMapMakeRequest{
+sub MenuCanvasWindow::XaceSeqChooser::zMapMakeRequest{
     my ($self, $xmlObject, $action, $xml_cmd_string) = @_;
 
     my $xr = $self->zMapCurrentXclient;
@@ -414,7 +368,7 @@ sub zMapMakeRequest{
 # This  menu stuff  needs  rewriting.  It doesn't  work  100% like  it
 # should.  It isn't  really needed  for production  so it's  not  a high
 # priority
-sub zMapUpdateMenu{ 
+sub MenuCanvasWindow::XaceSeqChooser::zMapUpdateMenu{ 
     my ($self) = @_; my $menu_item = $self->{'_zMapMenuItem'}; 
 
     my $cleanUpMenu = sub{
@@ -529,9 +483,7 @@ sub open_clones{
 
     $self->zMapMakeRequest($seg, 'new');
 
-    ### ZMap menu not needed for first ZMap test release
-    ### and now that we have a single slice.
-    #$self->zMapUpdateMenu();
+    $self->zMapUpdateMenu();
     
     $watch->Unwatch;
 }
@@ -591,20 +543,20 @@ __END__
 
 =head1 REMOVE
 
-sub update_display{
+sub MenuCanvasWindow::XaceSeqChooser::update_display{
     my ($self , $ace) = @_ ;
     warn "cannot update display yet";
     return 1;
 }
 # this should be called when a user tries to save, but no ZMap is opened
-sub open_dialogue{
+sub MenuCanvasWindow::XaceSeqChooser::open_dialogue{
     my ($self) = @_ ;
     warn "cannot open dialogue yet";
     return undef;
 
 }
 
-sub get_window_id {
+sub MenuCanvasWindow::XaceSeqChooser::get_window_id {
     my( $self ) = @_;
 
     # be good if we could replace this with something more automatic....    
@@ -644,7 +596,7 @@ sub get_window_id {
 }
 
 
-sub attach {
+sub MenuCanvasWindow::XaceSeqChooser::attach {
     my( $self ) = @_;
     
     if (my $xwid = $self->zmap_id) {
