@@ -72,6 +72,7 @@ sub get_available_adaptors{
     'TranscriptInfo'       => 'Bio::Otter::DBSQL::TranscriptInfoAdaptor',
     'CurrentTranscriptInfo'=> 'Bio::Otter::DBSQL::CurrentTranscriptInfoAdaptor',
     'TranscriptRemark'     => 'Bio::Otter::DBSQL::TranscriptRemarkAdaptor',
+    'AuthorGroup'          => 'Bio::Vega::DBSQL::AuthorGroupAdaptor',
 
     'Analysis'             => 'Bio::EnsEMBL::DBSQL::AnalysisAdaptor',
     'ArchiveStableId'      => 'Bio::EnsEMBL::DBSQL::ArchiveStableIdAdaptor',
@@ -117,6 +118,11 @@ sub get_available_adaptors{
 sub get_MetaContainer {
   my $self = shift;
   $self->get_MetaContainerAdaptor();
+}
+
+sub get_AuthorGroupAdaptor {
+  my $self = shift;
+  return $self->_get_adaptor("Bio::Vega::DBSQL::AuthorGroupAdaptor");
 }
 
 1;
