@@ -2,7 +2,7 @@ package Bio::Otter::Author;
 
 use vars qw(@ISA);
 use strict;
-use Bio::Vega::AuthorGroup;
+use Bio::Otter::AuthorGroup;
 use Bio::EnsEMBL::Utils::Exception qw ( throw );
 use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
@@ -104,8 +104,8 @@ sub group{
   my ($obj,$value) = @_;
   if( defined $value) {
 	 $obj->{'group'} = $value;
-	 if (! $value->isa("Bio::Vega::AuthorGroup") ) {
-		throw("Argument must be Bio::Vega::AuthorGroup object.");
+	 if (! $value->isa("Bio::Otter::AuthorGroup") ) {
+		throw("Argument must be Bio::Otter::AuthorGroup object.");
     }
   }
   return $obj->{'group'};

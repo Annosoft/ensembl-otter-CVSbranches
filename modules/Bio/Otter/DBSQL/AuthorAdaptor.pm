@@ -39,7 +39,7 @@ sub _generic_sql_fetch {
 	 $author->dbID($ref->{author_id});
 	 $author->email($ref->{author_email});
 	 $author->name($ref->{author_name});
-	 my $group=new Bio::Vega::AuthorGroup;
+	 my $group=new Bio::Otter::AuthorGroup;
 	 $group->dbID($ref->{group_id});
 	 $group->name($ref->{name});
 	 $author->group($group);
