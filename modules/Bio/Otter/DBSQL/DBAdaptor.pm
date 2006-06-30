@@ -1,6 +1,7 @@
 package Bio::Otter::DBSQL::DBAdaptor;
 
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
+use Bio::Otter::DBSQL::AuthorGroupAdaptor;
 @ISA = qw(Bio::EnsEMBL::DBSQL::DBAdaptor);
 
 =head2 new
@@ -40,6 +41,15 @@ sub rollback {
     $self->db_handle->rollback();
 }
 
+sub get_AuthorGroupAdaptor {
+  my $self = shift;
+  if ( !exists $self->{'AuthorGroup'} ){
+	 my $ad=Bio::Otter::DBSQL::AuthorGroupAdaptor->new($self);
+	 $self->{'AuthorGroup'}=$ad;
+  }
+  return $self->{'AuthorGroup'};
+}
+
 =head2 get_available_adaptors
 
   Example     : my %object_adaptors = %{ $dbadaptor->get_available_adaptors };
@@ -72,7 +82,6 @@ sub get_available_adaptors{
     'TranscriptInfo'       => 'Bio::Otter::DBSQL::TranscriptInfoAdaptor',
     'CurrentTranscriptInfo'=> 'Bio::Otter::DBSQL::CurrentTranscriptInfoAdaptor',
     'TranscriptRemark'     => 'Bio::Otter::DBSQL::TranscriptRemarkAdaptor',
-    'AuthorGroup'          => 'Bio::Otter::DBSQL::AuthorGroupAdaptor',
 
     'Analysis'             => 'Bio::EnsEMBL::DBSQL::AnalysisAdaptor',
     'ArchiveStableId'      => 'Bio::EnsEMBL::DBSQL::ArchiveStableIdAdaptor',
@@ -120,10 +129,7 @@ sub get_MetaContainer {
   $self->get_MetaContainerAdaptor();
 }
 
-sub get_AuthorGroupAdaptor {
-  my $self = shift;
-  return $self->_get_adaptor("Bio::Otter::DBSQL::AuthorGroupAdaptor");
-}
+
 
 1;
 
