@@ -25,11 +25,12 @@ sub _generic_sql_fetch {
 	 $author=new Bio::Otter::Author;
   }
   my $sql = "
-	     SELECT a.author_id,
-             a.author_email,
-             a.author_name,
-             g.group_id,
-             g.group_name
+	     SELECT a.author_id as author_id,
+             a.author_email as author_email,
+             a.author_name as author_name,
+             g.group_id as group_id,
+             g.group_name as group_name,
+             g.group_email as group_email
 	     FROM author a,author_group g "
 	 .$where_clause.
 		" AND a.group_id=g.group_id ";
@@ -41,11 +42,11 @@ sub _generic_sql_fetch {
 	 $author->name($ref->{author_name});
 	 if (! defined $author->group){
 	   my $group=new Bio::Otter::AuthorGroup;
-	   $author->group=$group;
+	   $author->group($group);
 	 }
 	 $author->group->dbID($ref->{group_id});
-	 $author->group->name($ref->{name});
-	 $author->group->email($ref->{email});
+	 $author->group->name($ref->{group_name});
+	 $author->group->email($ref->{group_email});
 	 return $author;
   } else {
 	 return;
