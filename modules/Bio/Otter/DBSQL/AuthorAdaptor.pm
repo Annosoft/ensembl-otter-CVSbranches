@@ -39,10 +39,13 @@ sub _generic_sql_fetch {
 	 $author->dbID($ref->{author_id});
 	 $author->email($ref->{author_email});
 	 $author->name($ref->{author_name});
-	 my $group=new Bio::Otter::AuthorGroup;
-	 $group->dbID($ref->{group_id});
-	 $group->name($ref->{name});
-	 $author->group($group);
+	 if (! defined $author->group){
+	   my $group=new Bio::Otter::AuthorGroup;
+	   $author->group=$group;
+	 }
+	 $author->group->dbID($ref->{group_id});
+	 $author->group->name($ref->{name});
+	 $author->group->email($ref->{email});
 	 return $author;
   } else {
 	 return;
