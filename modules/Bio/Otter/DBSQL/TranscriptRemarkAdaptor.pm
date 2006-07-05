@@ -140,7 +140,7 @@ sub store {
 	   next;
 	}
 
-        my $quoted_remark = $self->db->db_handle->quote($remark->remark);
+        my $quoted_remark = $self->db->dbc->db_handle->quote($remark->remark);
         my $sql = "insert into transcript_remark(transcript_remark_id,remark,transcript_info_id) values (null," .
                         $quoted_remark . "," .
                         $remark->transcript_info_id . ")";
@@ -192,7 +192,7 @@ sub exists {
 		$self->throw("Can't check if a transcript remark exists without a transcript info id");
 	}
 
-        my $quoted_remark = $self->db->db_handle->quote($remark->remark);
+        my $quoted_remark = $self->db->dbc->db_handle->quote($remark->remark);
 	my @newremark = $self->_generic_sql_fetch("where remark = " .   $quoted_remark .
 						 " and transcript_info_id = " . $remark->transcript_info_id);
 
