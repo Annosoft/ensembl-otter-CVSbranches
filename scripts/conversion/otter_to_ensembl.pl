@@ -38,10 +38,12 @@ at the moment:
 
     source                                  target              attrib code
     -----------------------------------------------------------------------
-    author.author_name                      gene_attrib         author
+    author_group.group_name                 gene_attrib         author
+    author_group.group_email                gene_attrib         author_email
     gene_synonym.name                       gene_attrib         synonym
     gene_remark.remark                      gene_attrib         remark
-    author.author_name                      transcript_attrib   author
+    author_group.group_name                 transcript_attrib   author
+    author_group.group_email                transcript_attrib   author_email
     transcript_remark.remark                transcript_attrib   remark
     transcript_info.cds_start_not_found     transcript_attrib   remark
     transcript_info.cds_end_not_found       transcript_attrib   remark
@@ -135,13 +137,13 @@ foreach my $chr ($support->sort_chromosomes) {
             -CODE => 'author',
             -NAME => 'Author',
             -DESCRIPTION => 'Group resonsible for Vega annotation',
-            -VALUE => $gene->gene_info->author->name
+            -VALUE => $gene->gene_info->author->group->name
         );
         push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
             -CODE => 'author_email',
             -NAME => 'Author email address',
             -DESCRIPTION => 'Author\'s email address',
-            -VALUE => $gene->gene_info->author->email
+            -VALUE => $gene->gene_info->author->group->email
         );
 
         # gene_synonym
@@ -168,7 +170,7 @@ foreach my $chr ($support->sort_chromosomes) {
         # store attributes
         $support->log_verbose("Storing ".scalar(@$gene_attribs)." gene attributes.\n", 2);
         unless ($support->param('dry_run')) {
-            $aa->store_on_Gene($gene->dbID, $gene_attribs);
+            $aa->store_on_Gene($gene, $gene_attribs);
         }
 
         # loop over transcripts
@@ -182,13 +184,13 @@ foreach my $chr ($support->sort_chromosomes) {
                 -CODE => 'author',
                 -NAME => 'Author',
                 -DESCRIPTION => 'Group resonsible for Vega annotation',
-                -VALUE => $transcript->transcript_info->author->name
+                -VALUE => $transcript->transcript_info->author->group->name
             );
             push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
                 -CODE => 'author_email',
                 -NAME => 'Author email address',
                 -DESCRIPTION => 'Author\'s email address',
-                -VALUE => $transcript->transcript_info->author->email
+                -VALUE => $transcript->transcript_info->author->group->email
             );
 
             # transcript_remark
@@ -231,7 +233,7 @@ foreach my $chr ($support->sort_chromosomes) {
             # store attributes
             $support->log_verbose("Storing ".scalar(@$trans_attribs)." transcript attributes.\n", 3);
             unless ($support->param('dry_run')) {
-                $aa->store_on_Transcript($transcript->dbID, $trans_attribs);
+                $aa->store_on_Transcript($transcript, $trans_attribs);
             }
         }
     }
