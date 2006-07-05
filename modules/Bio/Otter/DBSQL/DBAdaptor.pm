@@ -1,6 +1,7 @@
 package Bio::Otter::DBSQL::DBAdaptor;
 
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
+use Bio::Otter::DBSQL::AuthorGroupAdaptor;
 @ISA = qw(Bio::EnsEMBL::DBSQL::DBAdaptor);
 
 =head2 new
@@ -38,6 +39,15 @@ sub commit {
 sub rollback {
     my $self = shift;
     $self->db_handle->rollback();
+}
+
+sub get_AuthorGroupAdaptor {
+  my $self = shift;
+  if ( !exists $self->{'AuthorGroup'} ){
+	 my $ad=Bio::Otter::DBSQL::AuthorGroupAdaptor->new($self);
+	 $self->{'AuthorGroup'}=$ad;
+  }
+  return $self->{'AuthorGroup'};
 }
 
 =head2 get_available_adaptors
@@ -118,6 +128,8 @@ sub get_MetaContainer {
   my $self = shift;
   $self->get_MetaContainerAdaptor();
 }
+
+
 
 1;
 
