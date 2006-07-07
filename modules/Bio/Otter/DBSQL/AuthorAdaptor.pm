@@ -1,15 +1,11 @@
 package Bio::Otter::DBSQL::AuthorAdaptor;
 
 use strict;
-use Carp;
-use Bio::EnsEMBL::DBSQL::BaseAdaptor;
 use Bio::Otter::Author;
+use Bio::EnsEMBL::Utils::Exception qw ( throw warning );
 
-use vars qw(@ISA);
+use base 'Bio::EnsEMBL::DBSQL::BaseAdaptor';
 
-@ISA = qw ( Bio::EnsEMBL::DBSQL::BaseAdaptor);
-
-# new is inherieted
 
 =head2 _generic_sql_fetch
 
@@ -24,29 +20,38 @@ use vars qw(@ISA);
 =cut
 
 sub _generic_sql_fetch {
-	my( $self, $where_clause ) = @_;
+  my( $self, $where_clause,$author ) = @_;
+  if (! defined $author ){
+	 $author=new Bio::Otter::Author;
+  }
+  my $sql = "
+	     SELECT a.author_id as author_id,
+             a.author_email as author_email,
+             a.author_name as author_name,
+             g.group_id as group_id,
+             g.group_name as group_name,
+             g.group_email as group_email
+	     FROM author a,author_group g "
+	 .$where_clause.
+		" AND a.group_id=g.group_id ";
+  my $sth = $self->prepare($sql);
+  $sth->execute();
+  if (my $ref = $sth->fetchrow_hashref) {
+	 $author->dbID($ref->{author_id});
+	 $author->email($ref->{author_email});
+	 $author->name($ref->{author_name});
+	 if (! defined $author->group){
+	   my $group=new Bio::Otter::AuthorGroup;
+	   $author->group($group);
+	 }
+	 $author->group->dbID($ref->{group_id});
+	 $author->group->name($ref->{group_name});
+	 $author->group->email($ref->{group_email});
+	 return $author;
+  } else {
+	 return;
+  }
 
-	my $sql = q{
-		SELECT author_id,
-		       author_email,
-		       author_name
-		FROM author }
-	. $where_clause;
-
-	my $sth = $self->prepare($sql);
-	$sth->execute;
-
-	if (my $ref = $sth->fetchrow_hashref) {
-		my $author = new Bio::Otter::Author;
-		$author->dbID($ref->{author_id});
-		$author->email($ref->{author_email});
-		$author->name($ref->{author_name});
-		
-		return $author;
-
-	} else {
-		return;
-	}
 }
 
 =head2 fetch_by_dbID
@@ -68,7 +73,7 @@ sub fetch_by_dbID {
 		$self->throw("Id must be entered to fetch an author object");
 	}
 
-	my $author = $self->_generic_sql_fetch("where author_id = $id");
+	my $author = $self->_generic_sql_fetch(" where author_id = $id ");
 
 	return $author;
 }
@@ -122,6 +127,19 @@ sub fetch_by_email {
 	return $author;
 }
 	
+sub exists_in_db {
+  my ($self,$author) = @_;
+  if (!defined($author->name)) {
+	 throw("Name is empty in the author object - should be set to check for exsistence");
+  }
+  if (!defined($author->email)) {
+	 throw("email is empty in the author object - should be set to check for exsistence");
+  }
+  my $author_email=$author->email;
+  my $author_name=$author->name;
+  $author = $self->_generic_sql_fetch("where author_email= \'$author_email\' and author_name=\'$author_name\' ",$author);
+  return $author;
+}
 
 =head2 store
 
@@ -136,43 +154,39 @@ sub fetch_by_email {
 =cut
 
 sub store {
-    my ($self,$author) = @_;
+  my ($self,$author) = @_;
+  if (!defined($author)) {
+	 throw("Must provide an author object to the store method");
+  } elsif (! $author->isa("Bio::Otter::Author")) {
+	 throw("Argument must be an author object to the store method.  Currently is [$author]");
+  }
+  my $author_name  = $author->name  || throw "Author does not have a name";
+  my $author_email = $author->email || throw "Author does not have an email address";
+  # Is this author already in the database?
 
-    if (!defined($author)) {
-	$self->throw("Must provide an author object to the store method");
-    } elsif (! $author->isa("Bio::Otter::Author")) {
-	$self->throw("Argument must be an author object to the store method.  Currently is [$author]");
-    }
-
-    my $author_name  = $author->name  or confess "Author does not have a name";
-    my $author_email = $author->email or confess "Author does not have an email address";
-
-    # Is this author already in the database?
-    my $get_db_id = $self->prepare(q{
-        SELECT author_id
-        FROM author
-        WHERE author_name = ?
+  if ( $self->exists_in_db($author)){
+	 return 1;
+  }
+  my $group=$author->group;
+  my $group_id=$group->dbID;
+  my $group_name=$group->name;
+  my $ga=$self->db->get_AuthorGroupAdaptor;
+  if (!defined $group_id){
+	 $group_id=$ga->fetch_id_by_name($group_name);
+  }
+  if (!defined $group_id){
+	 warning("about to store new author-group $group_name");
+	 $ga->store($group);
+	 $group_id=$group->dbID;
+  }
+  # Insert new author entry
+  my $sth = $self->prepare(q{
+        INSERT INTO author(author_email,author_name, group_id) VALUES (?,?,?)
         });
-    $get_db_id->execute($author_name);
-    my ($db_id) = $get_db_id->fetchrow;
-    $get_db_id->finish;
+  $sth->execute($author_email, $author_name,$group_id);
+  my $db_id = $sth->{'mysql_insertid'} || throw('Failed to get autoincremented ID from statement handle');
+  $author->dbID($db_id);
 
-    if ($db_id) {
-	$author->dbID($db_id);
-	return 1;
-    }
-
-    # Insert new author entry
-    my $sth = $self->prepare(q{
-        INSERT INTO author(author_id
-              , author_email
-              , author_name)
-        VALUES (NULL,?,?)
-        });
-    $sth->execute($author_email, $author_name);
-    $db_id = $sth->{'mysql_insertid'}
-        or $self->throw('Failed to get autoincremented ID from statement handle');
-    $author->dbID($db_id);
 }
 
 1;

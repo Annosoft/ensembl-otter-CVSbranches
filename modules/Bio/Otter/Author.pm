@@ -2,25 +2,26 @@ package Bio::Otter::Author;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Root;
-
-@ISA = qw(Bio::EnsEMBL::Root);
+use Bio::Otter::AuthorGroup;
+use Bio::EnsEMBL::Utils::Exception qw ( throw );
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 sub new {
   my($class,@args) = @_;
 
   my $self = bless {}, $class;
 
-  my ($dbid,$name,$email)  = $self->_rearrange([qw(
+  my ($dbid,$name,$email,$group)  = rearrange([qw(
                             DBID
                             NAME
                             EMAIL
+			                GROUP
                             )],@args);
 
   $self->dbID($dbid);
   $self->name($name);
   $self->email($email);
-
+  $self->group($group);
   return $self;
 }
 
@@ -85,6 +86,29 @@ sub name{
     }
     return $obj->{'name'};
 
+}
+
+=head2 group
+
+ Title   : group
+ Usage   : $obj->group($newval)
+ Function:
+ Example :
+ Returns : value of group
+ Args    : newvalue (optional)
+
+
+=cut
+
+sub group{
+  my ($obj,$value) = @_;
+  if( defined $value) {
+	 $obj->{'group'} = $value;
+	 if (! $value->isa("Bio::Otter::AuthorGroup") ) {
+		throw("Argument must be Bio::Otter::AuthorGroup object.");
+    }
+  }
+  return $obj->{'group'};
 }
 
 =head2 toString
