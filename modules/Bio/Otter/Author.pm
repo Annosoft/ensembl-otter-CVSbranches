@@ -15,7 +15,7 @@ sub new {
                             DBID
                             NAME
                             EMAIL
-			    GROUP
+			                GROUP
                             )],@args);
 
   $self->dbID($dbid);
