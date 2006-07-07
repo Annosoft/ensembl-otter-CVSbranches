@@ -37,7 +37,7 @@ The script also optimizes some tables, including the repeat and dna tables.
 =head1 LICENCE
 
 This code is distributed under an Apache style licence:
-Please see http://www.ensembl.org/code_licence.html for details
+Please see http://www.ensembl.org/code_licence.html for details 
 
 =head1 AUTHOR
 
@@ -112,28 +112,28 @@ if ($support->param('dry_run')) {
 
 # create temporary tables (daf_tmp, paf_tmp) with entries in daf/paf with score
 # < 80 which are used in supporting_feature
-$support->log_stamped("Creating temp table daf_tmp for low-scoring supporting_features...\n");
+$support->log_stamped("Creating temp table daf_tmp for low-scoring transcript_supporting_features...\n");
 my $num = $dbh->do(qq(
     CREATE TABLE daf_tmp
     SELECT daf.*
     FROM
         dna_align_feature daf,
-        supporting_feature sf
-    WHERE sf.feature_type = 'dna_align_feature'
-    AND sf.feature_id = daf.dna_align_feature_id
+        transcript_supporting_feature tsf
+    WHERE tsf.feature_type = 'dna_align_feature'
+    AND tsf.feature_id = daf.dna_align_feature_id
     AND daf.score < 80
 ));
 $support->log_stamped("Done storing $num entries.\n\n");
 
-$support->log_stamped("Creating temp table paf_tmp for low-scoing supporting_features...\n");
+$support->log_stamped("Creating temp table paf_tmp for low-scoring transcript_supporting_features...\n");
 $num = $dbh->do(qq(
     CREATE TABLE paf_tmp
     SELECT daf.*
     FROM
         protein_align_feature daf,
-        supporting_feature sf
-    WHERE sf.feature_type = 'protein_align_feature'
-    AND sf.feature_id = daf.protein_align_feature_id
+        transcript_supporting_feature tsf
+    WHERE tsf.feature_type = 'protein_align_feature'
+    AND tsf.feature_id = daf.protein_align_feature_id
     AND daf.score < 80
 ));
 $support->log_stamped("Done storing $num entries.\n\n");

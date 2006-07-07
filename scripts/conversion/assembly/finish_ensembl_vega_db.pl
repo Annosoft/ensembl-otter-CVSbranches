@@ -50,6 +50,7 @@ includes:
     - deleting data not needed any more (eg dna, repeats)
     - updating seq_region_ids to match those in the core Ensembl db
     - transfer selenocysteines
+    - checking and setting the analysis_id and source for all genes and transcripts
     - transfer the whole genome assembly information back into the Vega db
 
 =head1 RELATED SCRIPTS
@@ -462,6 +463,20 @@ $sql = qq(
 );
 $c = $dbh->{'evega'}->do($sql);
 $support->log_stamped("Done transfering $c translation_attrib entries.\n\n");
+
+# logic names and source
+if ($support->user_proceed("Would you like to ensure that all genes and transcripts have a logic_name of otter and a source of \'vega\'?")) {
+	$sql = qq(UPDATE gene set analysis_id = (SELECT analysis_id from analysis where logic_name = 'otter'));
+	$c = $dbh->{'evega'}->do($sql);
+	$sql = qq(UPDATE transcript set analysis_id = (SELECT analysis_id from analysis where logic_name = 'otter'));
+	$c = $dbh->{'evega'}->do($sql);
+	$sql = qq(UPDATE gene set source = 'vega');
+	$c = $dbh->{'evega'}->do($sql);
+	$sql = qq(UPDATE transcript set source = 'vega');
+	$c = $dbh->{'evega'}->do($sql);
+}
+
+# source
 
 if ($support->user_proceed("Would you like to drop the temporary tables tmp_assembl and tmp_seq_region?")) {
     $sql = qq(DROP TABLE tmp_assembly);

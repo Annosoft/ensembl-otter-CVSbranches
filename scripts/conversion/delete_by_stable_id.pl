@@ -604,26 +604,37 @@ sub delete_transcripts {
 
 sub delete_exons {
     # delete exons and supporting features
-    $support->log_stamped("Deleting exons and supporting features...\n");
-    my $sql = qq(
+	$support->log_stamped("Deleting exon_transcript entries...\n");
+	my $sql = qq(
         DELETE QUICK IGNORE
-                e,
-                esi,
-                et,
-                sf
+                et
         FROM
-                exon e,
-                exon_stable_id esi,
                 exon_transcript et
         LEFT JOIN
-                transcript t ON t.transcript_id = et.transcript_id
-        LEFT JOIN
-                supporting_feature sf ON sf.exon_id = e.exon_id
-        WHERE   t.transcript_id IS NULL
-        AND     e.exon_id = esi.exon_id
-        AND     e.exon_id = et.exon_id
+                transcript t on et.transcript_id = t.transcript_id
+        WHERE   t.transcript_id is null
     );
-    my $num = $dbh->do($sql);
+	my $num = $dbh->do($sql);
+    $support->log_stamped("Done deleting $num records.\n\n");
+
+    $support->log_stamped("Deleting exons and supporting features...\n");
+    $sql = qq(
+        DELETE QUICK IGNORE
+                esi,
+                e,
+                sf
+        FROM
+                exon_stable_id esi,
+                exon e
+        LEFT JOIN
+                exon_transcript et ON e.exon_id = et.exon_id
+        LEFT JOIN
+                supporting_feature sf ON e.exon_id = sf.exon_id
+        WHERE   e.exon_id = esi.exon_id
+        AND     et.exon_id IS NULL
+
+    );
+    $num = $dbh->do($sql);
     $support->log_stamped("Done deleting $num records.\n\n");
 }
 
