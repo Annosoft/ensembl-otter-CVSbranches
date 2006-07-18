@@ -51,11 +51,13 @@ my $ZMAP_DEBUG = 1;
 sub new {
     my( $pkg, $tk ) = @_;
     
+    #my $self = $pkg->SUPER::new($tk, 380, 200);
     my $self = $pkg->SUPER::new($tk);
 
     $self->populate_menus;
+    $self->make_search_panel;
     $self->bind_events;
-    $self->minimum_scroll_bbox(0,0, 300,200);
+    $self->minimum_scroll_bbox(0,0, 380,200);
     return $self;
 }
 
@@ -101,11 +103,6 @@ sub initialize {
     # take GeneMethods from methods.ace file
     $self->set_known_GeneMethods();
     
-    $self->draw_subseq_list;
-    
-    $self->populate_Features_menu;
-    
-    $self->_make_search;
     unless ($self->write_access) {
         $self->menu_bar()->Label(
             -text       => 'Read Only',
@@ -115,7 +112,8 @@ sub initialize {
                     -side => 'right',
                     );
     }
-    $self->fix_window_min_max_sizes;
+
+    $self->draw_subseq_list;
 }
 
 sub write_access {
@@ -500,42 +498,6 @@ sub populate_menus {
     
     # File menu
     my $file = $self->make_menu('File');
-
-    my $showing_zmap = 0;
-    if($self->show_zmap) {
-        my $zmap_launch_command = sub { $self->zMapLaunchZmap };
-        $file->add('command',
-                   -label          => 'Launch ZMap',
-                   -command        => $zmap_launch_command,
-                   -accelerator    => 'Ctrl+Z',
-                   -underline      => 0,
-                   );
-        $top->bind('<Control-z>', $zmap_launch_command);
-        $top->bind('<Control-Z>', $zmap_launch_command);
-        $showing_zmap = 1;
-    }
-
-    # Launce xace
-    my $xace_launch_command = sub { $self->launch_xace };
-    $file->add('command',
-        -label          => 'Launch Xace',
-        -command        => $xace_launch_command,
-        -accelerator    => 'Ctrl+L',
-        -underline      => 0,
-        );
-    $top->bind('<Control-l>', $xace_launch_command);
-    $top->bind('<Control-L>', $xace_launch_command);
-     
-    # Attach xace
-    my $xace_attach_command = sub { $self->attach_xace };
-    $file->add('command',
-        -label          => 'Attach Xace',
-        -command        => $xace_attach_command,
-        -accelerator    => 'Ctrl+X',
-        -underline      => 0,
-        );
-    $top->bind('<Control-x>', $xace_attach_command);
-    $top->bind('<Control-X>', $xace_attach_command);
     
     # Save annotations to otter
     my $save_command = sub {
@@ -565,20 +527,6 @@ sub populate_menus {
         );
     $top->bind('<Control-r>', $resync_command);
     $top->bind('<Control-R>', $resync_command);
-    
-    ## Spawn dotter Ctrl .
-    my $run_dotter_command = sub { $self->run_dotter };
-    $file->add('command',
-        -label          => 'Dotter fMap' . ($showing_zmap ? '/ZMap' : '').' hit',
-        -hidemargin     => 1,
-        -command        => $run_dotter_command,
-        -accelerator    => 'Ctrl+.',
-        -underline      => 0,
-        );
-    $top->bind('<Control-period>',  $run_dotter_command);
-    $top->bind('<Control-greater>', $run_dotter_command);
-    
-    $file->add('separator');
 
     # Close window
     my $exit_command = sub {
@@ -699,10 +647,6 @@ sub populate_menus {
     $top->bind('<Control-d>', $delete_command);
     $top->bind('<Control-D>', $delete_command);
 
-    $subseq->bind('<Destroy>', sub{
-        $self = undef;
-        });
-
     ### Unimplemented methods
     #$subseq->add('command',
     #    -label          => 'Merge',
@@ -726,6 +670,72 @@ sub populate_menus {
     #    -accelerator    => 'Ctrl+T',
     #    -underline      => 0,
     #    );
+
+    my $tools_menu = $self->make_menu("Tools");
+
+    # Launch Zmap
+    my $showing_zmap = 0;
+    if($self->show_zmap) {
+        my $zmap_launch_command = sub { $self->zMapLaunchZmap };
+        $tools_menu->add('command',
+                   -label          => 'Launch ZMap',
+                   -command        => $zmap_launch_command,
+                   -accelerator    => 'Ctrl+Z',
+                   -underline      => 0,
+                   );
+        $top->bind('<Control-z>', $zmap_launch_command);
+        $top->bind('<Control-Z>', $zmap_launch_command);
+        $showing_zmap = 1;
+    }
+
+    # Launce xace
+    my $xace_launch_command = sub { $self->launch_xace };
+    $tools_menu->add('command',
+        -label          => 'Launch Xace',
+        -command        => $xace_launch_command,
+        -accelerator    => 'Ctrl+L',
+        -underline      => 0,
+        );
+    $top->bind('<Control-l>', $xace_launch_command);
+    $top->bind('<Control-L>', $xace_launch_command);
+     
+    # Attach xace
+    my $xace_attach_command = sub { $self->attach_xace };
+    $tools_menu->add('command',
+        -label          => 'Attach Xace',
+        -command        => $xace_attach_command,
+        -accelerator    => 'Ctrl+X',
+        -underline      => 0,
+        );
+    $top->bind('<Control-x>', $xace_attach_command);
+    $top->bind('<Control-X>', $xace_attach_command);
+
+    # Genomic Features editing window
+    my $gf_command = sub { $self->launch_GenomicFeatures };
+    $tools_menu->add('command' ,
+        -label          => 'Genomic Features',    
+        -command        => $gf_command,
+        -accelerator    => 'Ctrl+G',
+    );
+    $top->bind('<Control-g>', $gf_command);
+    $top->bind('<Control-G>', $gf_command);    
+    
+    ## Spawn dotter Ctrl .
+    my $run_dotter_command = sub { $self->run_dotter };
+    $tools_menu->add('command',
+        -label          => 'Dotter fMap' . ($showing_zmap ? '/ZMap' : '').' hit',
+        -hidemargin     => 1,
+        -command        => $run_dotter_command,
+        -accelerator    => 'Ctrl+.',
+        -underline      => 0,
+        );
+    $top->bind('<Control-period>',  $run_dotter_command);
+    $top->bind('<Control-greater>', $run_dotter_command);
+
+
+    $subseq->bind('<Destroy>', sub{
+        $self = undef;
+        });
 
 }
 
@@ -756,21 +766,6 @@ sub bind_events {
         #cluck "Dealing with <Destroy> call";
         $self = undef;
         });
-}
-
-## needs to be called when drawing the clone_sequences (clone sequence details not present when other menus are created)
-sub populate_Features_menu {
-    my ($self) = @_;
-    
-    my $menu_frame = $self->menu_bar
-            or confess 'No menu Bar';
-
-    my $gf_menu = $self->make_menu("Features");
-    $gf_menu->add( 'command' ,
-                -label => $self->slice_name,    
-                -command => sub { $self->launch_GenomicFeatures },
-    );
-    $gf_menu->bind('<Destroy>', sub{ $self = undef });
 }
 
 sub GenomicFeatures {
@@ -904,12 +899,11 @@ sub close_GenomicFeatures {
             }
         }
         $self->draw_subseq_list;
-        $self->highlight_by_name('subseq', map $_->name, @new_subseq);
+        $self->highlight_by_name(map $_->name, @new_subseq);
         $self->message(@msg) if @msg;
         foreach my $new (@new_subseq) {
             $self->make_exoncanvas_edit_window($new);
         }
-        $self->fix_window_min_max_sizes;
     }
 }
 
@@ -1049,7 +1043,7 @@ sub shift_left_button_handler {
     }
 }
 
-sub _make_search {
+sub make_search_panel {
     my ($self) = @_;
 
     my $top = $self->top_window();
@@ -1347,10 +1341,8 @@ sub edit_new_subsequence {
 
     $self->add_SubSeq($new);
     $self->draw_subseq_list;
-    $self->highlight_by_name('subseq', $seq_name);
+    $self->highlight_by_name($seq_name);
     $self->make_exoncanvas_edit_window($new);
-    
-    $self->fix_window_min_max_sizes;
 }
 
 sub delete_subsequences {
@@ -1500,7 +1492,7 @@ sub make_variant_subsequence {
     $clone->add_SubSeq($var);
     
     $self->draw_subseq_list;
-    $self->highlight_by_name('subseq', $name, $var_name);
+    $self->highlight_by_name($name, $var_name);
     $self->edit_subsequences($var_name);
 }
 
@@ -1587,20 +1579,20 @@ sub close_all_subseq_edit_windows {
     return 1;
 }
 
-### KEEP ###
 sub draw_subseq_list {
     my( $self ) = @_;
     
     my $canvas = $self->canvas;
     
-    my( @subseq );
+    my $slist = [];
     my $counter = 1;
     foreach my $clust ($self->get_all_Subseq_clusters) {
-        push(@subseq, "") if @subseq;
-        push(@subseq, map($_->name, @$clust));
+        push(@$slist, "") if @$slist;
+        push(@$slist, @$clust);
     }
     
-    $self->draw_sequence_list('subseq', @subseq);
+    $self->draw_sequence_list($slist);
+    $self->fix_window_min_max_sizes;
 }
 
 sub get_all_Subseq_clusters {
@@ -1777,23 +1769,35 @@ sub empty_SubSeq_cache {
     $self->{'_subsequence_cache'} = undef;
 }
 
-sub draw_sequence_list {
-    my( $self, $tag, @slist ) = @_;
+sub row_count {
+    my( $self, $slist ) = @_;
+    
+    my $rows = $self->{'_row_count'};
+    unless ($rows) {
+        # Work out number of rows to keep chooser
+        # window roughly square.  Also a lower and
+        # an upper limit of 20 and 40 rows.  
+        my $total_name_length = 0;
+        foreach my $sub (grep $_, @$slist) {
+            $total_name_length += length($sub->name);
+        }
+        $rows = int sqrt($total_name_length);
+        if ($rows < 20) {
+            $rows = 20;
+        }
+        elsif ($rows > 40) {
+            $rows = 40;
+        }
+        
+        $self->{'_row_count'} = $rows;
+    }
+    
+    return $rows;
+}
 
-    # Work out number of rows to keep chooser
-    # window roughly square.  Also a lower and
-    # an upper limit of 20 and 40 rows.  
-    my $total_name_length = 0;
-    foreach my $name (@slist) {
-        $total_name_length += length($name);
-    }
-    my $rows = int sqrt($total_name_length);
-    if ($rows < 20) {
-        $rows = 20;
-    }
-    elsif ($rows > 40) {
-        $rows = 40;
-    }
+sub draw_sequence_list {
+    my( $self, $slist ) = @_;
+
 
     my $canvas = $self->canvas;
     my $font = $self->font;
@@ -1801,37 +1805,36 @@ sub draw_sequence_list {
     my $pad  = int($size / 6);
     my $half = int($size / 2);
     
+    my $rows = $self->row_count($slist);
+    
     # Delete everything apart from messages
-    $canvas->delete('all&&!msg');
+    $canvas->delete('!msg');
 
     my $x = 0;
     my $y = 0;
-    for (my $i = 0; $i < @slist; $i++) {
-        if (my $text = $slist[$i]) {
+    for (my $i = 0; $i < @$slist; $i++) {
+        if (my $sub = $slist->[$i]) {
+            # Have a subseq - and not a gap in the list.
 
             my $style = 'bold';
             my $color = 'black';
             
-            # Special rules for SubSequences
-            if ($tag eq 'subseq') {
-                my $sub = $self->get_SubSeq($text);
-                if ($sub->is_mutable) {
-                    $color = 'black';
-                }
-                elsif (my $locus = $sub->Locus) {
-                    $color = '#999999';
-                }
-                else {
-                    $style = 'normal';
-                }
+            if ($sub->is_mutable) {
+                $color = 'black';
+            }
+            elsif (my $locus = $sub->Locus) {
+                $color = '#999999';
+            }
+            else {
+                $style = 'normal';
             }
 
 	        $canvas->createText(
 		        $x, $y,
 		        -anchor     => 'nw',
-		        -text       => $text,
+		        -text       => $sub->name,
 		        -font       => [$font, $size, $style],
-		        -tags       => [$tag, 'searchable'],
+		        -tags       => ['subseq', 'searchable'],
 		        -fill       => $color,
 		        );
         }
@@ -1840,14 +1843,14 @@ sub draw_sequence_list {
             $y += $size + $pad;
         } else {
             $y = 0;
-            my $x_max = ($canvas->bbox($tag))[2];
+            my $x_max = ($canvas->bbox('subseq'))[2];
             $x = $x_max + ($size * 2);
         }
     }
     
     # Raise messages above everything else
     eval{
-        $canvas->raise('msg', $tag);
+        $canvas->raise('msg', 'subseq');
     };
 }
 
@@ -1901,41 +1904,21 @@ sub get_xace_window_id {
     }
 }
 
-{
-    my %state_label = (
-        'clone'     => 1,
-        'subseq'    => 1,
-        );
-
-    sub current_state {
-        my( $self, $state ) = @_;
-
-        my $s_var = $self->clone_sub_switch_var;
-        if ($state) {
-            unless ($state_label{$state}) {
-                confess "Not a permitted state '$state'";
-            }
-            $$s_var = $state;
-        }
-        return $$s_var;
-    }
-}
-
 sub highlight_by_name {
-    my( $self, $tag, @names ) = @_;
+    my( $self, @names ) = @_;
 
     my $canvas = $self->canvas;
-    my %selected_clone = map {$_, 1} @names;
+    my %select_name = map {$_, 1} @names;
     
-    my( @obj );
-    foreach my $cl ($canvas->find('withtag', $tag)) {
-        my $n = $canvas->itemcget($cl, 'text');
-        if ($selected_clone{$n}) {
-            push(@obj, $cl);
+    my( @to_select );
+    foreach my $obj ($canvas->find('withtag', 'subseq')) {
+        my $n = $canvas->itemcget($obj, 'text');
+        if ($select_name{$n}) {
+            push(@to_select, $obj);
         }
     }
     
-    $self->highlight(@obj);
+    $self->highlight(@to_select);
 }
 
 sub list_selected_subseq_names {
