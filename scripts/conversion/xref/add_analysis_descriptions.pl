@@ -2,10 +2,7 @@
 
 =head1 NAME
 
-
 Insert description into the analysis_description table
-
-
 
 =head1 SYNOPSIS
 
@@ -45,21 +42,8 @@ Specific options:
                                         add_vega_xrefs.pl)
 
 =head1 DESCRIPTION
-
-This script parses input files from various sources (HUGO, LocusLink, RefSeq and an Ensembl
-database) and adds xrefs to the databases covered by the respective input source. If
-appropriate, display name of genes is set accordingly.
-
-Currently, these input formats are supported:
-    
-    hugo        => http://www.gene.ucl.ac.uk/nomenclature/data/gdlw_index.html
-                   ('All data' in text format)
-    locuslink   => ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz
-    refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
-    ensemblxref => use core ensembl database
-
-For human, a combination of locuslink and hugo can be used by specifying both
-as source (NOTE: order matters, locuslink has to be read first!)
+This script inserts descriptions into the analysis_descriptions table, based on the logic name in the analysis table. The description text is hard-coded
+in this script.
 
 =head1 LICENCE
 
@@ -120,6 +104,16 @@ if ($support->param('help') or $support->error) {
 $support->confirm_params;
 
 
+#ask user if they have run the prerequisite script that tags CORF genes
+
+if(! $support->user_proceed("IMPORTANT: proceed only if you have already run 'change_analysis_by_stable_id'.\nContinue?")){
+
+  exit(1);
+
+};
+
+
+
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
 
@@ -128,10 +122,9 @@ my %desc_mapper= (
 'Fgenesh'  => 'This transcript was predicted by the Vega pipeline analysis system using Fgenesh, a HMM-based gene-finding program with an algorithm similar to that in Genscan (Burge, C. and Karlin, S. 1997. J. Mol. Biol. 268, 78-94) and Genie (Kulp et al. 1996. A generalized hidden Markov model for the recognition of human genes in DNA. Intell. Systems Mol. Biol. 4: 134-142; Salamov A.A. and Solovyev V.V. 2000. Genome Research 2000 Apr; 10(4): 516-522)',
 'Genscan' => 'This transcript was predicted by the Vega pipeline analysis system using Genscan (Burge, C. and Karlin, S. 1997. Prediction of complete gene structures in human genomic DNA. J. Mol. Biol. 268, 78-94; Burge, C. 1998. Modeling dependencies in pre-mRNA splicing signals, <i>in</i> Salzberg, S., Searls, D. and Kasif, S., eds. Computational Methods in Molecular Biology, Elsevier Science, Amsterdam, 127-163)',
 'otter' => 'Finished genomic sequence is analysed on a clone by clone basis using a combination of similarity searches against DNA and protein databases as well as a series of ab initio gene predictions (GENSCAN, Fgenes). In addition, comparative analysis using vertebrate datasets is used to aid novel gene discovery. The data gathered in these steps is then used to manually annotate the clone adding gene structures, descriptions and poly-A features. The annotation is based on supporting evidence only.',
-'otter_corf' => 'In contrast to the annotation on the fully annotated chromosomes, which attempts to identify every transcript at a particular loci, annotation for the CORF project at the WTSI is less complete, often only concentrating on transcripts with CCDS identifiers. See curation method of Vega genes for a full description of the annotation process.'
+'otter_corf' => 'In contrast to the annotation on the fully annotated chromosomes, which attempts to identify every transcript at a particular loci, annotation for the CORF project at the WTSI is less complete, often only concentrating on transcripts with CCDS identifiers. See curation method of Vega genes for a full description of the annotation process.',
+'otter_igsf' => 'In contrast to the annotation on the fully annotated chromosomes, which attempts to identify every transcript at a particular loci, annotation for the Atlas project at the WTSI is less complete, often only annotating the whole transcripts with the longest CDS. See curation method of Vega genes for a full description of the annotation process.'
 );
-
-
 
 
 # connect to database and get adaptors (caching features on one slice only)
@@ -178,7 +171,7 @@ foreach my $logic_name (keys %desc_mapper){
 	
 	if(! defined($analysis_id)){
 		
-		print "Error: No analysis-id for logic name: $logic_name\n";
+		print "Warning: No analysis-id for logic name: $logic_name\n";
 		$support->log_warning("Unable to add description for logic_name: $logic_name, as no corresponding analysis_id in table analysis\n",2);
 		
 		next;
