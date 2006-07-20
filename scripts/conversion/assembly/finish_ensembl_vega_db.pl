@@ -472,11 +472,7 @@ if ($support->user_proceed("Would you like to ensure that all genes and transcri
 	$c = $dbh->{'evega'}->do($sql);
 	$sql = qq(UPDATE gene set source = 'vega');
 	$c = $dbh->{'evega'}->do($sql);
-	$sql = qq(UPDATE transcript set source = 'vega');
-	$c = $dbh->{'evega'}->do($sql);
 }
-
-# source
 
 if ($support->user_proceed("Would you like to drop the temporary tables tmp_assembl and tmp_seq_region?")) {
     $sql = qq(DROP TABLE tmp_assembly);
