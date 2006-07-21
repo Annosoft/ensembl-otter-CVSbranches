@@ -84,7 +84,7 @@ $support->parse_common_options(@_);
 $support->parse_extra_options(
     'chromosomes|chr=s@',
     'gene_stable_id|gsi=s@',
-	'id_file=s@',
+	'id_file=s',
  #   'ensemblhost=s',
  #   'ensemblport=s',
  #   'ensembluser=s',
@@ -171,6 +171,7 @@ open (ID, '<', $support->param('id_file')) or $support->throw(
         "Couldn't open ".$support->param('id_file')." for reading: $!\n");
 my $ens_ids;
 while (<ID> ) {
+	next if (/stable_id/);
 	my ($e_id,$v_id) = split /\t/;#
 	chomp $v_id;
 	if ( exists($ens_ids->{$v_id}) && ($e_id ne $ens_ids->{$v_id}) ) {
@@ -202,7 +203,7 @@ foreach my $v_id (keys %$ens_ids) {
 	if ($support->param('dry_run')) {
 		$support->log("Would store ENST xref $e_id for transcript $v_id.\n", 1);
 	} else {
-		my $dbID = $ea->store($dbentry, $transcript, 'transcript');
+		my $dbID = $ea->store($dbentry, $transcript->dbID, 'transcript');
 		
 		# apparently, this xref had been stored already, so get
 		# xref_id from db
