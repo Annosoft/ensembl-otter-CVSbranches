@@ -52,6 +52,7 @@ includes:
     - transfer selenocysteines
     - checking and setting the analysis_id and source for all genes and transcripts
     - transfer the whole genome assembly information back into the Vega db
+    - delete orphan entries from object_xref
 
 =head1 RELATED SCRIPTS
 
@@ -472,11 +473,16 @@ if ($support->user_proceed("Would you like to ensure that all genes and transcri
 	$c = $dbh->{'evega'}->do($sql);
 	$sql = qq(UPDATE gene set source = 'vega');
 	$c = $dbh->{'evega'}->do($sql);
-	$sql = qq(UPDATE transcript set source = 'vega');
+}
+
+if ($support->user_proceed("Would you like to delete orphan entries from object_xref?")) {
+    $sql = qq(DELETE ox
+              FROM object_xref ox
+              LEFT JOIN xref x ON ox.xref_id = x.xref_id
+              WHERE x.xref_id IS NULL);	
 	$c = $dbh->{'evega'}->do($sql);
 }
 
-# source
 
 if ($support->user_proceed("Would you like to drop the temporary tables tmp_assembl and tmp_seq_region?")) {
     $sql = qq(DROP TABLE tmp_assembly);

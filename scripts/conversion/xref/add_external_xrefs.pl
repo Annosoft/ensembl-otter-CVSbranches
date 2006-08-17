@@ -81,6 +81,7 @@ no warnings 'uninitialized';
 
 use FindBin qw($Bin);
 use vars qw($SERVERROOT);
+use Storable;
 
 BEGIN {
     $SERVERROOT = "$Bin/../../../..";
@@ -234,6 +235,7 @@ no strict 'refs';
 my %primary;
 my $xrefs = {};
 my $lcmap = {};
+my $xref_file = $SERVERROOT.$support->param('dbname').'-parsed_records.file';
 if ($support->param('xrefformat') ne 'ensemblxref') {
 	$support->log_stamped("Reading xref input files...\n");
 	foreach my $format ($support->param('xrefformat')) {
@@ -245,8 +247,15 @@ if ($support->param('xrefformat') ne 'ensemblxref') {
 	}
 }
 else {
-	$support->log_stamped("No input files read, using E! database\n");
-	&parse_ensdb($xrefs,$lcmap,$sp);
+	if (-e $xref_file) {
+		exit unless $support->user_proceed("Read E! xref records from a previously saved file - $xref_file ?\n");
+		$xrefs = retrieve($xref_file);
+	}
+	else {
+		$support->log_stamped("No input files read, using E! database\n");
+		&parse_ensdb($xrefs,$lcmap,$sp);
+		store($xrefs,$xref_file);
+	}
 	$primary{$sp.'_ensemblxref'} = 1;
 
 }
@@ -381,7 +390,7 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $display_id (acc = $pid)for gene $gid.\n", 1);
                     } else {
-                        my $dbID = $ea->store($dbentry, $gene, 'gene');
+                        my $dbID = $ea->store($dbentry, $gid, 'gene');
 
                         # apparently, this xref had been stored already, so get
                         # xref_id from db
@@ -437,7 +446,7 @@ foreach my $chr (@chr_sorted) {
                     if ($support->param('dry_run')) {
                         $support->log("Would store $extdb xref $xid for gene $gid.\n", 1);
                     } else {
-                        my $dbID = $ea->store($dbentry, $gene, 'gene');
+                        my $dbID = $ea->store($dbentry, $gid, 'gene');
 
                         unless ($dbID) {
                             my $sql = qq(

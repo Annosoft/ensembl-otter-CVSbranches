@@ -127,7 +127,9 @@ foreach my $chr ($support->sort_chromosomes) {
     my $slice = $sa->fetch_by_region('chromosome', $chr);
     # loop over genes
     foreach my $gene (@{ $ga->fetch_by_Slice($slice) }) {
-        $support->log_verbose($gene->display_xref->display_id." (".$gene->stable_id.")...\n", 1);
+		my $gid = $gene->stable_id;
+		my $g_dbID = $gene->dbID;
+        $support->log_verbose($gene->display_xref->display_id." (".$gid.")...\n", 1);
         
         # create attributes for all Vega-specific annotation
         my $gene_attribs = [];
@@ -136,7 +138,7 @@ foreach my $chr ($support->sort_chromosomes) {
         push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
             -CODE => 'author',
             -NAME => 'Author',
-            -DESCRIPTION => 'Group resonsible for Vega annotation',
+            -DESCRIPTION => 'Group responsible for Vega annotation',
             -VALUE => $gene->gene_info->author->group->name
         );
         push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
@@ -159,23 +161,27 @@ foreach my $chr ($support->sort_chromosomes) {
         # gene_remark
         foreach my $remark ($gene->gene_info->remark) {
             # save remarks as long as they are not just whitespace!
-            push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
-                -CODE => 'remark',
-                -NAME => 'Remark',
-                -DESCRIPTION => 'Annotation remark',
-                -VALUE => $remark->remark
-            ) if ($remark->remark =~ /\S/);
+			unless ($remark->remark =~ /^Annotation_remark/) {
+				push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
+                    -CODE => 'remark',
+                    -NAME => 'Remark',
+                    -DESCRIPTION => 'Annotation remark',
+                    -VALUE => $remark->remark
+                ) if ($remark->remark =~ /\S/);
+			}
         }
 
         # store attributes
         $support->log_verbose("Storing ".scalar(@$gene_attribs)." gene attributes.\n", 2);
         unless ($support->param('dry_run')) {
-            $aa->store_on_Gene($gene, $gene_attribs);
+            $aa->store_on_Gene($g_dbID, $gene_attribs);
         }
 
         # loop over transcripts
         foreach my $transcript (@{ $gene->get_all_Transcripts }) {
-            $support->log_verbose($transcript->display_xref->display_id." (".$transcript->stable_id.")...\n", 2);
+			my $tid = $transcript->stable_id;
+			my $t_dbID = $transcript->dbID;
+            $support->log_verbose($transcript->display_xref->display_id." (".$tid.")...\n", 2);
             
             my $trans_attribs = [];
 
@@ -195,13 +201,15 @@ foreach my $chr ($support->sort_chromosomes) {
 
             # transcript_remark
             foreach my $remark ($transcript->transcript_info->remark) {
-                # save remarks as long as they are not just whitespace!
-                push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
-                    -CODE => 'remark',
-                    -NAME => 'Remark',
-                    -DESCRIPTION => 'Annotation remark',
-                    -VALUE => $remark->remark
-                ) if ($remark->remark =~ /\S/);
+                # save remarks as long as they are not just whitespace and are not 'Annotation_remark'!
+				unless ($remark->remark =~ /^Annotation_remark/) {
+					push @{ $trans_attribs }, Bio::EnsEMBL::Attribute->new(
+						 -CODE => 'remark',
+                         -NAME => 'Remark',
+                         -DESCRIPTION => 'Annotation remark',
+                         -VALUE => $remark->remark
+                    ) if ($remark->remark =~ /\S/);
+				}
             }
 
             # start/end_not_found tags: store as remarks
@@ -233,7 +241,7 @@ foreach my $chr ($support->sort_chromosomes) {
             # store attributes
             $support->log_verbose("Storing ".scalar(@$trans_attribs)." transcript attributes.\n", 3);
             unless ($support->param('dry_run')) {
-                $aa->store_on_Transcript($transcript, $trans_attribs);
+                $aa->store_on_Transcript($t_dbID, $trans_attribs);
             }
         }
     }

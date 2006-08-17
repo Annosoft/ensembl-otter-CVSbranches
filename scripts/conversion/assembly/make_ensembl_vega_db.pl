@@ -153,6 +153,11 @@ $support->confirm_params;
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
 
+# check location of databases
+unless ($support->param('ensemblhost') eq $support->param('evegahost') && $support->param('ensemblport') eq $support->param('evegaport')) {
+	$support->log_error("Databases must be on the same mysql instance\n");
+}
+
 # connect to database and get adaptors
 my ($dba, $dbh, $sql);
 # Vega (source) database
