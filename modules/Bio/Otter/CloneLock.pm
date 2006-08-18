@@ -6,6 +6,8 @@ package Bio::Otter::CloneLock;
 
 use strict;
 use Bio::EnsEMBL::Root;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
+
 use vars qw(@ISA);
 @ISA = qw(Bio::EnsEMBL::Root);
 
@@ -15,7 +17,7 @@ sub new {
   my $self = bless {}, $class;
 
   my ($dbid, $clone_id, $author, $timestamp, $hostname)  = 
-      $self->_rearrange([qw(DBID CLONE_ID AUTHOR TIMESTAMP HOSTNAME
+      rearrange([qw(DBID CLONE_ID AUTHOR TIMESTAMP HOSTNAME
                             )],@args);
 
   $self->dbID($dbid);

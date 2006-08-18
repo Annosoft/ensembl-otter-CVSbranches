@@ -3,6 +3,7 @@ package Bio::Otter::GeneRemark;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Root;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Root);
 
@@ -11,7 +12,7 @@ sub new {
 
   my $self = bless {}, $class;
 
-  my ($dbid,$remark,$gene_info_id)  = $self->_rearrange([qw(
+  my ($dbid,$remark,$gene_info_id)  = rearrange([qw(
                             DBID
                             REMARK
                             GENE_INFO_ID

@@ -1,199 +1,135 @@
 package Bio::Otter::DBSQL::DBAdaptor;
 
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
+use Bio::Otter::DBSQL::AuthorGroupAdaptor;
+@ISA = qw(Bio::EnsEMBL::DBSQL::DBAdaptor);
 
-@ISA = qw ( Bio::EnsEMBL::DBSQL::DBAdaptor);
+=head2 new
+
+  Description: see Bio::EnsEMBL::DBSQL::DBAdaptor
+
+=cut
 
 sub new {
   my ($class,@args) = @_;
-
   my $self = $class->SUPER::new(@args);
-
-  my ($dataset)  = $self->_rearrange([qw(DATASET)],@args);
-
+  my ($dataset)  = $self->rearrange([qw(DATASET)],@args);
   $self->dataset($dataset) if $dataset;
-
   return $self;
 }
 
 sub dataset {
   my ($self,$dataset) = @_;
-
   if (defined($dataset)) {
     $self->{_dataset} = $dataset;
   }
-
   return  $self->{_dataset};
 }
 
 sub begin_work {
     my $self = shift;
-
     $self->db_handle->begin_work();
 }
 
 sub commit {
     my $self = shift;
-
     $self->db_handle->commit();
 }
 
 sub rollback {
     my $self = shift;
-
     $self->db_handle->rollback();
 }
 
-
-# These next methods override the methods in the core
-# Ensembl DBAdaptor, returning the otter Annotated versions
-# of the core adaptors, so that all clones, genes and transcripts
-# that come out of an Otter DBAdaptor have the extra annotation
-# information
-sub get_RawContigAdaptor {
+sub get_AuthorGroupAdaptor {
   my $self = shift;
-
-  return $self->_get_adaptor("Bio::Otter::DBSQL::RawContigAdaptor");
-}
-sub get_CloneAdaptor {
-  my $self = shift;
-
-  return
-    $self->_get_adaptor("Bio::Otter::DBSQL::AnnotatedCloneAdaptor");
-} 
-sub get_GeneAdaptor {
-  my $self = shift;
-
-  # get a core db adaptor
-  my $core_adaptor = $self->_get_adaptor("Bio::Otter::DBSQL::AnnotatedGeneAdaptor");
-  
-  # use a proxy gene adaptor, capable of making decisions with regards to the
-  # database that it uses (core or lite)
-  return
-    $self->get_adaptor("ProxyGene", $core_adaptor);
-} 
-sub get_TranscriptAdaptor {
-  my $self = shift;
-
-  return
-    $self->_get_adaptor("Bio::Otter::DBSQL::AnnotatedTranscriptAdaptor");
-} 
-
-sub get_AuthorAdaptor {
-  my $self = shift;
-
-  return
-    $self->_get_adaptor("Bio::Otter::DBSQL::AuthorAdaptor");
-} 
-
-sub get_CloneInfoAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::CloneInfoAdaptor");
+  if ( !exists $self->{'AuthorGroup'} ){
+	 my $ad=Bio::Otter::DBSQL::AuthorGroupAdaptor->new($self);
+	 $self->{'AuthorGroup'}=$ad;
+  }
+  return $self->{'AuthorGroup'};
 }
 
-sub get_CloneLockAdaptor {
-  my $self = shift;
+=head2 get_available_adaptors
 
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::CloneLockAdaptor");
-}
+  Example     : my %object_adaptors = %{ $dbadaptor->get_available_adaptors };
+  Description : returns a lookup hash of object adaptors for this DBAdaptor
+  Return type : Hashref
+  Exceptions  : none
+  Caller      : Bio::EnsEMBL::Utils::ConfigRegistry
 
-sub get_EvidenceAdaptor {
-  my $self = shift;
+=cut
 
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::EvidenceAdaptor");
-}
+sub get_available_adaptors{
+  my %pairs =  ( 
+    'Author'               => 'Bio::Otter::DBSQL::AuthorAdaptor',
+    'Clone'                => 'Bio::Otter::DBSQL::AnnotatedCloneAdaptor',
+    'CloneInfo'            => 'Bio::Otter::DBSQL::CloneInfoAdaptor',
+    'CloneLock'            => 'Bio::Otter::DBSQL::CloneLockAdaptor',
+    'CloneRemark'          => 'Bio::Otter::DBSQL::CloneRemarkAdaptor',
+    'Evidence'             => 'Bio::Otter::DBSQL::EvidenceAdaptor',
+    'Gene'                 => 'Bio::Otter::DBSQL::AnnotatedGeneAdaptor',
+    'GeneInfo'             => 'Bio::Otter::DBSQL::GeneInfoAdaptor',
+    'CurrentGeneInfo'      => 'Bio::Otter::DBSQL::CurrentGeneInfoAdaptor',
+    'GeneName'             => 'Bio::Otter::DBSQL::GeneNameAdaptor',
+    'GeneSynonym'          => 'Bio::Otter::DBSQL::GeneSynonymAdaptor',
+    'GeneRemark'           => 'Bio::Otter::DBSQL::GeneRemarkAdaptor',
+    'Keyword'              => 'Bio::Otter::DBSQL::KeywordAdaptor',
+    'MetaContainer'        => 'Bio::Otter::DBSQL::MetaContainer',
+    'StableId'             => 'Bio::Otter::DBSQL::StableIdAdaptor',
+    'Transcript'           => 'Bio::Otter::DBSQL::AnnotatedTranscriptAdaptor',
+    'TranscriptClass'      => 'Bio::Otter::DBSQL::TranscriptClassAdaptor',
+    'TranscriptInfo'       => 'Bio::Otter::DBSQL::TranscriptInfoAdaptor',
+    'CurrentTranscriptInfo'=> 'Bio::Otter::DBSQL::CurrentTranscriptInfoAdaptor',
+    'TranscriptRemark'     => 'Bio::Otter::DBSQL::TranscriptRemarkAdaptor',
 
-sub get_GeneInfoAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::GeneInfoAdaptor");
-}
-
-sub get_GeneNameAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::GeneNameAdaptor");
-}
-
-sub get_GeneSynonymAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::GeneSynonymAdaptor");
-}
-
-sub get_GeneRemarkAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::GeneRemarkAdaptor");
-}
-
-sub get_TranscriptClassAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::TranscriptClassAdaptor");
-}
-
-sub get_TranscriptInfoAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::TranscriptInfoAdaptor");
-}
-
-sub get_TranscriptRemarkAdaptor {
-  my $self = shift;
-
-  return
-     $self->_get_adaptor("Bio::Otter::DBSQL::TranscriptRemarkAdaptor");
-}
-
-sub get_KeywordAdaptor {
-    my $self = shift;
-
-    return $self->_get_adaptor("Bio::Otter::DBSQL::KeywordAdaptor");
-}
-
-sub get_CurrentGeneInfoAdaptor {
-    my $self = shift;
-
-    return $self->_get_adaptor("Bio::Otter::DBSQL::CurrentGeneInfoAdaptor");
-}
-sub get_CurrentTranscriptInfoAdaptor {
-    my $self = shift;
-
-    return $self->_get_adaptor("Bio::Otter::DBSQL::CurrentTranscriptInfoAdaptor");
-}
-
-sub get_StableIdAdaptor {
-    my $self = shift;
-
-    return $self->_get_adaptor("Bio::Otter::DBSQL::StableIdAdaptor");
-}
-sub get_CloneRemarkAdaptor {
-    my $self = shift;
-
-    return $self->_get_adaptor("Bio::Otter::DBSQL::CloneRemarkAdaptor");
+    'Analysis'             => 'Bio::EnsEMBL::DBSQL::AnalysisAdaptor',
+    'ArchiveStableId'      => 'Bio::EnsEMBL::DBSQL::ArchiveStableIdAdaptor',
+    'Attribute'            => 'Bio::EnsEMBL::DBSQL::AttributeAdaptor',
+    'AssemblyExceptionFeature' => 'Bio::EnsEMBL::DBSQL::AssemblyExceptionFeatureAdaptor',
+    'AssemblyMapper'       => 'Bio::EnsEMBL::DBSQL::AssemblyMapperAdaptor',
+    # 'Blast'                => 'Bio::EnsEMBL::External::BlastAdaptor',
+    # 'MetaContainer'        => 'Bio::EnsEMBL::DBSQL::MetaContainer',
+    'CoordSystem'          => 'Bio::EnsEMBL::DBSQL::CoordSystemAdaptor',
+    'CompressedSequence'   => 'Bio::EnsEMBL::DBSQL::CompressedSequenceAdaptor',
+    'DBEntry'              => 'Bio::EnsEMBL::DBSQL::DBEntryAdaptor',
+    'DnaAlignFeature'      => 'Bio::EnsEMBL::DBSQL::DnaAlignFeatureAdaptor',
+    'DensityFeature'       => 'Bio::EnsEMBL::DBSQL::DensityFeatureAdaptor',
+    'DensityType'          => 'Bio::EnsEMBL::DBSQL::DensityTypeAdaptor',
+    'Exon'                 => 'Bio::EnsEMBL::DBSQL::ExonAdaptor',
+    # 'Gene'                 => 'Bio::EnsEMBL::DBSQL::GeneAdaptor',
+    'KaryotypeBand'        => 'Bio::EnsEMBL::DBSQL::KaryotypeBandAdaptor',
+    'Marker'               => 'Bio::EnsEMBL::Map::DBSQL::MarkerAdaptor',
+    'MarkerFeature'        => 'Bio::EnsEMBL::Map::DBSQL::MarkerFeatureAdaptor',
+    'MetaCoordContainer'   => 'Bio::EnsEMBL::DBSQL::MetaCoordContainer',
+    'MiscSet'              => 'Bio::EnsEMBL::DBSQL::MiscSetAdaptor',
+    'MiscFeature'          => 'Bio::EnsEMBL::DBSQL::MiscFeatureAdaptor',
+    'PredictionTranscript' => 'Bio::EnsEMBL::DBSQL::PredictionTranscriptAdaptor',
+    'PredictionExon'       => 'Bio::EnsEMBL::DBSQL::PredictionExonAdaptor',
+    'ProteinFeature'       => 'Bio::EnsEMBL::DBSQL::ProteinFeatureAdaptor',
+    'ProteinAlignFeature'  => 'Bio::EnsEMBL::DBSQL::ProteinAlignFeatureAdaptor',
+    'SNP'                  => 'Bio::EnsEMBL::DBSQL::ProxySNPAdaptor',
+    'QtlFeature'           => 'Bio::EnsEMBL::Map::DBSQL::QtlFeatureAdaptor',
+    'Qtl'                  => 'Bio::EnsEMBL::Map::DBSQL::QtlAdaptor',
+    'RepeatConsensus'      => 'Bio::EnsEMBL::DBSQL::RepeatConsensusAdaptor',
+    'RepeatFeature'        => 'Bio::EnsEMBL::DBSQL::RepeatFeatureAdaptor',
+    'Sequence'             => 'Bio::EnsEMBL::DBSQL::SequenceAdaptor',
+    'SimpleFeature'        => 'Bio::EnsEMBL::DBSQL::SimpleFeatureAdaptor',
+    'Slice'                => 'Bio::EnsEMBL::DBSQL::SliceAdaptor',
+    'SupportingFeature'    => 'Bio::EnsEMBL::DBSQL::SupportingFeatureAdaptor',
+    'TranscriptSupportingFeature'    => 'Bio::EnsEMBL::DBSQL::TranscriptSupportingFeatureAdaptor',
+    # 'Transcript'           => 'Bio::EnsEMBL::DBSQL::TranscriptAdaptor',
+    'Translation'          => 'Bio::EnsEMBL::DBSQL::TranslationAdaptor'
+  );
+  return (\%pairs);
 }
 
 sub get_MetaContainer {
-    my( $self ) = @_;
-    
-    my( $mc );
-    unless ($mc = $self->{'_meta_container'}) {
-        require Bio::Otter::DBSQL::MetaContainer;
-        $mc = Bio::Otter::DBSQL::MetaContainer->new($self);
-        $self->{'_meta_container'} = $mc;
-    }
-    return $mc;
+  my $self = shift;
+  $self->get_MetaContainerAdaptor();
 }
 
+
+
 1;
+

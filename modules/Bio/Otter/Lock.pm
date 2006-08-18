@@ -5,6 +5,7 @@ package Bio::Otter::Lock;
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Root;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Root);
 
@@ -14,7 +15,7 @@ sub new {
   my $self = bless {}, $class;
 
   my ($dbid,$id,$version,$author,$timestamp,$type)  = 
-      $self->_rearrange([qw(DBID ID AUTHOR TIMESTAMP TYPE
+      rearrange([qw(DBID ID AUTHOR TIMESTAMP TYPE
                             )],@args);
 
   $self->dbID($dbid);
