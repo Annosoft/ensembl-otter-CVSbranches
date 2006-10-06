@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-delete_by_stable_id.pl - filter internal annotation from a Vega db
+delete_by_stable_id.pl - filter internal annotation from a Vega or Ensembl db
 
 =head1 SYNOPSIS
 
@@ -34,13 +34,18 @@ Specific options:
     --find_missing                      print list of genes in infile but not in
                                         database
     --outfile=FILE                      write list of missing genes to FILE
+
+    --schematype=TYPE                   assume either vega or ensembl schema
     
 =head1 DESCRIPTION
 
 Use this script to delete genes and/or transcripts and all associated
-annotation (transcript, translations, xrefs, ...) from a Vega database. You can
-provide either a list of gene_stable_ids to keep (--keep=FILE) or to delete
-(--delete=FILE), where FILE is a list of stable IDs, one per line. It will
+annotation (transcript, translations, xrefs, ...) from a Vega or Ensembl database.
+The schema type can be provided as a command line argument or determined automaticaly
+by the presence or abscence of the gene_info table.
+
+You can provide either a list of gene_stable_ids to keep (--keep=FILE) or to
+delete (--delete=FILE), where FILE is a list of stable IDs, one per line. It will
 automatically determine whether a stable ID is a gene or a transcript.
 
 The script also checks if any genes/transcripts in the list are not in the
@@ -90,6 +95,7 @@ $support->parse_extra_options(
     'delete=s',
     'outfile=s',
     'find_missing',
+	'schematype=s',
 );
 $support->allowed_params(
     $support->get_common_params,
@@ -97,6 +103,7 @@ $support->allowed_params(
     'delete',
     'outfile',
     'find_missing',
+    'schematype',
 );
 
 if ($support->param('help') or $support->error) {
@@ -115,9 +122,18 @@ my $dba = $support->get_database('ensembl');
 our $dbh = $dba->dbc->db_handle;
 
 # find out if we are dealing with an Ensembl or Vega schema
-my (%tabs, $schema);
-map { $_ =~ s/`//g; $tabs{$_} = 1; } $dbh->tables;
-$tabs{'gene_info'} ? $schema = 'vega' : $schema = 'ensembl';
+my $schema;
+if ($schema = $support->param('schematype')) {
+	unless ($schema eq 'vega' || $schema eq 'ensembl') {
+		$support->log("schematype argument can only be \'ensembl\' or \'vega\'. Aborting\n");
+		exit(0);
+	}
+}
+else {
+	my %tabs;
+	map { $_ =~ s/`//g; $tabs{$_} = 1; } $dbh->tables;
+	$tabs{'gene_info'} ? $schema = 'vega' : $schema = 'ensembl';
+}
 
 # sanity check: you can only use either a list of gene_stable_id to keep or to
 # delete
@@ -135,7 +151,7 @@ if ($support->param('keep')) {
 }
 
 # make sure user knows what he's doing
-unless ($support->user_proceed("You decided to ".uc($action)." all genes and/or transcripts $condition the list provided. Are you sure you want to proceed?")) {
+unless ($support->user_proceed("You decided to ".uc($action)." all genes and/or transcripts $condition the list provided. The database is assumed to be a $schema one. Are you sure you want to proceed? (you can enter the schema version at the command line)")) {
     exit(0);
 }
 
@@ -323,6 +339,7 @@ sub delete_genes {
                     g,
                     gsi,
                     gi,
+                    ga,
                     cgi,
                     gn,
                     gr,
@@ -386,6 +403,7 @@ sub delete_genes {
             DELETE QUICK IGNORE
                     g,
                     gsi,
+                    ga,
                     t,
                     tsi,
                     ta,
