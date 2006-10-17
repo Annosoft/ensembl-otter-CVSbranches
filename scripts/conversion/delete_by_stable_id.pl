@@ -132,7 +132,7 @@ if ($schema = $support->param('schematype')) {
 else {
 	my %tabs;
 	map { $_ =~ s/`//g; $tabs{$_} = 1; } $dbh->tables;
-	$tabs{'gene_info'} ? $schema = 'vega' : $schema = 'ensembl';
+	$schema = $tabs{'gene_info'} ? 'vega' : 'ensembl';
 }
 
 # sanity check: you can only use either a list of gene_stable_id to keep or to
