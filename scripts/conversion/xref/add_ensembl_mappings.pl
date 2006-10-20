@@ -191,6 +191,10 @@ while (<ID> ) {
 #retrieve transcripts and add xrefs
 foreach my $v_id (keys %$ens_ids) {
 	my $transcript = $ta->fetch_by_stable_id($v_id);
+	unless ($transcript) {
+		$support->log_warning("Can't retrieve transcript $v_id from Vega\n");
+		next;
+	}
 	my $e_id       = $ens_ids->{$v_id};
 	my $dbentry    = Bio::EnsEMBL::DBEntry->new(
 					  -primary_id => $e_id,
