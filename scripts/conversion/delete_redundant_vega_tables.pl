@@ -128,7 +128,7 @@ if (@missing) {
 }
 
 if (@to_delete) {
-	$support->log("The following tables will be deleted:\n");
+	$support->log("The following tables are redundant:\n");
 	my $tables = join "\n", @to_delete;
 	if ($support->user_proceed("$tables\nProceed?\n")) {
         if ($support->param('dry_run')) {
@@ -136,7 +136,9 @@ if (@to_delete) {
 		}
 		else {			
 			foreach my $t (@to_delete) {
-				$vdbh->do('DROP TABLE $t');
+				if ($support->user_proceed("Delete table $t ?\n")) {
+					$vdbh->do("DROP TABLE $t");
+				}
 			}
 		}
 	}
