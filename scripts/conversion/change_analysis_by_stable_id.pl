@@ -29,7 +29,10 @@ Specific options:
 
     --infile=FILE                       read list of stable IDs from FILE
     --logic_name=NAME                   change analysis to logic_name NAME
-    
+    --find_missing                      print list of genes in infile but not in
+                                        database
+    --outfile                           write list of missing genes to FILE
+
 =head1 DESCRIPTION
 
 This script reads a list of gene stable IDs from a file and sets the analysis
@@ -77,11 +80,15 @@ $support->parse_common_options(@_);
 $support->parse_extra_options(
     'infile=s',
     'logic_name=s',
+    'outfile=s',
+    'find_missing',
 );
 $support->allowed_params(
     $support->get_common_params,
     'infile',
     'logic_name',
+    'outfile',
+    'find_missing',
 );
 
 if ($support->param('help') or $support->error) {
@@ -103,7 +110,7 @@ my $dba = $support->get_database('ensembl');
 our $dbh = $dba->dbc->db_handle;
 
 # read list of stable IDs to keep or delete
-my ($gene_stable_ids) = &read_infile($support->param('infile')); 
+my ($gene_stable_ids) = &read_infile($support->param('infile'));
 
 # sanity check: check if all genes in the list are also in the database
 &check_missing($gene_stable_ids);
