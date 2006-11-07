@@ -131,7 +131,7 @@ sub store {
 	   return;
 	}
 
-        my $quoted_remark = $self->db->db_handle->quote($remark->remark);
+        my $quoted_remark = $self->db->dbc->db_handle->quote($remark->remark);
 	#my $sql = "insert into gene_remark(gene_remark_id,remark,gene_info_id) values (null,\'" .  $remark->remark . "\',".
 	#	$remark->gene_info_id . ")";
 	my $sql = "insert into gene_remark(gene_remark_id,remark,gene_info_id) values (null," .
@@ -181,7 +181,7 @@ sub exists {
 		$self->throw("Can't check if a gene remark exists without a gene info id");
 	}
 
-        my $quoted_remark = $self->db->db_handle->quote($remark->remark);
+        my $quoted_remark = $self->db->dbc->db_handle->quote($remark->remark);
 	my @newremark = $self->_generic_sql_fetch("where remark = ".   $quoted_remark .
 						 " and gene_info_id = " . $remark->gene_info_id);
 
