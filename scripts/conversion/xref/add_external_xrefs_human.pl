@@ -31,10 +31,11 @@ Specific options:
     --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
                                         (or read list from FILE)
     --xrefformat=FORMAT                 input file format FORMAT
-                                        (hugo|locuslink|refseq|ensemblxref)
+                                        (hugo|locuslink|refseq)
     --hugofile=FILE                     read Hugo input from FILE
     --locuslinkfile=FILE                read LocusLink input from FILE
     --refseqfile=FILE                   read Refseq input from FILE
+    --ensembl_xref                      read xrefs from an Ensembl db
     --mismatch                          correct case mismatches in the db
                                         (NOTE: this option overrides
                                             dry_run!)
@@ -55,9 +56,6 @@ Currently, these input formats are supported:
     locuslink   => ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz
     refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
     ensemblxref => use core ensembl database
-
-For human, a combination of locuslink and hugo can be used by specifying both
-as source (NOTE: order matters, locuslink has to be read first!)
 
 =head1 LICENCE
 
@@ -108,6 +106,7 @@ $support->parse_extra_options(
     'hugofile=s',
     'locuslinkfile=s',
     'refseqfile=s',
+    'ensembl_xref',
     'ensemblhost=s',
     'ensemblport=s',
     'ensembluser=s',
@@ -124,6 +123,7 @@ $support->allowed_params(
     'hugofile',
     'locuslinkfile',
     'refseqfile',
+    'ensembl_xref',
     'ensemblhost',
     'ensemblport',
     'ensembluser',
@@ -161,7 +161,6 @@ if ($support->param('mismatch')) {
 # get an ensembl database for better performance (no otter tables are needed)
 my $dba = $support->get_database('ensembl');
 my $dbh = $dba->dbc->db_handle;
-$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $ea = $dba->get_DBEntryAdaptor();
@@ -175,42 +174,37 @@ my $sth_case2 = $dba->dbc->prepare("UPDATE xref set display_label = ? WHERE disp
 
 # delete all external xrefs if --prune option is used; basically this resets
 # xrefs to the state after running add_vega_xrefs.pl
-if (!$support->param('dry_run')) {
-	if ($support->param('prune') and $support->user_proceed('Would you really like to delete all *external* xrefs before running this script?')) {
-		my $num;
-		# xrefs
-		$support->log("Deleting all external xrefs...\n");
-		$num = $dba->dbc->do(qq(
+if ($support->param('prune') and $support->user_proceed('Would you really like to delete all *external* xrefs before running this script?')) {
+	my $num;
+	# xrefs
+	$support->log("Deleting all external xrefs...\n");
+	$num = $dba->dbc->do(qq(
            DELETE x
            FROM xref x, external_db ed
            WHERE x.external_db_id = ed.external_db_id
            AND ed.db_name not in ('Vega_gene', 'Vega_transcript',
-                                  'Vega_translation', 'Interpro', 'CCDS')
+                                  'Vega_translation', 'Interpro', 'CCDS', 'ENST')
         ));
-		$support->log("Done deleting $num entries.\n");
+	$support->log("Done deleting $num entries.\n");
 
-		# object_xrefs
-		$support->log("Deleting orphan object_xrefs...\n");
-		$num = $dba->dbc->do(qq(
+	# object_xrefs
+	$support->log("Deleting orphan object_xrefs...\n");
+	$num = $dba->dbc->do(qq(
            DELETE ox
            FROM object_xref ox
            LEFT JOIN xref x ON ox.xref_id = x.xref_id
            WHERE x.xref_id IS NULL
         ));
-		# gene.display_xref_id
-		$support->log("Resetting gene.display_xref_id...\n");
-		$num = $dba->dbc->do(qq(
+	# gene.display_xref_id
+	$support->log("Resetting gene.display_xref_id...\n");
+	$num = $dba->dbc->do(qq(
            UPDATE gene g, gene_stable_id gsi, xref x
            SET g.display_xref_id = x.xref_id
            WHERE g.gene_id = gsi.gene_id
            AND gsi.stable_id = x.dbprimary_acc
         ));
 
-		$support->log("Done deleting $num entries.\n");
-	}
-}
-elsif ($support->param('prune')){
-	$support->log("Not deleting any genes since this is a dry run.\n");
+	$support->log("Done deleting $num entries.\n");
 }
 
 my @gene_stable_ids = $support->param('gene_stable_id');
@@ -224,16 +218,41 @@ my %species_lookup = ( 'Mus musculus' => 'Mm', 'Homo sapiens' => 'Hs' );
 my $sp = $species_lookup{$species};
 
 # sanity checks
-$support->check_required_params('xrefformat');
+#$support->check_required_params('xrefformat');
 my %allowed_formats = map { $_ => 1 } qw(hugo refseq locuslink ensemblxref);
 
 # parse input file
 no strict 'refs';
 my %primary;
+my $ens_xrefs = {};
 my $xrefs = {};
+my @xref_sources;
 my $lcmap = {};
 my $xref_file = $SERVERROOT.'/'.$support->param('dbname').'-parsed_records.file';
-if ($support->param('xrefformat') ne 'ensemblxref') {
+
+if ($support->param( 'ensembl_xref' )) {
+	if (-e $xref_file) {
+		if ($support->user_proceed("Read E! xref records from a previously saved file - $xref_file ?\n")) {
+			$ens_xrefs = retrieve($xref_file);
+		}
+		else {
+			$support->log_stamped("Ignoring existing input file and re-reading from E! database...\n");
+			&parse_ensdb($ens_xrefs,$lcmap,$sp);
+			$support->log_stamped("Finished reading from E! database, storing to file...\n");
+			store($ens_xrefs,$xref_file);
+		}
+	}
+	else {
+		$support->log_stamped("No input files read, using E! database\n");
+		&parse_ensdb($ens_xrefs,$lcmap,$sp);
+		$support->log_stamped("Finished reading from E! database, storing to file...\n");
+		store($ens_xrefs,$xref_file);
+	}
+	$primary{$sp.'_ensemblxref'} = 1;
+	push @xref_sources, [ 'ensembl', $ens_xrefs ];
+}
+
+if ($support->param('xrefformat')){
 	$support->log_stamped("Reading xref input files...\n");
 	foreach my $format ($support->param('xrefformat')) {
 		my $parser = "parse_$format";
@@ -241,28 +260,12 @@ if ($support->param('xrefformat') ne 'ensemblxref') {
 		# set as primary xref (will be used as display_xref)
 		# (set to zero if you don't want any)
 		$primary{$format} = 1;
+		push @xref_sources, [ $format, $xrefs ];
 	}
 }
-else {
-	if (-e $xref_file) {
-		if ($support->user_proceed("Read E! xref records from a previously saved file - $xref_file ?\n")) {
-			$xrefs = retrieve($xref_file);
-		}
-		else {
-			$support->log_stamped("Ignoring existing input file and re-reading from E! database...\n");
-			&parse_ensdb($xrefs,$lcmap,$sp);
-			$support->log_stamped("Finished reading from E! database, storing to file...\n");
-			store($xrefs,$xref_file);
-		}
-	}
-	else {
-		$support->log_stamped("No input files read, using E! database\n");
-		&parse_ensdb($xrefs,$lcmap,$sp);
-		$support->log_stamped("Finished reading from E! database, storing to file...\n");
-		store($xrefs,$xref_file);
-}
-	$primary{$sp.'_ensemblxref'} = 1;
-}
+
+#warn Dumper(\@xref_sources);
+#exit;
 
 use strict 'refs';
 $support->log_stamped("Done.\n\n");
@@ -273,7 +276,7 @@ my %extdb_def = (
     EntrezGene          => ['KNOWNXREF',0],
     MarkerSymbol        => ['KNOWNXREF',0],
     RefSeq_dna          => ['KNOWN',0],
-    MIM                 => ['KNOWNXREF',0],
+    MIM_GENE            => ['KNOWNXREF',0],
     'Uniprot/SWISSPROT' => ['KNOWN',0],
     Ens_Mm_gene         => ['XREF',0],
 	Ens_Hs_gene         => ['XREF',0],
@@ -319,12 +322,8 @@ foreach my $chr (@chr_sorted) {
 			$stripped_name = $prefix;
 			$prefix = 0;
 		}
-
-#		warn "FIXED:$prefix--$stripped_name--$gene_name";
-#		next;
-
 			
-        my $lc_gene_name = lc($gene_name);
+        my $lc_stripped_name = lc($stripped_name);
         # filter to user-specified gene_stable_ids
         if (scalar(@gene_stable_ids)){
             next unless $gene_stable_ids{$gsi};
@@ -332,101 +331,118 @@ foreach my $chr (@chr_sorted) {
 		
         $gnum++;
         $support->log("Gene $gene_name ($gid, $gsi)...\n");
-		
-        # do we have a match on gene_name
-		if ($xrefs->{$stripped_name}) {
-#			warn Dumper($xrefs->{$stripped_name}) if ($stripped_name eq 'CAPN3');
-			foreach my $extdb (keys %extdb_def) {
-				my ($xid,$pid,$concat_xid);
-                if ($concat_xid = $xrefs->{$stripped_name}->{$extdb}) {					
-					if ($concat_xid =~ /\|\|/) {
-						($xid,$pid) = split /\|\|/, $concat_xid;
-					}
-					else {
-						$pid = $xid = $concat_xid;						
-					}
-                    $stats{$extdb}++;
-					if (!$support->param('dry_run')) {
-						#check if it's there already...
-						my ($existing_xref,$dbID);		
-						if ($existing_xref = $ea->fetch_by_db_accession($extdb,$pid)) {
-							$support->log("Using previous xref for gene $gid ($extdb display_id $xid, pid = $pid).\n", 1);
-							$gene->add_DBEntry($existing_xref);
-							$dbID = $ea->store($existing_xref, $gid, 'gene');
-						} else {
-							my $dbentry = Bio::EnsEMBL::DBEntry->new(
-																	 -primary_id => $pid,
-																	 -display_id => $xid,
-																	 -version    => 1,
-																	 -release    => 1,
-																	 -dbname     => $extdb,
-																	);
-							$dbentry->status($extdb_def{$extdb}->[0]);
-							$gene->add_DBEntry($dbentry);
-							$dbID = $ea->store($dbentry, $gid, 'gene');
+
+		my $xref_found = 0;
+		foreach my $source (@xref_sources) {
+			next if $xref_found;
+			$support->log_verbose("Examining source $source->[0]\n",1); 
+			# do we have a match on gene_name
+			if ($source->[1]->{$stripped_name}) {
+				$xref_found = 1;
+				#report withdrawn records (HUGO
+				if ($source->[1]->{$stripped_name}->{'Approved Symbol'} =~ /~withdrawn/) {
+					$support->log_warning("Vega name: $stripped_name matches a withdrawn HGNC record\n");
+				}
+				if (my $alias_for = $source->[1]->{$stripped_name}->{'Is an alias for'}){
+					$support->log_warning("Vega name: $stripped_name is an alias / previous record for HGNC: $alias_for\n");
+				}
+	  #			warn Dumper($ens_xrefs->{$stripped_name}) if ($stripped_name eq 'CAPN3');
+			DB: foreach my $extdb (keys %extdb_def) {
+					my ($xid,$pid,$concat_xid);
+					if ($concat_xid = $source->[1]->{$stripped_name}->{$extdb}) {
+						#catch empty xrefs
+						next DB if (!$concat_xid || $concat_xid =~ /^\|+$/);
+						if ($concat_xid =~ /\|\|/) {
+							($xid,$pid) = split /\|\|/, $concat_xid;
 						}
-						if ($dbID) {
-							$support->log("Stored $extdb display_id $xid, pid = $pid for gene $gid (dbID $dbID).\n", 1);
-							
-							#do we want to update the display_xref ?
-							if ($extdb_def{$extdb}->[1]) {
-								#if there is a stripped name then make a new DBEntry and set as display_xref
-								if ($prefix) {
-									my $new_xid = $prefix.':'.$stripped_name;
-									my $new_dbentry = Bio::EnsEMBL::DBEntry->new(
-																			 -primary_id => $pid,
-																			 -display_id => $new_xid,
-																			 -version    => 1,
-																			 -release    => 1,
-																			 -dbname     => $extdb,
-																			 -info_text  => 'vega_source_prefix',
-																			);
-									my $new_dbID = $ea->store($new_dbentry, $gid, 'gene');
-									$sth_display_xref->execute($new_dbID,$gid);
-									$support->log("updated display_xref ($new_xid) using new $extdb xref ($new_dbID).\n",1);
-								}
-								#if the non-prefixed name matches the dbentry name then store it as display_xref
-								elsif ($stripped_name eq $xid) {
-									$sth_display_xref->execute($dbID,$gid);
-									$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
-								}
-								else {
-									$support->log_warning("Expected name for E! display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
-								}
-							}	
-						} else {
-							$support->log_warning("No dbID for gene $gid, pid $pid, display_id $xid, dbname $extdb.\n", 1);
+						else {
+							$pid = $xid = $concat_xid;						
 						}
-					}
-					else {
-						$support->log("Would store $extdb xref $xid (pid = $pid) for PREFIXED gene $gid.\n", 1);
+						$stats{$extdb}++;
+						if (!$support->param('dry_run')) {
+							#check if it's there already...
+							my ($existing_xref,$dbID);		
+							if ($existing_xref = $ea->fetch_by_db_accession($extdb,$pid)) {
+								$support->log("Using previous xref for gene $gid ($extdb display_id $xid, pid = $pid).\n", 1);
+								$gene->add_DBEntry($existing_xref);
+								$dbID = $ea->store($existing_xref, $gid, 'gene');
+							} else {
+								my $dbentry = Bio::EnsEMBL::DBEntry->new(
+																		 -primary_id => $pid,
+																		 -display_id => $xid,
+																		 -version    => 1,
+																		 -release    => 1,
+																		 -dbname     => $extdb,
+																		);
+								$dbentry->status($extdb_def{$extdb}->[0]);
+								$gene->add_DBEntry($dbentry);
+								$dbID = $ea->store($dbentry, $gid, 'gene');
+							}
+							if ($dbID) {
+								$support->log("Stored $extdb display_id $xid, pid = $pid for gene $gid (dbID $dbID).\n", 1);
+								#do we want to update the display_xref ?
+								if ($extdb_def{$extdb}->[1]) {
+									#if there is a stripped name then make a new DBEntry and set as display_xref
+									if ($prefix) {
+										my $new_xid = $prefix.':'.$stripped_name;
+										my $new_dbentry = Bio::EnsEMBL::DBEntry->new(
+																					 -primary_id => $pid,
+																					 -display_id => $new_xid,
+																					 -version    => 1,
+																					 -release    => 1,
+																					 -dbname     => $extdb,
+																					 -info_text  => 'vega_source_prefix',
+																					);
+										my $new_dbID = $ea->store($new_dbentry, $gid, 'gene');
+										$sth_display_xref->execute($new_dbID,$gid);
+										$support->log("updated display_xref ($new_xid) using new $extdb xref ($new_dbID).\n",1);
+									}
+									#if the non-prefixed name matches the dbentry name then store it as display_xref
+									elsif ($stripped_name eq $xid) {
+										$sth_display_xref->execute($dbID,$gid);
+										$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
+									}
+									else {
+										$support->log_warning("Expected name for E! display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
+									}
+								}	
+							} else {
+								$support->log_warning("No dbID for gene $gid, pid $pid, display_id $xid, dbname $extdb.\n", 1);
+							}
+						}
+						else {
+							$support->log("Would store $extdb xref $xid (pid = $pid) for gene $gid.\n", 1);
+						}
 					}
 				}
 			}
 		
-		
 		# no match for some reason (log why)
-		} elsif ($lcmap->{$lc_gene_name}) {
-            # possible case error
-            $support->log_warning("Possible case error for $gene_name: ".
-                join(',',(@{ $lcmap->{$lc_gene_name} })).".\n", 1);
-            if ($support->param('mismatch')) {
-                # fix case mismatch in db
-                $support->log("Fixing case mismatch...\n", 1);
-                $sth_case1->execute($lcmap->{$lc_gene_name}->[0], $gene_name);
-                $sth_case2->execute($lcmap->{$lc_gene_name}->[0], $gene_name);
-            }
-            $warnings{'wrong_case'}++;
-        } elsif ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
-            # probably a clone-based genename - ok
-            $support->log("No match for $gene_name (but has clonename based name).\n", 1);
-            $warnings{'nomatch_clone'}++;
-        } else {
-            # other genes without a match
-            $support->log_warning("No match for $gene_name.\n", 1);
-            $warnings{'nomatch_missing'}++;
-        }
-    }
+		} 
+		if (!$xref_found) {
+			if ($lcmap->{$lc_stripped_name}) {
+				# possible case error
+				$support->log_warning("Possible case error for $gene_name -- ".
+									  join(',',(@{ $lcmap->{$lc_stripped_name} })).".\n", 1);
+				if ($support->param('mismatch')) {
+					# fix case mismatch in db
+					$support->log("Fixing case mismatch...\n", 1);
+					my $new_name = $prefix ? $prefix.':'.$lcmap->{$lc_stripped_name}->[0] : $lcmap->{$lc_stripped_name}->[0];
+#					$sth_case1->execute($new_name, $gene_name);
+					$sth_case2->execute($new_name, $gene_name);
+				}
+				$warnings{'wrong_case'}++;
+			} elsif ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
+				# probably a clone-based genename - ok
+				$support->log("No match for $gene_name (but has clonename based name).\n", 1);
+				$warnings{'nomatch_clone'}++;
+			} else {
+				# other genes without a match
+				$support->log_warning("No match for $gene_name.\n", 1);
+				$warnings{'nomatch_missing'}++;
+			}
+		}
+	}
 
     # log stats
     $support->log("\nProcessed $gnum genes (of ".scalar @$genes." on this chromosome).\n");
@@ -467,15 +483,15 @@ $support->finish_log;
 
 =head2 parse_ensdb
 
-  Arg[1]      : Hashref $xrefs - keys: gene names, values: hashref (extDB =>
+  Arg[1]      : Hashref $ens_xrefs - keys: gene names, values: hashref (extDB =>
                 extID)
   Arg[2]      : Hashref $lcmap - keys: lowercase gene names, values: list of
                 gene names (with case preserved)
   Arg[3]      : string - species short name
-  Example     : &parse_ensdb($xrefs, $lcmap);
-                foreach my $gene (keys %$xrefs) {
-                    foreach my $extdb (keys %{ $xrefs->{$gene} }) {
-                        print "DB $extdb, extID ".$xrefs->{$gene}->{$extdb}."\n";
+  Example     : &parse_ensdb($ens_xrefs, $lcmap);
+                foreach my $gene (keys %$ens_xrefs) {
+                    foreach my $extdb (keys %{ $ens_xrefs->{$gene} }) {
+                        print "DB $extdb, extID ".$ens_xrefs->{$gene}->{$extdb}."\n";
                     }
                 }
   Description : Parses xrefs from an E! core database
@@ -486,7 +502,7 @@ $support->finish_log;
 =cut
 
 sub parse_ensdb {
-	my ($xrefs, $lcmap, $sp) = @_;
+	my ($ens_xrefs, $lcmap, $sp) = @_;
 	$dba = $support->get_database('ensembl', 'ensembl');
 	my $e_dbname = $support->param('ensembldbname');
     $support->log_stamped("Retrieving xrefs from $e_dbname...\n", 1);
@@ -503,13 +519,13 @@ sub parse_ensdb {
 			}
 			next unless ($gene_name);
 			no strict 'refs';
-			if (exists($xrefs->{$gene_name})) {
+			if (exists($ens_xrefs->{$gene_name})) {
 				$support->log_verbose("Ensembl gene $gene_name not unique, deleting stable id $stable_id\n",1);
-				delete($xrefs->{$gene_name}{'Ens_'.$sp.'_gene'});
+				delete($ens_xrefs->{$gene_name}{'Ens_'.$sp.'_gene'});
 			}
 			else {
 				$support->log_verbose("Storing Ensembl stable_id $stable_id\n",1);
-				$xrefs->{$gene_name}{'Ens_'.$sp.'_gene'} = $stable_id;
+				$ens_xrefs->{$gene_name}{'Ens_'.$sp.'_gene'} = $stable_id;
 				#store lower case gene name for curation
 				push @{ $lcmap->{lc($gene_name)} }, $gene_name;
 			}
@@ -518,13 +534,13 @@ sub parse_ensdb {
 				my $db_name = $dbe->dbname;
 				my $dbid = $dbe->display_id(); 
 				my $pid = $dbe->primary_id(); 
-				$xrefs->{$gene_name}{$db_name} = $dbid.'||'.$pid;
+				$ens_xrefs->{$gene_name}{$db_name} = $dbid.'||'.$pid;
 			}
 			#parse display_xref to ensure it's added
 			my $disp_dbname = $disp_xref->dbname;
 			my $disp_dbid = $disp_xref->display_id();
 			my $disp_pid  = $disp_xref->primary_id();
-			$xrefs->{$gene_name}{$disp_dbname} = $disp_dbid.'||'.$disp_pid;
+			$ens_xrefs->{$gene_name}{$disp_dbname} = $disp_dbid.'||'.$disp_pid;
 			$support->log_verbose("Adding display_xref for gene $stable_id (db = $disp_dbname, display name = $disp_dbid, pid = $disp_pid\n");
 		}
 	}
@@ -554,24 +570,25 @@ sub parse_ensdb {
 
 sub parse_hugo {
     my ($xrefs, $lcmap) = @_;
-
-    $support->log_stamped("Hugo...\n", 1);
-
+	$support->log_stamped("Hugo...\n", 1);
     # read nomeid input file from HUGO
     open (NOM, '<', $support->param('hugofile')) or $support->throw(
         "Couldn't open ".$support->param('hugofile')." for reading: $!\n");
-
     # read header (containing external db names)
     my $line = <NOM>;
     chomp $line;
     my %convhash = (
-        'HGNC ID'                   => 'HUGO',
-        'UniProt ID (mapped data)'  => 'Uniprot/SWISSPROT',
-        'RefSeq (mapped data)'      => 'RefSeq_dna',
-        'Entrez Gene ID'            => 'EntrezGene',
-        'OMIM ID (mapped data)'     => 'MIM',
+        'HGNC ID'                      => 'HUGO',
+        'UniProt ID (mapped data)'     => 'Uniprot/SWISSPROT',
+        'RefSeq (mapped data)'         => 'RefSeq_dna',
+        'Entrez Gene ID (mapped data)' => 'EntrezGene',
+        'OMIM ID (mapped data)'        => 'MIM_GENE',
     );
     my @fieldnames = map { $convhash{$_} || $_ } split /\t/, $line;
+
+#warn Dumper(\@fieldnames);
+#exit;
+
     my $num_fields = scalar(@fieldnames);
 
     # parse input into datastructure
@@ -594,44 +611,65 @@ sub parse_hugo {
             $support->log("Aborting.\n", 2);
             die("Inconsistent field numbers in HUGO file. Aborting.\n");
         }
-    
+		my $hugo_pid = $fields[0];
         my $gene_name = $fields[1];
 
-        # complement xrefs from locuslink run
-        my $i = 0;
+		#remove 'withdrawn' label since we still want to use these
+		if ($gene_name =~ /\w+~withdrawn/) {
+			$gene_name =~ s/(\w+)~withdrawn/$1/;
+		}
+		#parse input data
+		my $i = 0;
         foreach my $fieldname (@fieldnames) {
             $xrefs->{$gene_name}->{$fieldname} ||= $fields[$i];
             $i++;
         }
+		#modify HUGO entry for xref storing
+		$xrefs->{$gene_name}->{'HUGO'} = $gene_name .'||'. $hugo_pid;
+		#modify EntrezGene Entry
+		$xrefs->{$gene_name}->{'EntrezGene'} .= '||'. $xrefs->{$gene_name}->{'EntrezGene'};
+		#modify RefSeq_dna
+		$xrefs->{$gene_name}->{'RefSeq_dna'} .= '||'. $xrefs->{$gene_name}->{'RefSeq_dna'};
+		#modify MIM Entry
+		$xrefs->{$gene_name}->{'MIM_GENE'} .=  '||'. $xrefs->{$gene_name}->{'MIM_GENE'};
+		#modify Uniprot/SWISSPROT
+		$xrefs->{$gene_name}->{'Uniprot/SWISSPROT'} .= '||'.$xrefs->{$gene_name}->{'Uniprot/SWISSPROT'};
 
-        # set display_id
-        $xrefs->{$gene_name}->{'_display_id'} = $gene_name;
-        
-        push @{ $lcmap->{lc($gene_name)} }, $gene_name;
+		#store lowercase name for matching
+		push @{ $lcmap->{lc($gene_name)} }, $gene_name;
 
         # try to use previous symbols and aliases as a fallback as well
         my @previous = split(",", $fields[5]);
         my @aliases = split(",", $fields[7]);
         foreach my $alt_symbol (@previous, @aliases) {
-            # trim whitespace
+           # trim whitespace
             $alt_symbol =~ s/^\s+//;
             $alt_symbol =~ s/\s+$//;
-
+			
+			#store details for alias
+#warn Dumper($xrefs->{$gene_name});
+			unless ($alt_symbol eq $gene_name) {
+				$xrefs->{$alt_symbol} = {%{$xrefs->{$gene_name}}};
+				#make sure alias name and real pid are used
+				$xrefs->{$alt_symbol}->{'HUGO'} = $alt_symbol .'||'. $hugo_pid;
+				#add a remark for reporting
+				$xrefs->{$alt_symbol}{'Is an alias for'} = $gene_name;
+			}
             # store alternative name mapping in temporary hash
-            @{ $alt_symbols->{$alt_symbol} }{@fieldnames} = @fields;
-            $alt_symbols->{$alt_symbol}->{'_display_id'} = $gene_name;
-            push @{ $lcmap->{lc($alt_symbol)} }, $alt_symbol;
+  ##          @{ $alt_symbols->{$alt_symbol} }{@fieldnames} = @fields;
+  #          $alt_symbols->{$alt_symbol}->{'_display_id'} = $gene_name;
+  #          push @{ $lcmap->{lc($alt_symbol)} }, $alt_symbol;
         }
     }
     close(NOM);
 
     # now loop over alternative symbols and add them to %xref if the symbol
     # name doesn't exist yet
-    foreach my $symbol (keys %$alt_symbols) {
-        foreach my $fieldname (@fieldnames, '_display_id') {
-            $xrefs->{$symbol}->{$fieldname} ||= $alt_symbols->{$symbol}->{$fieldname};
-        }
-    }
+  #  foreach my $symbol (keys %$alt_symbols) {
+  #      foreach my $fieldname (@fieldnames, '_display_id') {
+  #          $xrefs->{$symbol}->{$fieldname} ||= $alt_symbols->{$symbol}->{$fieldname};
+  #      }
+  #  }
 
     $support->log_stamped("Done processing ".$stats{'total'}." entries.\n\n", 1);
 }
