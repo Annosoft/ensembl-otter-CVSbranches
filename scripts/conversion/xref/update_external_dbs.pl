@@ -102,12 +102,13 @@ open(IN, '<', "$extdbfile") or $support->throw(
     "Could not open external_db input file $extdbfile for reading: $!");
 my @rows;
 while (my $row = <IN>) {
+	next if ($row =~ /^#/);
     chomp($row);
     my @a = split(/\t/, $row);
     push @rows, {
         'external_db_id'            => $a[0],
         'db_name'                   => $a[1],
-        'db_release'                   => $a[2],
+        'db_release'                => $a[2],
         'status'                    => $a[3],
         'dbprimary_acc_linkable'    => $a[4],
         'display_label_linkable'    => $a[5],
