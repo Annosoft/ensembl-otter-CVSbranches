@@ -31,9 +31,10 @@ Specific options:
     --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
                                         (or read list from FILE)
     --xrefformat=FORMAT                 input file format FORMAT
-                                        (hugo|locuslink|refseq)
+                                        (hugo|tcag|imgt|refseq)
     --hugofile=FILE                     read Hugo input from FILE
-    --locuslinkfile=FILE                read LocusLink input from FILE
+    --tcagfile=FILE                     read TCAG input from FILE
+    --imgtfile=FILE                     read IMGT input from FILE
     --refseqfile=FILE                   read Refseq input from FILE
     --ensembl_xref                      read xrefs from an Ensembl db
     --mismatch                          correct case mismatches in the db
@@ -45,16 +46,23 @@ Specific options:
 
 =head1 DESCRIPTION
 
-This script parses input files from various sources (HUGO, LocusLink, RefSeq and an Ensembl
-database) and adds xrefs to the databases covered by the respective input source. If
+This script parses input files from various sources - HUGO, TCAG (human chr 7 annotation),
+IMGT (human major histocompatibility complex nomenclature), RefSeq and an Ensembl
+database - and adds xrefs to the databases covered by the respective input source. If
 appropriate, display name of genes is set accordingly.
 
+HUGO and Ensembl db can be used at the same time - this might be expanded in the future to
+use locuslink files. TCAG (The Centre for Applied Genomics) is used exclusively to add xrefs
+for externally annotated (Sick-Kids) genes on human chr 7. IMGT is used to add xrefs for HLA
+genes on human haplotypes
+
 Currently, these input formats are supported:
-    
+
     hugo        => http://www.gene.ucl.ac.uk/nomenclature/data/gdlw_index.html
                    ('All data' in text format)
-    locuslink   => ftp://ftp.ncbi.nih.gov/refseq/LocusLink/LL_tmpl.gz
     refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
+    tcag        => http://www.chr7.org/download/Dec2005/TCAG_ANNOTATION.gff.gz
+    imgt        => by email Steven Marsh <marsh@ebi.ac.uk>
     ensemblxref => use core ensembl database
 
 =head1 LICENCE
@@ -64,8 +72,8 @@ Please see http://www.ensembl.org/code_licence.html for details
 
 =head1 AUTHOR
 
-Patrick Meidl <pm2@sanger.ac.uk>
-Original code by Tim Hubbard <th@sanger.ac.uk>
+Steve Trevanion <st3@sanger.ac.uk>
+Original code by Patrick Meidl <meidl@ebi.ac.uk> and Tim Hubbard <th@sanger.ac.uk>
 
 =head1 CONTACT
 
@@ -104,8 +112,9 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'xrefformat=s@',
     'hugofile=s',
-    'locuslinkfile=s',
     'refseqfile=s',
+	'tcagfile=s',
+	'imgtfile=s',
     'ensembl_xref',
     'ensemblhost=s',
     'ensemblport=s',
@@ -121,8 +130,9 @@ $support->allowed_params(
     'gene_stable_id',
     'xrefformat',
     'hugofile',
-    'locuslinkfile',
     'refseqfile',
+    'tcagfile',
+    'imgtfile',
     'ensembl_xref',
     'ensemblhost',
     'ensemblport',
@@ -139,7 +149,7 @@ if ($support->param('help') or $support->error) {
 }
 
 $support->comma_to_list('chromosomes');
-$support->comma_to_list('xrefformat');
+#$support->comma_to_list('xrefformat');
 $support->list_or_file('gene_stable_id');
 
 # ask user to confirm parameters to proceed
@@ -219,7 +229,7 @@ my $sp = $species_lookup{$species};
 
 # sanity checks
 #$support->check_required_params('xrefformat');
-my %allowed_formats = map { $_ => 1 } qw(hugo refseq locuslink ensemblxref);
+my %allowed_formats = map { $_ => 1 } qw(hugo refseq tcag ensemblxref);
 
 # parse input file
 no strict 'refs';
@@ -230,38 +240,40 @@ my @xref_sources;
 my $lcmap = {};
 my $xref_file = $SERVERROOT.'/'.$support->param('dbname').'-parsed_records.file';
 
-if ($support->param( 'ensembl_xref' )) {
-	if (-e $xref_file) {
-		if ($support->user_proceed("Read E! xref records from a previously saved file - $xref_file ?\n")) {
-			$ens_xrefs = retrieve($xref_file);
+#only look at Ensembl db if there is no input file parsing, or if the file to be parsed is hugo
+if ( (!$support->param('xrefformat')) || ($support->param('xrefformat') eq 'hugo') ){
+	if ($support->param( 'ensembl_xref' )) {
+		if (-e $xref_file) {
+			if ($support->user_proceed("Read E! xref records from a previously saved file - $xref_file ?\n")) {
+				$ens_xrefs = retrieve($xref_file);
+			}
+			else {
+				$support->log_stamped("Ignoring existing input file and re-reading from E! database...\n");
+				&parse_ensdb($ens_xrefs,$lcmap,$sp);
+				$support->log_stamped("Finished reading from E! database, storing to file...\n");
+				store($ens_xrefs,$xref_file);
+			}
 		}
 		else {
-			$support->log_stamped("Ignoring existing input file and re-reading from E! database...\n");
+			$support->log_stamped("No input files read, using E! database\n");
 			&parse_ensdb($ens_xrefs,$lcmap,$sp);
 			$support->log_stamped("Finished reading from E! database, storing to file...\n");
 			store($ens_xrefs,$xref_file);
 		}
+		$primary{$sp.'_ensemblxref'} = 1;
+		push @xref_sources, [ 'ensembl', $ens_xrefs ];
 	}
-	else {
-		$support->log_stamped("No input files read, using E! database\n");
-		&parse_ensdb($ens_xrefs,$lcmap,$sp);
-		$support->log_stamped("Finished reading from E! database, storing to file...\n");
-		store($ens_xrefs,$xref_file);
-	}
-	$primary{$sp.'_ensemblxref'} = 1;
-	push @xref_sources, [ 'ensembl', $ens_xrefs ];
 }
 
 if ($support->param('xrefformat')){
 	$support->log_stamped("Reading xref input files...\n");
-	foreach my $format ($support->param('xrefformat')) {
-		my $parser = "parse_$format";
-		&$parser($xrefs, $lcmap);
-		# set as primary xref (will be used as display_xref)
-		# (set to zero if you don't want any)
-		$primary{$format} = 1;
-		push @xref_sources, [ $format, $xrefs ];
-	}
+	my $format = ($support->param('xrefformat'));
+	my $parser = "parse_$format";
+	&$parser($xrefs, $lcmap);
+	# set as primary xref (will be used as display_xref)
+	# (set to zero if you don't want any)
+	$primary{$format} = 1;
+	push @xref_sources, [ $format, $xrefs ];
 }
 
 #warn Dumper(\@xref_sources);
@@ -270,7 +282,7 @@ if ($support->param('xrefformat')){
 use strict 'refs';
 $support->log_stamped("Done.\n\n");
 
-# define each type of xref
+# define each type of xref and what to do (display_xref or not)
 my %extdb_def = (
     HUGO                => ['KNOWN',1],
     EntrezGene          => ['KNOWNXREF',0],
@@ -278,6 +290,8 @@ my %extdb_def = (
     RefSeq_dna          => ['KNOWN',0],
     MIM_GENE            => ['KNOWNXREF',0],
     'Uniprot/SWISSPROT' => ['KNOWN',0],
+	'TCAG'              => ['XREF', 0],
+	'IMGT'              => ['XREF', 0],
     Ens_Mm_gene         => ['XREF',0],
 	Ens_Hs_gene         => ['XREF',0],
 );
@@ -303,9 +317,15 @@ foreach my $chr (@chr_sorted) {
         nomatch_missing => 0,
     );
     my $gnum = 0;
-    foreach my $gene (@$genes) {
-        my $gsi = $gene->stable_id;
+GENE: foreach my $gene (@$genes) {
+		my $gsi = $gene->stable_id;
         my $gid = $gene->dbID;
+
+		# filter to user-specified gene_stable_ids
+        if (scalar(@gene_stable_ids)){
+            next unless $gene_stable_ids{$gsi};
+        }
+		
         # catch missing display_xrefs here!!
         my $disp_xref = $gene->display_xref;
         my ($stripped_name,$gene_name,$prefix);
@@ -315,130 +335,156 @@ foreach my $chr (@chr_sorted) {
             $support->log_warning("No display_xref found for gene $gid ($gsi). Skipping.\n");
             next;
         }
-		
+	
         # see if the gene_name has a prefix
-        ($prefix,$stripped_name) = split ':', $gene_name;
+        ($prefix,$stripped_name) = $gene_name  =~ /(.*?):(.*)/;
 		unless ($stripped_name) {
 			$stripped_name = $prefix;
 			$prefix = 0;
 		}
-			
-        my $lc_stripped_name = lc($stripped_name);
-        # filter to user-specified gene_stable_ids
-        if (scalar(@gene_stable_ids)){
-            next unless $gene_stable_ids{$gsi};
-        }
-		
-        $gnum++;
+
+		#skip if we're adding CTAG xrefs and this is not an SK gene
+		next if ( ($support->param('xrefformat') eq 'tcag') && $prefix ne 'SK');		
+
+		$gnum++;
         $support->log("Gene $gene_name ($gid, $gsi)...\n");
 
+		# get all names including synonyms
+		push my (@gene_names), $stripped_name;
+		push my (@lc_names), lc($stripped_name);
+		my @syn_names;
+		if (my @syns = @{$gene->get_all_Attributes('synonym')} ) {
+			foreach my $syn (@syns) {
+				my ($pref,$name) = $syn->value =~ /(.*?):(.*)/;
+				push @syn_names, $syn->value;
+				push @gene_names, $name;
+				push @lc_names, lc($name);
+			}
+		}
+
+		#look only for stable_ids if we are adding IMGT xrefs
+		if ($support->param('xrefformat') eq 'imgt') {
+			@gene_names = ( $gsi );
+			@lc_names = ( );
+		}
+
 		my $xref_found = 0;
-		foreach my $source (@xref_sources) {
+		foreach my $name ( @gene_names) {
 			next if $xref_found;
-			$support->log_verbose("Examining source $source->[0]\n",1); 
-			# do we have a match on gene_name
-			if ($source->[1]->{$stripped_name}) {
-				$xref_found = 1;
-				#report withdrawn records (HUGO
-				if ($source->[1]->{$stripped_name}->{'Approved Symbol'} =~ /~withdrawn/) {
-					$support->log_warning("Vega name: $stripped_name matches a withdrawn HGNC record\n");
-				}
-				if (my $alias_for = $source->[1]->{$stripped_name}->{'Is an alias for'}){
-					$support->log_warning("Vega name: $stripped_name is an alias / previous record for HGNC: $alias_for\n");
-				}
-	  #			warn Dumper($ens_xrefs->{$stripped_name}) if ($stripped_name eq 'CAPN3');
-			DB: foreach my $extdb (keys %extdb_def) {
-					my ($xid,$pid,$concat_xid);
-					if ($concat_xid = $source->[1]->{$stripped_name}->{$extdb}) {
-						#catch empty xrefs
-						next DB if (!$concat_xid || $concat_xid =~ /^\|+$/);
-						if ($concat_xid =~ /\|\|/) {
-							($xid,$pid) = split /\|\|/, $concat_xid;
+			$support->log("Searching for name $name\n",1);
+
+			foreach my $source (@xref_sources) {
+				next if $xref_found;
+				$support->log_verbose("Examining source $source->[0]\n",1); 
+				# do we have a match on gene_name
+				if ($source->[1]->{$name}) {
+					$xref_found = 1;
+					#report withdrawn records (HUGO)
+					if ($source->[0] eq 'hugo') {
+						if ($source->[1]->{$name}->{'Approved Symbol'} =~ /~withdrawn/) {
+							$support->log_warning("Vega name: $name matches a withdrawn HGNC record\n");
 						}
-						else {
-							$pid = $xid = $concat_xid;						
+						if (my $alias_for = $source->[1]->{$name}->{'Is an alias for'}){
+							$support->log_warning("Vega name: $name is an alias / previous record for HGNC: $alias_for\n");
 						}
-						$stats{$extdb}++;
-						if (!$support->param('dry_run')) {
-							#check if it's there already...
-							my ($existing_xref,$dbID);		
-							if ($existing_xref = $ea->fetch_by_db_accession($extdb,$pid)) {
-								$support->log("Using previous xref for gene $gid ($extdb display_id $xid, pid = $pid).\n", 1);
-								$gene->add_DBEntry($existing_xref);
-								$dbID = $ea->store($existing_xref, $gid, 'gene');
-							} else {
-								my $dbentry = Bio::EnsEMBL::DBEntry->new(
-																		 -primary_id => $pid,
-																		 -display_id => $xid,
-																		 -version    => 1,
-																		 -release    => 1,
-																		 -dbname     => $extdb,
-																		);
-								$dbentry->status($extdb_def{$extdb}->[0]);
-								$gene->add_DBEntry($dbentry);
-								$dbID = $ea->store($dbentry, $gid, 'gene');
+					}
+				DB: foreach my $extdb (keys %extdb_def) {
+						my ($xid,$pid,$concat_xid);
+						if ($concat_xid = $source->[1]->{$name}->{$extdb}) {
+							#catch empty xrefs
+							next DB if (!$concat_xid || $concat_xid =~ /^\|+$/);
+							if ($concat_xid =~ /\|\|/) {
+								($xid,$pid) = split /\|\|/, $concat_xid;
 							}
-							if ($dbID) {
-								$support->log("Stored $extdb display_id $xid, pid = $pid for gene $gid (dbID $dbID).\n", 1);
-								#do we want to update the display_xref ?
-								if ($extdb_def{$extdb}->[1]) {
-									#if there is a stripped name then make a new DBEntry and set as display_xref
-									if ($prefix) {
-										my $new_xid = $prefix.':'.$stripped_name;
-										my $new_dbentry = Bio::EnsEMBL::DBEntry->new(
-																					 -primary_id => $pid,
-																					 -display_id => $new_xid,
-																					 -version    => 1,
-																					 -release    => 1,
-																					 -dbname     => $extdb,
-																					 -info_text  => 'vega_source_prefix',
-																					);
-										my $new_dbID = $ea->store($new_dbentry, $gid, 'gene');
-										$sth_display_xref->execute($new_dbID,$gid);
-										$support->log("updated display_xref ($new_xid) using new $extdb xref ($new_dbID).\n",1);
-									}
-									#if the non-prefixed name matches the dbentry name then store it as display_xref
-									elsif ($stripped_name eq $xid) {
-										$sth_display_xref->execute($dbID,$gid);
-										$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
-									}
-									else {
-										$support->log_warning("Expected name for E! display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
-									}
-								}	
-							} else {
-								$support->log_warning("No dbID for gene $gid, pid $pid, display_id $xid, dbname $extdb.\n", 1);
+							else {
+								$pid = $xid = $concat_xid;						
 							}
-						}
-						else {
-							$support->log("Would store $extdb xref $xid (pid = $pid) for gene $gid.\n", 1);
+							$stats{$extdb}++;
+							if (!$support->param('dry_run')) {
+								#check if it's there already...
+								my ($existing_xref,$dbID);		
+								if ($existing_xref = $ea->fetch_by_db_accession($extdb,$pid)) {
+									$support->log("Using previous xref for gene $gid ($extdb display_id $xid, pid = $pid).\n", 1);
+									$gene->add_DBEntry($existing_xref);
+									$dbID = $ea->store($existing_xref, $gid, 'gene');
+								} else {
+									my $dbentry = Bio::EnsEMBL::DBEntry->new(
+																			 -primary_id => $pid,
+																			 -display_id => $xid,
+																			 -version    => 1,
+																			 -release    => 1,
+																			 -dbname     => $extdb,
+																			);
+									$dbentry->status($extdb_def{$extdb}->[0]);
+									$gene->add_DBEntry($dbentry);
+									$dbID = $ea->store($dbentry, $gid, 'gene');
+								}
+								if ($dbID) {
+									$support->log("Stored $extdb display_id $xid, pid = $pid for gene $gid (dbID $dbID).\n", 1);
+									#do we want to update the display_xref ?
+									if ($extdb_def{$extdb}->[1]) {
+										#if there is a name then make a new DBEntry and set as display_xref
+										if ($prefix) {
+											my $new_xid = $prefix.':'.$stripped_name;
+											my $new_dbentry = Bio::EnsEMBL::DBEntry->new(
+																						 -primary_id => $pid,
+																						 -display_id => $new_xid,
+																						 -version    => 1,
+																						 -release    => 1,
+																						 -dbname     => $extdb,
+																						 -info_text  => 'vega_source_prefix',
+																						);
+											my $new_dbID = $ea->store($new_dbentry, $gid, 'gene');
+											$sth_display_xref->execute($new_dbID,$gid);
+											$support->log("updated display_xref ($new_xid) using new $extdb xref ($new_dbID).\n",1);
+										}
+										#if the non-prefixed name matches the dbentry name then store it as display_xref
+										elsif ($name eq $xid) {
+											$sth_display_xref->execute($dbID,$gid);
+											$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
+										}
+										else {
+											$support->log_warning("Expected name for E! display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
+									}
+									}	
+								} else {
+									$support->log_warning("No dbID for gene $gid, pid $pid, display_id $xid, dbname $extdb.\n", 1);
+								}
+							}
+							else {
+								$support->log("Would store $extdb xref $xid (pid = $pid) for gene $gid.\n", 1);
+							}
 						}
 					}
 				}
 			}
-		
 		# no match for some reason (log why)
 		} 
 		if (!$xref_found) {
-			if ($lcmap->{$lc_stripped_name}) {
-				# possible case error
-				$support->log_warning("Possible case error for $gene_name -- ".
-									  join(',',(@{ $lcmap->{$lc_stripped_name} })).".\n", 1);
-				if ($support->param('mismatch')) {
-					# fix case mismatch in db
-					$support->log("Fixing case mismatch...\n", 1);
-					my $new_name = $prefix ? $prefix.':'.$lcmap->{$lc_stripped_name}->[0] : $lcmap->{$lc_stripped_name}->[0];
-#					$sth_case1->execute($new_name, $gene_name);
-					$sth_case2->execute($new_name, $gene_name);
+			foreach my $lc_name (@lc_names) {
+				if ($lcmap->{$lc_name}) {
+					# possible case error
+					$support->log_warning("Possible case error for $gene_name -- ".
+									  join(',',(@{ $lcmap->{$lc_name} })).".\n", 1);
+					if ($support->param('mismatch')) {
+						# fix case mismatch in db
+						$support->log("Fixing case mismatch...\n", 1);
+						my $new_name = $prefix ? $prefix.':'.$lcmap->{$lc_name}->[0] : $lcmap->{$lc_name}->[0];
+						#					$sth_case1->execute($new_name, $gene_name);
+						$sth_case2->execute($new_name, $gene_name);
+					}
+					$warnings{'wrong_case'}++;
+					next GENE;
 				}
-				$warnings{'wrong_case'}++;
-			} elsif ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
+			} 
+			if ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
 				# probably a clone-based genename - ok
 				$support->log("No match for $gene_name (but has clonename based name).\n", 1);
 				$warnings{'nomatch_clone'}++;
-			} else {
+			} 
+			else {
 				# other genes without a match
-				$support->log_warning("No match for $gene_name.\n", 1);
+				$support->log_warning("No match for $gene_name (@syn_names).\n", 1);
 				$warnings{'nomatch_missing'}++;
 			}
 		}
@@ -547,8 +593,6 @@ sub parse_ensdb {
 }
 
 
-
-
 =head2 parse_hugo
 
   Arg[1]      : Hashref $xrefs - keys: gene names, values: hashref (extDB =>
@@ -585,9 +629,6 @@ sub parse_hugo {
         'OMIM ID (mapped data)'        => 'MIM_GENE',
     );
     my @fieldnames = map { $convhash{$_} || $_ } split /\t/, $line;
-
-#warn Dumper(\@fieldnames);
-#exit;
 
     my $num_fields = scalar(@fieldnames);
 
@@ -647,7 +688,6 @@ sub parse_hugo {
             $alt_symbol =~ s/\s+$//;
 			
 			#store details for alias
-#warn Dumper($xrefs->{$gene_name});
 			unless ($alt_symbol eq $gene_name) {
 				$xrefs->{$alt_symbol} = {%{$xrefs->{$gene_name}}};
 				#make sure alias name and real pid are used
@@ -673,6 +713,74 @@ sub parse_hugo {
 
     $support->log_stamped("Done processing ".$stats{'total'}." entries.\n\n", 1);
 }
+
+=head2 parse_tcag
+
+=cut
+
+sub parse_tcag {
+    my ($xrefs, $lcmap) = @_;
+	$support->log_stamped("TCAG...\n", 1);
+
+    # read input file
+    my $tcagfile = $support->param('tcagfile');
+    my $fh_expr;
+    if($tcagfile =~ /\.gz$/) {
+        $fh_expr = "gzip -d -c $tcagfile |";
+    } else {
+        $fh_expr = "< $tcagfile";
+    }
+    open(TCAG, $fh_expr)
+        or $support->throw("Couldn't open $tcagfile for reading: $!\n");
+	
+	#parse input file
+	while (<TCAG>) {
+		my @fields = split /\t/;
+		next unless  $fields[8] =~ /Gene_ID/;
+		my @details = split /;/, $fields[8];
+ 		my ($symbol) = $details[0] =~ /"(.+)"/;
+		next if ($symbol =~ /transcript_variant/);
+		my ($id)     = $details[2] =~ /"(.+)"/;
+
+		#for debugging
+		unless ($symbol && $id) {
+			print "record with no symbol = $_\n";
+			foreach my $f (@fields) {
+				print " field = $f\n";
+			}
+			foreach my $d (@details) {
+				print "  det = $d\n";
+			}
+		}
+
+		$xrefs->{$symbol}->{'TCAG'} = $id.'||'.$id;
+		push @{ $lcmap->{lc($symbol)} }, $symbol;
+	}
+}
+
+
+sub parse_imgt {
+    my ($xrefs, $lcmap) = @_;
+	$support->log_stamped("IMGT...\n", 1);
+    # read input file from IMGT
+    open (IMGT, '<', $support->param('imgtfile')) or $support->throw(
+        "Couldn't open ".$support->param('imgtfile')." for reading: $!\n");
+    # read header
+    my $line = <IMGT>;
+    chomp $line;
+	my @fieldnames = split /\t/, $line;
+	while (<IMGT>) {
+		my @fields = split /\t/, $_;
+		#skip multiple header lines
+		next if ($fields[0] eq $fieldnames[1]);
+		my $xid  = $fields[0];
+		my $gsi = $fields[2];
+		my $pid = $xid;
+		$pid =~ s/\*/_/; 
+		$xrefs->{$gsi}->{'IMGT'} = $xid.'||'.$pid;
+	}
+}
+
 
 =head2 parse_locuslink
 
