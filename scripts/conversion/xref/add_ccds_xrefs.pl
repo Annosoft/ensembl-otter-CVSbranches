@@ -2,8 +2,7 @@
 
 =head1 NAME
 
-add_external_xrefs.pl - adds xrefs to external databases from various types
-of input files
+add_ccds_xrefs.pl - adds xrefs for CCDS identifiers
 
 =head1 SYNOPSIS
 
