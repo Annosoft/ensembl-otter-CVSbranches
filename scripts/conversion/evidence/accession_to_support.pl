@@ -249,7 +249,7 @@ foreach my $chr (@chr_sorted) {
                         }
                     }
                 }
-                $support->log_warning("No matching similarity feature found for $acc.\n", 3) unless ($match);
+                $support->log_verbose("No matching similarity feature found for $acc.\n", 3) unless ($match);
             }
             unless ($transcript_has_support) {
                 $stats{'transcripts_without_support'}++;
