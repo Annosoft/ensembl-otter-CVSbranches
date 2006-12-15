@@ -424,8 +424,23 @@ sub delete_xrefs {
     my @keep_gene_xrefs = @{ $dbh->selectall_arrayref($sql) || [] };
     my %seen_genes;
     map { $seen_genes{$_->[0] } = 1 } @keep_gene_xrefs;
+
+	#filter out additional xrefs to keep because some human xrefs can be used as
+    #display_xrefs and as xrefs
+	$sql = qq(
+      SELECT
+		        x.xref_id
+        FROM
+                xref x,
+                gene g
+        WHERE   x.xref_id = g.display_xref_id
+    );
+	my @keep_gene_display_xrefs = @{ $dbh->selectall_arrayref($sql) || [] };	
+	my %seen_display_xrefs;
+	map { $seen_display_xrefs{$_->[0] } = 1 } @keep_gene_display_xrefs;
+
     foreach my $gene_xref (@gene_xrefs) {
-        push(@xrefs, $gene_xref) unless ($seen_genes{$gene_xref->[0]});
+        push(@xrefs, $gene_xref) unless ( $seen_genes{$gene_xref->[0]} || $seen_display_xrefs{$gene_xref->[0]} );
     }
 
     # orphan transcript xrefs to delete
