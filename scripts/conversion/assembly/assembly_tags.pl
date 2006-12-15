@@ -145,13 +145,6 @@ $support->log("Stored $stats{ok} assembly tags.\n", 1);
 $support->log("Skipped $stats{skipped} assembly tags.\n", 1);
 $support->log("Done.\n");
 
-# drop now obsolete table assembly_tag
-if ($support->user_proceed("Would you like to drop the assembly_tag table?")) {
-    $support->log("Dropping table assembly_tag...\n");
-    $dbh->do("DROP TABLE assembly_tag") unless $support->param('dry_run');
-    $support->log("Done.\n");
-}
-
 # finish log
 $support->finish_log;
 
