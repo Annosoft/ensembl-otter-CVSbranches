@@ -35,7 +35,9 @@ This script updates transcript_info.name (which originally holds clone-name
 based transcript names) with names that reflect the gene name.
 
 If you run the script after you ran add_vega_xrefs.pl, you can use the
---fix_xrefs option to also patch the diplay_xrefs.
+--fix_xrefs option to also patch the diplay_xrefs. It cannot be used to change
+transcript names after the addition of Zfin gene names - that must be done using
+patch_transcript_names.pl
 
 =head1 LICENCE
 
