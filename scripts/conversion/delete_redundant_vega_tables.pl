@@ -136,7 +136,7 @@ if (@to_delete) {
 		}
 		else {			
 			foreach my $t (@to_delete) {
-				if ($support->user_proceed("Delete table $t ?\n")) {
+				if ($support->user_proceed("\nDelete table $t ?")) {
 					$vdbh->do("DROP TABLE $t");
 				}
 			}
