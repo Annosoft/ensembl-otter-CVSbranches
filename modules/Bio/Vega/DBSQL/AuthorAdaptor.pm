@@ -2,7 +2,6 @@ package Bio::Vega::DBSQL::AuthorAdaptor;
 
 use strict;
 use Bio::Vega::Author;
-use Bio::Vega::AuthorGroup;
 use Bio::EnsEMBL::Utils::Exception qw ( throw warning );
 
 use base 'Bio::EnsEMBL::DBSQL::BaseAdaptor';
@@ -44,7 +43,7 @@ sub _generic_sql_fetch {
          $author->email($ref->{author_email});
          $author->name($ref->{author_name});
          if (! defined $author->group){
-           my $group=new Bio::Vega::AuthorGroup;
+           my $group=new Bio::Otter::AuthorGroup;
            $author->group($group);
          }
          $author->group->dbID($ref->{group_id});

@@ -1,4 +1,3 @@
-
 [defaults]
 HOST        otterlive
 PORT        3301
@@ -8,6 +7,7 @@ DNA_HOST    otterlive
 DNA_PORT    3301
 DNA_USER    ottadmin
 DNA_PASS    lutralutra
+HEADCODE    0
 
 [human]
 DBNAME      otter_human
@@ -23,6 +23,10 @@ TYPE        mrc4
 
 [misc_mouse]
 DBNAME      otter_misc_mouse
+TYPE        misc
+
+[misc_test]
+DBNAME      otter_misc_test
 TYPE        misc
 
 [zebrafish]
@@ -80,4 +84,12 @@ TYPE        consK_H-01
 [tropicalis]
 DBNAME  otter_tropicalis
 TYPE    lw2_jgi-02
+
+[misc_zebrafish]
+DBNAME      otter_misc_zebrafish
+TYPE        zfish_01
+
+[medicago]
+DBNAME  otter_medicago
+TYPE    UNKNOWN
 

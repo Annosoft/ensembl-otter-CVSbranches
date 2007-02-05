@@ -3,11 +3,9 @@ package Bio::Otter::AnnotatedGene;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Gene;
+use base 'Bio::EnsEMBL::Gene';
 
-
-@ISA = qw(Bio::EnsEMBL::Gene);
-
+use Bio::Vega::Utils::XmlEscape qw{ xml_escape xml_unescape };
 
 sub new {
   my($class,@args) = @_;
@@ -98,7 +96,7 @@ sub toXMLString {
     my $info = $self->gene_info;
 
     if (my $desc = $self->description) {
-        $str .= "  <description>$desc</description>\n";
+        $str .= "  <description>" . xml_escape($desc) . "</description>\n";
     }
 
     if (defined($info)) {
@@ -117,7 +115,7 @@ sub toXMLString {
         }
 
         foreach my $rem ($info->remark) {
-            $str .= "  <remark>" . $rem->remark . "</remark>\n";
+            $str .= "  <remark>" . xml_escape($rem->remark) . "</remark>\n";
         }
 
         if (my $author = $info->author) {
@@ -147,7 +145,7 @@ sub toXMLString {
 
             foreach my $remstr (sort map $_->remark, $tinfo->remark) {
                 $remstr =~ s/\n/ /g;
-                $str .= "    <remark>$remstr</remark>\n";
+                $str .= "    <remark>" . xml_escape($remstr) . "</remark>\n";
             }
 
             foreach my $method (

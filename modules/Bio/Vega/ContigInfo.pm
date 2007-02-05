@@ -64,23 +64,6 @@ sub add_Attributes  {
   return;
 }
 
-sub hashkey_sub {
-  my $self = shift;
-  my $attributes = $self->get_all_Attributes;
-  my $hashkey_sub={};
-  foreach my $a (@$attributes){
-	 $hashkey_sub->{$a->value}=1;
-  }
-  return $hashkey_sub;
-}
-
-sub hashkey {
-  my $self = shift;
-  my $attributes = $self->get_all_Attributes;
-  my $count=@$attributes;
-  my $hashkey=$count;
-  return $hashkey;
-}
 
 sub get_all_Attributes  {
   my $self = shift;
@@ -91,12 +74,12 @@ sub get_all_Attributes  {
     }
 
     my $attribute_adaptor = $self->adaptor();
-    $self->{'attributes'} = $attribute_adaptor->fetch_all_by_ContigInfo($self);
+    $self->{'attributes'} = $attribute_adaptor->fetch_all_by_CloneInfo($self);
   }
   if( defined $attrib_code ) {
     my @results = grep { uc($_->code()) eq uc($attrib_code) }
     @{$self->{'attributes'}};
-    return \@results;
+    return\@ results;
   } else {
     return $self->{'attributes'};
   }

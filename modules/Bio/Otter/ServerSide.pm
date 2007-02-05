@@ -5,6 +5,7 @@ use Exporter;
 
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
 use Bio::Otter::DBSQL::DBAdaptor;
+use Bio::Vega::DBSQL::DBAdaptor;
 use Bio::Otter::Author;
 use Bio::Otter::Version;
 use Bio::Otter::Lace::SatelliteDB;
@@ -146,25 +147,44 @@ sub get_mapper_dba {
 
     if($pipehead && $metakey) { # a head version of ensembl_db (non-pipeline genes)
 
-        my ($sdb_def_asm) = (@{ $sdba->get_MetaContainer()->list_value_by_key('assembly.default') }, 'UNKNOWN');
+        my ($sdb_asm) = (@{ $sdba->get_MetaContainer()->list_value_by_key('assembly.default') },
+            'UNKNOWN');
 
-            # Currently we keep the necessary information in the pipeline_db_head.
+            # Currently we keep assembly equivalency information in the pipeline_db_head seq_region_attrib.
             # Once otter_db is converted into new schema, we can keep this information there.
-        my $pdba = odba_to_sdba($sq, $odba, 1);
+        my $pdba = odba_to_sdba($sq, $odba, 1, ''); # ensures we get new pipeline
         my $pipe_slice = get_slice($sq, $pdba, 1);
-        my ($equiv_asm) = map {$_->value()} @{ $pipe_slice->get_all_Attributes('equiv_asm') };
+        my %asm_is_equiv = map { ($_->value() => 1) } @{ $pipe_slice->get_all_Attributes('equiv_asm') };
 
-        if($equiv_asm && ($equiv_asm eq $sdb_def_asm)) { # we can do our trivial mapping
+        if($asm_is_equiv{$sdb_asm}) { # we can simply rename instead of mapping
 
             my $chr_name = $sq->getarg('name');
-            server_log("This chr is equivalent to '$chr_name' in our reference '$equiv_asm' assembly");
-            $sq->setarg('csver', $equiv_asm);
+            server_log("This chr is equivalent to '$chr_name' in our reference '$sdb_asm' assembly");
+            $sq->setarg('csver', $sdb_asm);
             return;
 
-        } else { # guaranteed to differ!
+        } else { # assemblies are guaranteed to differ!
 
-            my $mdba = odba_to_sdba($sq, $odba, 1, 'mapper_db');
-            return $mdba;
+                # see if 'mapper_db' meta link is defined:
+            my ($mapper_val) = @{$odba->get_MetaContainer()->list_value_by_key('mapper_db')};
+            if($mapper_val) {
+                my $mdba;
+
+                    # we may keep the mapping information in new otter|pipeline db or elsewhere:
+                if($mapper_val eq '=otter_head') {
+                    $mdba = $odba;
+                } elsif($mapper_val eq '=pipeline_head') {
+                    $mdba = $pdba;
+                } else {
+                    $mdba = odba_to_sdba($sq, $odba, 1, 'mapper_db');
+                }
+
+                return ($mdba, $sdb_asm);
+            } else {
+                server_log("No mapper_db defined in meta table => cannot map between assemblies => exiting");
+                send_response($sq, '', 1);
+                exit(0);
+            }
         }
 
     } elsif($pipehead) { # a head version of pipeline_db
@@ -208,7 +228,7 @@ sub get_slice { # codebase-independent version for scripts
 		    : 'name';
         my $segment_name = $sq->getarg($segment_attr);
 
-        error_exit($sq, "$cs '$segment_attr' attribute not set") unless $segment_name;
+        error_exit($sq, "$cs '$segment_attr' attribute not set ") unless $segment_name;
 
         $slice =  $dba->get_SliceAdaptor()->fetch_by_region(
             $cs,
@@ -275,23 +295,28 @@ sub get_slice { # codebase-independent version for scripts
 }
 
 sub get_Author_from_CGI{
-    my ($sq) = @_;
-    error_exit('', 'I need a CGI object') unless $sq && UNIVERSAL::isa($sq, 'CGI');
+  my ($sq,$pipehead) = @_;
+  error_exit('', 'I need a CGI object') unless $sq && UNIVERSAL::isa($sq, 'CGI');
+  my $auth_name = $sq->getarg('author') || error_exit($sq, "Need author for this script...");
+  my $email     = $sq->getarg('email')  || error_exit($sq, "Need email for this script...");
+  my $author;
+  unless($pipehead) {
+	 $pipehead=0;
+  }
 
-    my $auth_name = $sq->getarg('author') || error_exit($sq, "Need author for this script...");
-    my $email     = $sq->getarg('email')  || error_exit($sq, "Need email for this script...");
-
-    my $author    = Bio::Otter::Author->new(-name  => $auth_name,
-                                            -email => $email);
-    return $author;
+  if ($pipehead) {
+	 $author=Bio::Vega::Author->new(-name  => $auth_name,
+											  -email => $email);
+  }
+  else {
+	 $author    = Bio::Otter::Author->new(-name  => $auth_name,
+													  -email => $email);
+  }
+  return $author;
 }
 
 sub get_DBAdaptor_from_CGI_species{
     my ($sq, $SPECIES, $pipehead) = @_;
-
-    my $adaptor_class = $pipehead
-        ? 'Bio::EnsEMBL::DBSQL::DBAdaptor'
-        : 'Bio::Otter::DBSQL::DBAdaptor';
 
     error_exit('', 'I need two arguments') unless $sq && $SPECIES;
     error_exit('', 'I need a CGI object') unless UNIVERSAL::isa($sq, 'CGI');
@@ -306,15 +331,20 @@ sub get_DBAdaptor_from_CGI_species{
     # get the defaults from species.dat
     my $defaults = $SPECIES->{'defaults'};
 
+    ########## CODEBASE tricks ########################################
+    my $headcode  = $dbinfo->{HEADCODE} || $defaults->{HEADCODE};
+    $pipehead ||= $headcode;
+
     my $type     = $sq->getarg('type') || $dbinfo->{TYPE} || $defaults->{TYPE};
 
     ########## AND DB CONNECTION #######################################
+
     my $dbhost    = $dbinfo->{HOST}     || $defaults->{HOST};
     my $dbuser    = $dbinfo->{USER}     || $defaults->{USER};
     my $dbpass    = $dbinfo->{PASS}     || $defaults->{PASS};
     my $dbport    = $dbinfo->{PORT}     || $defaults->{PORT};
-    my $dbname    = $dbinfo->{DBNAME}   || 
-        error_exit($sq, "Failed opening otter database [No database name]");
+    my $dbname    = $dbinfo->{DBNAME}   ||
+		error_exit($sq, "Failed opening otter database [No database name]");
 
     my $dnahost    = $dbinfo->{DNA_HOST}    || $defaults->{DNA_HOST};
     my $dnauser    = $dbinfo->{DNA_USER}    || $defaults->{DNA_USER};
@@ -322,6 +352,17 @@ sub get_DBAdaptor_from_CGI_species{
     my $dnaport    = $dbinfo->{DNA_PORT}    || $defaults->{DNA_PORT};
     my $dna_dbname = $dbinfo->{DNA_DBNAME};
   
+
+    my $adaptor_class = $pipehead
+        ? ( $headcode
+                ? 'Bio::Vega::DBSQL::DBAdaptor'     # headcode anyway, get the best adaptor
+                : 'Bio::EnsEMBL::DBSQL::DBAdaptor'  # new pipeline of the old otter, get the minimal adaptor
+          )
+        : ( $headcode
+                ? 'Bio::EnsEMBL::DBSQL::DBAdaptor'  # old pipeline of the new otter, get the minimal adaptor
+                : 'Bio::Otter::DBSQL::DBAdaptor'    # oldcode anyway, get the best adaptor
+        );
+
     my( $odba, $dnadb );
 
     server_log("OtterDB='$dbname' host='$dbhost' user='$dbuser' pass='$dbpass' port='$dbport'");

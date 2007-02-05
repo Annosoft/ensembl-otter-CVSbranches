@@ -28,6 +28,8 @@ use Bio::EnsEMBL::Clone;
 use Bio::EnsEMBL::SimpleFeature;
 use Bio::Seq;
 
+use Bio::Vega::Utils::XmlEscape qw{ xml_escape xml_unescape };
+
 sub XML_to_otter {
   my $fh = shift;
   my $db = shift;
@@ -109,7 +111,7 @@ sub XML_to_otter {
         $geneinfo->known_flag($1);
     }
     elsif (/<remark>(.*)<\/remark>/) {
-      my $remark = $1;
+      my $remark = xml_unescape($1);
       if ($currentobj eq 'gene') {
         my $rem = new Bio::Otter::GeneRemark(-remark => $remark);
         $geneinfo->remark($rem);
@@ -291,7 +293,7 @@ sub XML_to_otter {
     elsif (/<description>(.*)<\/description>/) {
 
       if ($currentobj eq 'gene') {
-        $gene->description($1);
+        $gene->description(xml_unescape($1));
       } else {
         die "ERROR: description tag only associated with gene objects. Object is [$currentobj]\n";
       }
@@ -599,8 +601,9 @@ sub XML_to_otter {
     }
   }
 
+  my $all_exon_stable = {};
   foreach my $gene (@genes) {
-    prune_Exons($gene);
+    prune_Exons($gene, $all_exon_stable);
 
     foreach my $tran (@{$gene->get_all_Transcripts}) {
         my @exons = @{$tran->get_all_Exons};
@@ -855,6 +858,7 @@ sub ace_transcript_seq_objs_from_genes{
 
     # Add Sequence objects for Transcripts
     foreach my $gene (@$genes) {
+
         my $gene_name;
         my $info = $gene->gene_info;
         if (my $gn = $info->name) {
@@ -1023,7 +1027,7 @@ sub ace_locus_objs_from_genes {
             $str .= qq{Full_name "$desc"\n};
         }
         foreach my $rem ( $info->remark ) {
-	        my $txt = $rem->remark;
+	        my $txt = ace_escape($rem->remark);
 
 	        if ($txt =~ s/^Annotation_remark- //) {
 	            $str .= qq{Annotation_remark "$txt"\n};
@@ -1566,6 +1570,8 @@ sub ace_to_otter {
                 my $start_phase = $seq_data->{Start_not_found};
                 if (defined $start_phase) {
                     $traninfo->mRNA_start_not_found(1);
+                    
+                    ### Wrong test. Check if translation start equals transcript start too.
                     $traninfo->cds_start_not_found(1) if $start_phase != -1;
                 }
                 else {
@@ -1600,6 +1606,7 @@ sub ace_to_otter {
                         else {
                             $exon->phase($phase);
                         }
+                        ### I think this arithmetic is wrong for a single-exon gene:
                         $exon_cds_length = $exon_end - $cds_start + 1;
                         $translation->start_Exon($exon);
                         my $t_start = $cds_start - $exon_start + 1;
@@ -1681,6 +1688,7 @@ sub ace_to_otter {
 
     # Make gene objects
     my @genes;
+    my $all_exon_stable = {};
     while (my ($gname, $gene_data) = each %genes) {
 
         #print STDERR "Gene name = $gname\n";
@@ -1745,7 +1753,7 @@ sub ace_to_otter {
             $gene->add_Transcript($tran);
         }
 
-        prune_Exons($gene);
+        prune_Exons($gene, $all_exon_stable);
 
         my $ace_type = $gene_data->{GeneType};
         if ($ace_type and $ace_type =~ /known/i) {
@@ -1876,7 +1884,7 @@ sub ace_to_XML {
 }
 
 sub prune_Exons {
-    my ($gene) = @_;
+    my ($gene, $all_exon_stable) = @_;
 
     # keep track of all unique exons found so far to avoid making duplicates
     # need to be very careful about translation->start_exon and translation->end_Exon
@@ -1907,14 +1915,20 @@ sub prune_Exons {
             push (@transcript_exons, $exon);
 
             # Make sure we don't have the same stable IDs
-            # for different exons (different keys).
+            # for different exons (different keys), or share
+            # them between genes.
             if (my $stable = $exon->stable_id) {
-                if (my $seen_key = $stable_key{$stable}) {
+                if ($all_exon_stable->{$stable}) {
+                    printf STDERR  "Already seen exon_id '$stable' on different gene\n";
+                    $exon->{'_stable_id'} = undef;
+                }
+                elsif (my $seen_key = $stable_key{$stable}) {
                     if ($seen_key ne $key) {
-                        $exon->{_stable_id} = undef;
+                        $exon->{'_stable_id'} = undef;
                         printf STDERR  "Already seen exon_id '$stable' on different exon\n";
                     }
-                } else {
+                }
+                else {
                     $stable_key{$stable} = $key;
                 }
             }
@@ -1922,6 +1936,11 @@ sub prune_Exons {
         $tran->flush_Exons;
         foreach my $exon (@transcript_exons) {
             $tran->add_Exon($exon);
+        }
+    }
+    foreach my $exon (@{$gene->get_all_Exons}) {
+        if (my $stable = $exon->stable_id) {
+            $all_exon_stable->{$stable} = 1;
         }
     }
 }
@@ -1986,7 +2005,7 @@ sub clone_to_XML {
         my @remarks  = sort map $_->remark, $info->remark;
         foreach my $rem (@remarks) {
             $rem =~ s/\n/ /g;
-            $str .= "  <remark>$rem<\/remark>\n";
+            $str .= "  <remark>" . xml_escape($rem) . "<\/remark>\n";
         }
 
         my @keywords = sort map $_->name,   $info->keyword;
@@ -2041,8 +2060,11 @@ sub slice_to_XML {
   my @genes;
 
   if ($db->isa("Bio::Otter::DBSQL::DBAdaptor")) {
-     @genes = @{ $db->get_GeneAdaptor->fetch_by_Slice($slice) };
-   } else {
+     # @genes = @{ $db->get_GeneAdaptor->fetch_by_Slice($slice) };
+
+        # to prevent getting "unwanted" genes:
+     @genes = @{ $slice->get_all_Genes('otter') };
+  } else {
      # Is this ever used?  AnnotatedGenes from an non-otter database?
      my $tmpgenes = $db->get_GeneAdaptor->fetch_all_by_Slice($slice);
      foreach my $g (@$tmpgenes) {

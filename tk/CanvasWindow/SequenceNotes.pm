@@ -60,7 +60,11 @@ sub get_CloneSequence_list {
         my $cl = $self->Client();
         my $ds = $self->SequenceSetChooser->DataSet;
 
-        $cl->get_all_CloneSequences_for_SequenceSet($ss);
+        if ($cl->can('get_all_CloneSequences_for_DataSet_SequenceSet')) {
+            $cl->get_all_CloneSequences_for_DataSet_SequenceSet($ds, $ss);
+        } else {
+            $cl->get_all_CloneSequences_for_SequenceSet($ss);
+        }
         $cl->fetch_all_SequenceNotes_for_DataSet_SequenceSet($ds, $ss);
         $cl->status_refresh_for_DataSet_SequenceSet($ds, $ss);
         $cl->lock_refresh_for_DataSet_SequenceSet($ds, $ss); # do we need it?
@@ -746,13 +750,11 @@ sub _open_SequenceSet{
 
     warn "Making XaceSeqChooser";
     my $xc = $self->make_XaceSeqChooser($title);
-    ### Maybe: $xc->SequenceNotes($self);
     $xc->SequenceNotes($self) ;
     $xc->AceDatabase($db);
 #    $xc->EviCollection($ec);
     my $write_flag = $cl->write_access ? $ss->write_access : 0;
     $xc->write_access($write_flag);  ### Can be part of interface in future
-    $xc->Client($self->Client);
     $xc->initialize;
     $self->refresh_column(7) ; # 7 is the locks column
     

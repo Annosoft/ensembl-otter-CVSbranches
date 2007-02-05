@@ -5,10 +5,12 @@ package MenuCanvasWindow::ExonCanvas;
 
 use strict;
 use Carp;
+use Scalar::Util 'weaken';
 use Tk::Dialog;
 use Tk::ROText;
 use Tk::LabFrame;
 use Tk::ComboBox;
+use Tk::SmartOptionmenu;
 use Hum::Ace::SubSeq;
 use Hum::Translator;
 use MenuCanvasWindow;
@@ -43,11 +45,6 @@ sub initialize {
             warn "Nothing selected";
         }
     };
-    
-    # Save changes on window close
-    my $window_close = sub {
-        $self->window_close or return;
-        };
 
     my $file_menu = $self->make_menu('File');
     
@@ -85,6 +82,11 @@ sub initialize {
         );
     $top->bind('<Control-period>',  $run_dotter);
     $top->bind('<Control-greater>', $run_dotter);
+    
+    # Save changes on window close
+    my $window_close = sub {
+        $self->window_close or return;
+        };
     
     # Trap window close
     $top->protocol('WM_DELETE_WINDOW', $window_close);
@@ -269,7 +271,7 @@ sub initialize {
             my $display_name = $gm->has_parent ? "    $name" : "$name ";
             push(@$menu_list, [$display_name, $name]);
         }
-        my $type_option_menu = $type_frame->Optionmenu(
+        my $type_option_menu = $type_frame->SmartOptionmenu(
             -options => $menu_list,
             -variable => \$current_method,
             -command => sub{
@@ -277,17 +279,6 @@ sub initialize {
                     $top->focus;  # Need this
                 },
             )->pack(-side => 'left');
-        
-        # There is a bug in Optionmenu. The current method does
-        # not get set on the menu (via the "-variable") unless
-        # we explicitly set it with its (internal) setOption method.
-        $current_method = $self->SubSeq->GeneMethod->name;
-        foreach my $pair (@$menu_list) {
-            if ($pair->[1] eq $current_method) {
-                $type_option_menu->setOption(@$pair);
-                last;
-            }
-        }
         
         # Start not found and end not found and method widgets
         $self->add_start_end_method_widgets($frame);
@@ -373,6 +364,7 @@ sub XaceSeqChooser {
     
     if ($chooser) {
         $self->{'_XaceSeqChooser'} = $chooser;
+        weaken $self->{'_XaceSeqChooser'};
     }
     return $self->{'_XaceSeqChooser'};
 }
@@ -712,7 +704,7 @@ sub window_close {
         }
     }
     #$self->delete_chooser_window_ref;
-    $self->canvas->toplevel->destroy;
+    $self->top_window->destroy;
    
     return 1;
 }
@@ -721,7 +713,7 @@ sub show_subseq {
     my( $self ) = @_;
 
     
-    my $xr = $self->XaceSeqChooser->xace_remote  || $self->XaceSeqChooser->open_xace_dialogue;
+    my $xr = $self->XaceSeqChooser->xace_remote;
     if ($xr) {
         my $sub = $self->SubSeq;
         unless ($sub->is_archival) {
@@ -1040,6 +1032,7 @@ sub check_kozak{
                 )->pack(-side   => 'left');                         
         
         my $close_kozak = sub { $kozak_window->withdraw } ;
+        $kozak_window->bind('<Destroy>', sub{ $self = undef });
         my $kozak_butt = $kozak_window->Button( -text       => 'close' ,
                                             -command    => $close_kozak ,
                                             )->pack(-side => 'left')  ;
@@ -2053,6 +2046,7 @@ sub middle_button_paste {
     my( $self ) = @_;
 
     my $canvas = $self->canvas;
+    
     my @ints = $self->integers_from_clipboard;
     return unless @ints;
     
