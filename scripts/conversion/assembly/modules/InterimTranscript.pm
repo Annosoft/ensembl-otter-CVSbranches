@@ -137,6 +137,12 @@ sub transcript_attribs {
   return $self->{'transcript_attribs'};
 }
 
+sub analysis {
+  my $self = shift;
+  $self->{'analysis'} = shift if(@_);
+  return $self->{'analysis'};
+}
+
 sub add_TranscriptSupportingFeature {
     my ($self, $sf) = @_;
     push @{ $self->{'transcript_supporting_features'} }, $sf;
