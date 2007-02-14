@@ -124,7 +124,6 @@ sub check_iexons {
             $support->log_verbose("no exons left in transcript\n", 4);
         }
     }
-
     return $itranscript_array;
 }
 
@@ -172,11 +171,8 @@ sub make_Transcript {
             push @protein_features, $pf;
         }
     }
-
     foreach my $iexon (@{ $itrans->get_all_Exons }) {
-        my $E_slice =
-            $E_sa->fetch_by_region('chromosome', $iexon->seq_region,
-                    undef, undef,undef, $support->param('ensemblassembly'));
+		my $E_slice = $E_sa->fetch_by_seq_region_id($iexon->seq_region);
 
         my $exon = Bio::EnsEMBL::Exon->new
             (-START     => $iexon->start,
