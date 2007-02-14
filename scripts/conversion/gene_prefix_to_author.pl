@@ -27,9 +27,9 @@ General options:
 
 =head1 DESCRIPTION
 
-This script uses the prefixe from the gene display_xref assigns the correct author_id
-to gene_info. It also updates author and author_group according to the %authors hash.
-As such it must be run after add_vega_xrefs and before otter_to_ensembl.pl
+This script uses the prefix from the gene display_xref to assign the correct author_id
+to gene_info and transcript_info. It also updates author and author_group according to 
+the %authors hash. As such it must be run after add_vega_xrefs and before otter_to_ensembl.pl
 
 =head1 LICENCE
 
@@ -99,13 +99,14 @@ my %authors = (
 			SK     => ['Sick_Kids','jmacdonald@sickkids.ca',7 ],
 			WU     => ['Washu','jspieth@watson.wust',8 ],
 			HAVANA => ['Havana','vega@sanger.ac.uk',9],
+			KO     => ['Havana','vega@sanger.ac.uk',9],
 );
 
 
 ##prepare sql
 #update gene_info
 my $sql = $dbh->prepare(qq(
-        UPDATE  gene_info gi
+        UPDATE  gene_info
         SET     author_id = ?
         WHERE   gene_stable_id = ?
 ));
@@ -118,6 +119,12 @@ my $sql3 = $dbh->prepare(qq(
           INSERT into author_group
           VALUES (?,?,?)
 ));
+my $sql4 = $dbh->prepare(qq(
+           UPDATE  transcript_info
+           SET     author_id = ?
+           WHERE   transcript_stable_id = ?
+));
+
 unless ($support->param('dry_run')) {
 	##replace existing author and author_group info with new stuff
 	$dbh->do("delete from author_group");
@@ -139,16 +146,25 @@ foreach my $chr ($support->sort_chromosomes) {
 		my $name = $gene->display_xref->display_id;
 		my $prefix = $name;
 		$prefix =~ s/(.*?):.*/$1/;
+#		warn "gene $gid has prefix $prefix";
+		my $det = $authors{$prefix} || $authors{'HAVANA'};
 		unless ($support->param('dry_run')) {
-			if (my $det = $authors{$prefix}) { 
+			if ($authors{$prefix}) { 
 				$support->log("Updating gene $gid ($name) with author ".$det->[0]." (".$det->[2].")\n"); 
 				$sql->execute($det->[2],$gid);
 			}
 			else {
-				$support->log("Updating gene $gid ($name) with author ".$authors{'HAVANA'}->[0]." (".$authors{'HAVANA'}->[2].")\n"); 
+				$support->log_warning("Setting gene $gid ($name) to default author ".$authors{'HAVANA'}->[0]." (".$authors{'HAVANA'}->[2].")\n"); 
 				$sql->execute($authors{'HAVANA'}->[2],$gid);
 			}		
 		}
+		foreach my $trans (@{$gene->get_all_Transcripts}) {
+			my $tid = $trans->stable_id;
+			unless ($support->param('dry_run')) {
+				$support->log("Setting author for transcript $tid to the same as the parent gene: ".$det->[0]." (".$det->[2].")\n",1);
+				$sql4->execute($det->[2],$tid);
+			}
+		}	
 	}
 }
 
