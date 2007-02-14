@@ -216,6 +216,9 @@ sub read_infile {
     while (<$in>) {
         chomp $_;
 		my ($id) = $_ =~ /(\w+)/;
+#		my ($desc,$id) = split '\t', $_;
+#		$id = $desc unless ($id);
+#		$id =~ s/(\w+)/$1/;
         if ($id =~ /^OTT...G/) {
             push @gene_stable_ids, $id;
         } elsif ($id =~ /^OTT...T/) {
