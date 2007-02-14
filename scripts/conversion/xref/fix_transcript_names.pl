@@ -214,6 +214,7 @@ sub update_names {
 													   );
 				$gene->gene_info->remark($remark);
 				$support->log("Added fragmented loci annotation remark for gene $gid\n");
+				# need to update the gene in the database, using $ga->update($gene) ?
 			}
 		}
 		return;
@@ -223,7 +224,7 @@ sub update_names {
 	else {
 		# warn if this is a potential fragmented loci
 		unless ( $seen_genes{$gid} ) {
-			$support->log_warning("Gene $gid has duplicated names and has no Fragmented loci Annotation remark. Transcript names are being patched but this ID should be reported to Havana for double checking");
+			$support->log_warning("Gene $gid has duplicated names and has no Fragmented loci Annotation remark. Transcript names are being patched but this ID should be reported to Havana for double checking\n");
 		}
 		my @trans = $gene->get_all_Transcripts();
 		#seperate coding and non_coding transcripts
