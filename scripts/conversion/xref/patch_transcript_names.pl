@@ -96,11 +96,14 @@ foreach my $chr ($support->sort_chromosomes) {
 	my $slice = $sa->fetch_by_region('chromosome', $chr);
 	foreach my $gene (@{$slice->get_all_Genes()}) {
 		my $g_name = $gene->display_xref->display_id;
-		foreach my $trans (@{$gene->get_all_Transcripts()}) {
+		TRANS: foreach my $trans (@{$gene->get_all_Transcripts()}) {
 			my $trans_dbentry = $trans->display_xref;
 			my $stable_id =  $trans->stable_id;
 			my ($t_name,$t_version) = $trans_dbentry->display_id =~ /(.*)-(\d+)$/;
-			$support->log_warning("No correctly formatted version found for transcript $stable_id\n") unless ($t_version);
+			unless ($t_version) {
+				$support->log_warning("No correctly formatted version found for transcript $stable_id, not setting\n") unless ($t_version);
+				next TRANS;
+			}
 			unless ($t_name eq $g_name) {
 				$c++;
 				my $new_name = $g_name.'-'.$t_version;
