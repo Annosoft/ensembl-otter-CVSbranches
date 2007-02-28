@@ -38,8 +38,7 @@ Specific options:
     --refseqfile=FILE                   read Refseq input from FILE
     --ensembl_xref                      read xrefs from an Ensembl db
     --mismatch                          correct case mismatches in the db
-                                        (NOTE: this option overrides
-                                            dry_run!)
+                                          overrides dry-run, doesn't add xrefs
     --prune                             reset to the state before running this
                                         script (i.e. after running
                                         add_vega_xrefs.pl)
@@ -49,21 +48,32 @@ Specific options:
 This script parses input files from various sources - HUGO, TCAG (human chr 7 annotation),
 IMGT (human major histocompatibility complex nomenclature), RefSeq and an Ensembl
 database - and adds xrefs to the databases covered by the respective input source. If
-appropriate, display name of genes is set accordingly.
+appropriate the display names of genes are set accordingly.
 
-HUGO and Ensembl db can be used at the same time - this might be expanded in the future to
-use locuslink files. TCAG (The Centre for Applied Genomics) is used exclusively to add xrefs
-for externally annotated (Sick-Kids) genes on human chr 7. IMGT is used to add xrefs for HLA
-genes on human haplotypes
+It's worthwhile running the script first with -dry_run and -mismatch options to fix any
+case errors in the Vega Gene names. Then run it normally to add xrefs. Note that if any
+gene_names are found to have case errors then the transcript names must also be updated
+using patch_transcript_names.pl.
+
+HUGO and an Ensembl db can be used at the same time for human - this might be expanded in
+the future to use locuslink files. TCAG (The Centre for Applied Genomics) is used exclusively
+for human to add xrefs for externally annotated (Sick-Kids) genes on human chr 7. IMGT is
+used to add xrefs for HLA genes on human haplotypes
+
+For mouse the MGI file contains everythng that is needed, although an Ensembl DB can be parsed
+first if wished well
 
 Currently, these input formats are supported:
 
     hugo        => http://www.gene.ucl.ac.uk/nomenclature/data/gdlw_index.html
                    ('All data' in text format)
-    refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
+    mgi         => ftp://ftp.informatics.jax.org/pub/reports/MGI_MouseHumanSequence.rpt
     tcag        => http://www.chr7.org/download/Dec2005/TCAG_ANNOTATION.gff.gz
     imgt        => by email Steven Marsh <marsh@ebi.ac.uk>
     ensemblxref => use core ensembl database
+
+There are parsers for locuslink and refseq but these have not been tested thoroughly
+    refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
 
 =head1 LICENCE
 
@@ -112,6 +122,7 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'xrefformat=s@',
     'hugofile=s',
+    'mgifile=s',
     'refseqfile=s',
 	'tcagfile=s',
 	'imgtfile=s',
@@ -130,6 +141,7 @@ $support->allowed_params(
     'gene_stable_id',
     'xrefformat',
     'hugofile',
+    'mgifile',
     'refseqfile',
     'tcagfile',
     'imgtfile',
@@ -182,8 +194,7 @@ my $sth_display_xref = $dba->dbc->prepare("UPDATE gene SET display_xref_id=? WHE
 my $sth_case1 = $dba->dbc->prepare("UPDATE gene_name set name = ? WHERE name = ?");
 my $sth_case2 = $dba->dbc->prepare("UPDATE xref set display_label = ? WHERE display_label = ?");
 
-# delete all external xrefs if --prune option is used; basically this resets
-# xrefs to the state after running add_vega_xrefs.pl
+# delete all external xrefs if --prune option is used; basically this resets xrefs to the state before running this script
 if ($support->param('prune') and $support->user_proceed('Would you really like to delete all *external* xrefs before running this script?')) {
 	my $num;
 	# xrefs
@@ -229,7 +240,7 @@ my $sp = $species_lookup{$species};
 
 # sanity checks
 #$support->check_required_params('xrefformat');
-my %allowed_formats = map { $_ => 1 } qw(hugo refseq tcag ensemblxref);
+my %allowed_formats = map { $_ => 1 } qw(hugo mgi refseq tcag ensemblxref);
 
 # parse input file
 no strict 'refs';
@@ -239,61 +250,68 @@ my $xrefs = {};
 my @xref_sources;
 my $lcmap = {};
 my $xref_file = $SERVERROOT.'/'.$support->param('dbname').'-parsed_records.file';
+my $lc_xref_file = $SERVERROOT.'/'.$support->param('dbname').'-lc-parsed_records.file';
 
-#only look at Ensembl db if there is no input file parsing, or if the file to be parsed is hugo
-if ( (!$support->param('xrefformat')) || ($support->param('xrefformat') eq 'hugo') ){
+#only look at Ensembl db if there is no input file to be parsed, or if the file to be parsed is hugo or mgi
+if (
+     (!$support->param('xrefformat'))
+     || ($support->param('xrefformat') eq 'hugo')
+     || ($support->param('xrefformat') eq 'mgi') 
+   ) {
 	if ($support->param( 'ensembl_xref' )) {
 		if (-e $xref_file) {
-			if ($support->user_proceed("Read E! xref records from a previously saved file - $xref_file ?\n")) {
+			if ($support->user_proceed("Read E! xref records from a previously saved files - $xref_file ?\n")) {
 				$ens_xrefs = retrieve($xref_file);
+				$lcmap = retrieve($lc_xref_file);
 			}
 			else {
 				$support->log_stamped("Ignoring existing input file and re-reading from E! database...\n");
 				&parse_ensdb($ens_xrefs,$lcmap,$sp);
-				$support->log_stamped("Finished reading from E! database, storing to file...\n");
+				$support->log_stamped("Finished reading from E! database, storing to files...\n");
 				store($ens_xrefs,$xref_file);
+				store($lcmap,$lc_xref_file);
 			}
 		}
 		else {
 			$support->log_stamped("No input files read, using E! database\n");
 			&parse_ensdb($ens_xrefs,$lcmap,$sp);
-			$support->log_stamped("Finished reading from E! database, storing to file...\n");
-			store($ens_xrefs,$xref_file);
+			$support->log_stamped("Finished reading from E! database, storing to files...\n");
+			store($ens_xrefs,$xref_file);			
+			store($lcmap,$lc_xref_file);
 		}
-		$primary{$sp.'_ensemblxref'} = 1;
 		push @xref_sources, [ 'ensembl', $ens_xrefs ];
 	}
 }
 
+#parse the input file (independently of E! db parsing)
 if ($support->param('xrefformat')){
 	$support->log_stamped("Reading xref input files...\n");
 	my $format = ($support->param('xrefformat'));
 	my $parser = "parse_$format";
 	&$parser($xrefs, $lcmap);
-	# set as primary xref (will be used as display_xref)
-	# (set to zero if you don't want any)
-	$primary{$format} = 1;
 	push @xref_sources, [ $format, $xrefs ];
 }
 
 #warn Dumper(\@xref_sources);
+#warn Dumper($lcmap);
 #exit;
 
 use strict 'refs';
 $support->log_stamped("Done.\n\n");
 
-# define each type of xref and what to do (display_xref or not)
+# define each type of xref that can be set, and whether to set as display_xref or not
 my %extdb_def = (
-    HUGO                => ['KNOWN',1],
-    EntrezGene          => ['KNOWNXREF',0],
-    MarkerSymbol        => ['KNOWNXREF',1],
-    RefSeq_dna          => ['KNOWN',0],
-    MIM_GENE            => ['KNOWNXREF',0],
-    'Uniprot/SWISSPROT' => ['KNOWN',0],
-	'TCAG'              => ['XREF', 0],
-	'IMGT'              => ['XREF', 0],
-    Ens_Mm_gene         => ['XREF',0],
-	Ens_Hs_gene         => ['XREF',0],
+    HUGO                => ['KNOWN'    , 1],
+    EntrezGene          => ['KNOWNXREF', 0],
+    MarkerSymbol        => ['KNOWNXREF', 1],
+    RefSeq_dna          => ['KNOWN'    , 0],
+    RefSeq_peptide      => ['KNOWN'    , 0],
+    MIM_GENE            => ['KNOWNXREF', 0],
+    'Uniprot/SWISSPROT' => ['KNOWN'    , 0],
+	TCAG                => ['XREF'     , 0],
+	IMGT                => ['XREF'     , 0],
+    Ens_Mm_gene         => ['XREF'     , 0],
+	Ens_Hs_gene         => ['XREF'     , 0],
 );
 
 # loop over chromosomes
@@ -335,6 +353,15 @@ GENE: foreach my $gene (@$genes) {
             $support->log_warning("No display_xref found for gene $gid ($gsi). Skipping.\n");
             next;
         }
+
+        $support->log("Gene $gene_name ($gid, $gsi)...\n");
+
+		#if this already has a non-Vega display xref then skip it
+		my $xref_dbname = $disp_xref->dbname;
+		unless ( $xref_dbname =~ /^Vega/ ) {
+			$support->log("Display xref from $xref_dbname previously set for gene $gid ($gsi). Skipping.\n",1);
+			next GENE;
+		}
 	
         # see if the gene_name has a prefix
         if ( ($prefix,$stripped_name) = $gene_name  =~ /(.*?):(.*)/) {
@@ -345,14 +372,11 @@ GENE: foreach my $gene (@$genes) {
 		}
 		else { $stripped_name = $gene_name; }
 
-#		warn "prefix = $prefix" if $prefix;
-#		warn "stripped name = $stripped_name" if $stripped_name;
 
 		#skip if we're adding CTAG xrefs and this is not an SK gene
 		next if ( ($support->param('xrefformat') eq 'tcag') && $prefix ne 'SK');		
 
 		$gnum++;
-        $support->log("Gene $gene_name ($gid, $gsi)...\n");
 
 		# get all names including synonyms
 		push my (@gene_names), $stripped_name;
@@ -395,9 +419,13 @@ GENE: foreach my $gene (@$genes) {
 					}
 				DB: foreach my $extdb (keys %extdb_def) {
 						my ($xid,$pid,$concat_xid);
-						if ($concat_xid = $source->[1]->{$name}->{$extdb}) {
+
+						foreach my $concat_xid ( @{$source->[1]->{$name}->{$extdb}} ) {
+							
 							#catch empty xrefs
-							next DB if (!$concat_xid || $concat_xid =~ /^\|+$/);
+							next DB if (!$concat_xid || $concat_xid =~ /^\|\|$/);
+
+							#get display and accession idss
 							if ($concat_xid =~ /\|\|/) {
 								($xid,$pid) = split /\|\|/, $concat_xid;
 							}
@@ -470,18 +498,18 @@ GENE: foreach my $gene (@$genes) {
 				if ($lcmap->{$lc_name}) {
 					# possible case error
 					$support->log_warning("Possible case error for $gene_name -- ".
-									  join(',',(@{ $lcmap->{$lc_name} })).".\n", 1);
+									  join(',',(@{ $lcmap->{$lc_name} }))."\n", 1);
 					if ($support->param('mismatch')) {
 						# fix case mismatch in db
 						$support->log("Fixing case mismatch...\n", 1);
 						my $new_name = $prefix ? $prefix.':'.$lcmap->{$lc_name}->[0] : $lcmap->{$lc_name}->[0];
-						#					$sth_case1->execute($new_name, $gene_name);
+#						$sth_case1->execute($new_name, $gene_name);
 						$sth_case2->execute($new_name, $gene_name);
 					}
 					$warnings{'wrong_case'}++;
 					next GENE;
 				}
-			} 
+			}
 			if ($gene_name =~ /^\w+\.\d+$/ || $gene_name =~ /^\w+\-\w+\.\d+$/) {
 				# probably a clone-based genename - ok
 				$support->log("No match for $gene_name (but has clonename based name).\n", 1);
@@ -584,8 +612,8 @@ sub parse_ensdb {
 			foreach my $dbe (@db_entries){
 				my $db_name = $dbe->dbname;
 				my $dbid = $dbe->display_id(); 
-				my $pid = $dbe->primary_id(); 
-				$ens_xrefs->{$gene_name}{$db_name} = $dbid.'||'.$pid;
+				my $pid = $dbe->primary_id();
+				push @{$ens_xrefs->{$gene_name}{$db_name}} , $dbid.'||'.$pid;
 			}
 			#parse display_xref to ensure it's added
 			my $disp_dbname = $disp_xref->dbname;
@@ -660,26 +688,26 @@ sub parse_hugo {
 		my $hugo_pid = $fields[0];
         my $gene_name = $fields[1];
 
-		#remove 'withdrawn' label since we still want to use these
+		#remove 'withdrawn' part of tyhe label since we still want to use these
 		if ($gene_name =~ /\w+~withdrawn/) {
 			$gene_name =~ s/(\w+)~withdrawn/$1/;
 		}
 		#parse input data
 		my $i = 0;
         foreach my $fieldname (@fieldnames) {
-            $xrefs->{$gene_name}->{$fieldname} ||= $fields[$i];
+			push @{$xrefs->{$gene_name}->{$fieldname}} , $fields[$i];
             $i++;
         }
 		#modify HUGO entry for xref storing
-		$xrefs->{$gene_name}->{'HUGO'} = $gene_name .'||'. $hugo_pid;
+		$xrefs->{$gene_name}->{'HUGO'}[0] = $gene_name .'||'. $hugo_pid;
 		#modify EntrezGene Entry
-		$xrefs->{$gene_name}->{'EntrezGene'} .= '||'. $xrefs->{$gene_name}->{'EntrezGene'};
+		$xrefs->{$gene_name}->{'EntrezGene'}[0] .= '||'. $xrefs->{$gene_name}->{'EntrezGene'};
 		#modify RefSeq_dna
-		$xrefs->{$gene_name}->{'RefSeq_dna'} .= '||'. $xrefs->{$gene_name}->{'RefSeq_dna'};
+		$xrefs->{$gene_name}->{'RefSeq_dna'}[0] .= '||'. $xrefs->{$gene_name}->{'RefSeq_dna'};
 		#modify MIM Entry
-		$xrefs->{$gene_name}->{'MIM_GENE'} .=  '||'. $xrefs->{$gene_name}->{'MIM_GENE'};
+		$xrefs->{$gene_name}->{'MIM_GENE'}[0] .=  '||'. $xrefs->{$gene_name}->{'MIM_GENE'};
 		#modify Uniprot/SWISSPROT
-		$xrefs->{$gene_name}->{'Uniprot/SWISSPROT'} .= '||'.$xrefs->{$gene_name}->{'Uniprot/SWISSPROT'};
+		$xrefs->{$gene_name}->{'Uniprot/SWISSPROT'}[0] .= '||'.$xrefs->{$gene_name}->{'Uniprot/SWISSPROT'};
 
 		#store lowercase name for matching
 		push @{ $lcmap->{lc($gene_name)} }, $gene_name;
@@ -700,24 +728,91 @@ sub parse_hugo {
 				#add a remark for reporting
 				$xrefs->{$alt_symbol}{'Is an alias for'} = $gene_name;
 			}
-            # store alternative name mapping in temporary hash
-  ##          @{ $alt_symbols->{$alt_symbol} }{@fieldnames} = @fields;
-  #          $alt_symbols->{$alt_symbol}->{'_display_id'} = $gene_name;
-  #          push @{ $lcmap->{lc($alt_symbol)} }, $alt_symbol;
         }
     }
     close(NOM);
 
-    # now loop over alternative symbols and add them to %xref if the symbol
-    # name doesn't exist yet
-  #  foreach my $symbol (keys %$alt_symbols) {
-  #      foreach my $fieldname (@fieldnames, '_display_id') {
-  #          $xrefs->{$symbol}->{$fieldname} ||= $alt_symbols->{$symbol}->{$fieldname};
-  #      }
-  #  }
-
     $support->log_stamped("Done processing ".$stats{'total'}." entries.\n\n", 1);
 }
+
+=head2 parse_mgi
+
+  Arg[1]      : Hashref $xrefs - keys: gene names, values: hashref (extDB =>
+                extID) 
+  Arg[2]      : Hashref $lcmap - keys: lowercase gene names, values: list of
+                gene names (with case preserved)
+  Example     : &parse_mgi($xrefs, $lcmap);
+  Description : Parses a specific rtf file from MGI. Used to add MarkerSymbol, Swissprot
+                RefSeq and EntrezGene xrefs to Vega genes
+  Return type : none
+  Exceptions  : thrown if input file can't be read
+  Caller      : internal
+
+=cut
+
+sub parse_mgi {
+   my ($xrefs, $lcmap) = @_;
+   $support->log_stamped("MGI...\n", 1);
+
+   # read input file
+   my $mgifile = $support->param('mgifile');
+   open(MGI, "< $mgifile")
+	   or $support->throw("Couldn't open $mgifile for reading: $!\n");
+
+   #parse input file
+   my %types;
+   while (<MGI>) {
+	   my @fields = split /\t/;
+
+	   # MGI record contains all sorts of entries as well as genes, eg markers.
+       # There doesn't seem to be any way of distinguishing between them, but could
+	   # skip all apparent non-gene entries in the input file ?
+#	   next if $fields[2] =~ /^RIKEN cDNA/;
+#	   next if $fields[2] =~ /^DNA segment/;
+
+	   #add mgi entries
+	   my $gene_name = $fields[1];
+	   my $mgi_pid = $fields[0];
+	   $xrefs->{$gene_name}->{'MarkerSymbol'} = [ $gene_name .'||'. $mgi_pid ];
+
+	   #add refseq dna entries
+	   my $refseqs = $fields[16];
+	   my (@ids) = split ',',$refseqs; 
+	   foreach my $id (@ids) {
+		   if ($id =~ /^NM_|NR_/) {
+			   push @{$xrefs->{$gene_name}->{'RefSeq_dna'}}, $id.'||'.$id ;
+		   }
+		   if ($id =~ /^NP_/) {
+			   push @{$xrefs->{$gene_name}->{'RefSeq_peptide'}}, $id.'||'.$id ;
+		   }
+	   }
+
+	   #add swissprot entry
+	   my $swissptrots = $fields[17];
+	   my ($first_id) = split ',',$swissptrots; 
+	   $xrefs->{$gene_name}->{'Uniprot/SWISSPROT'} = [ $first_id .'||'.$first_id ];
+
+	   #add entrezgene entry
+	   my $entrezgenes = $fields[20];
+	   ($first_id) = split ',',$entrezgenes; 
+	   $xrefs->{$gene_name}->{'EntrezGene'} = [ $first_id .'||'. $first_id ];
+
+	   #add ensembl xrefs
+	   my $ensid = $fields[9];
+	   if ( $ensid =~ /^ENSMUSG/ ) {
+		   $xrefs->{$gene_name}->{'Ens_Mm_gene'} = [ $ensid .'||'. $ensid ];
+	   }
+	   elsif ($ensid) {
+		   $support->log_warning("Gene $gene_name from MGI has a non-mouse Ensembl ID ($ensid)\n");
+	   }
+
+	   #store lower case name to catch case mismatches
+	   push @{ $lcmap->{lc($gene_name)} }, $gene_name;
+   }
+
+}
+
+
 
 =head2 parse_tcag
 
@@ -758,11 +853,14 @@ sub parse_tcag {
 			}
 		}
 
-		$xrefs->{$symbol}->{'TCAG'} = $id.'||'.$id;
+		push @{$xrefs->{$symbol}->{'TCAG'}} , $id.'||'.$id;
 		push @{ $lcmap->{lc($symbol)} }, $symbol;
 	}
 }
 
+=head2 parse_imgt
+
+=cut
 
 sub parse_imgt {
     my ($xrefs, $lcmap) = @_;
@@ -782,7 +880,7 @@ sub parse_imgt {
 		my $gsi = $fields[2];
 		my $pid = $xid;
 		$pid =~ s/\*/_/; 
-		$xrefs->{$gsi}->{'IMGT'} = $xid.'||'.$pid;
+		push @{$xrefs->{$gsi}->{'IMGT'}} , $xid.'||'.$pid;
 	}
 }
 
