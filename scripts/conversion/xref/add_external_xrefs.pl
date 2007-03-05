@@ -45,7 +45,7 @@ Specific options:
 
 =head1 DESCRIPTION
 
-This script parses input files from various sources - HUGO, TCAG (human chr 7 annotation),
+This script parses input files from various sources - HUGO, MGI, TCAG (human chr 7 annotation),
 IMGT (human major histocompatibility complex nomenclature), RefSeq and an Ensembl
 database - and adds xrefs to the databases covered by the respective input source. If
 appropriate the display names of genes are set accordingly.
@@ -60,19 +60,20 @@ the future to use locuslink files. TCAG (The Centre for Applied Genomics) is use
 for human to add xrefs for externally annotated (Sick-Kids) genes on human chr 7. IMGT is
 used to add xrefs for HLA genes on human haplotypes
 
-For mouse the MGI file contains everythng that is needed, although an Ensembl DB can be parsed
-first if wished well
+For mouse two files are parsed - the first (mgivega) associates OTTMUS IDs with MGI marker 
+symbols, the second (mgi) adds links to external databases.
 
 Currently, these input formats are supported:
 
     hugo        => http://www.gene.ucl.ac.uk/nomenclature/data/gdlw_index.html
                    ('All data' in text format)
+    mgivega     => ftp://ftp.informatics.jax.org/pub/reports/MGI_VEGA.rpt
     mgi         => ftp://ftp.informatics.jax.org/pub/reports/MGI_MouseHumanSequence.rpt
     tcag        => http://www.chr7.org/download/Dec2005/TCAG_ANNOTATION.gff.gz
     imgt        => by email Steven Marsh <marsh@ebi.ac.uk>
     ensemblxref => use core ensembl database
 
-There are parsers for locuslink and refseq but these have not been tested thoroughly
+There are parsers for locuslink and refseq but these have not been tested recently
     refseq      => ftp://ftp.ncbi.nih.gov/genomes/__SPECIES__/RNA/rna.gkb
 
 =head1 LICENCE
@@ -122,6 +123,7 @@ $support->parse_extra_options(
     'gene_stable_id|gsi=s@',
     'xrefformat=s@',
     'hugofile=s',
+    'mgivegafile=s',
     'mgifile=s',
     'refseqfile=s',
 	'tcagfile=s',
@@ -141,6 +143,7 @@ $support->allowed_params(
     'gene_stable_id',
     'xrefformat',
     'hugofile',
+    'mgivegafile',
     'mgifile',
     'refseqfile',
     'tcagfile',
@@ -167,8 +170,13 @@ $support->list_or_file('gene_stable_id');
 # ask user to confirm parameters to proceed
 $support->confirm_params;
 
-# make sure add_vega_xrefs.pl has been run
-exit unless $support->user_proceed("This script must run after add_vega_xrefs.pl. Have you run it?");
+# make sure the corrct sequence of options have been run
+if ( $support->param('xrefformat') eq 'mgi' ) {
+	exit unless $support->user_proceed("MGI files can be parsed only after first using the mgivega option. Have you done this?");
+}
+else {
+	exit unless $support->user_proceed("This script must run after add_vega_xrefs.pl. Have you run it?");
+}
 
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
@@ -238,10 +246,6 @@ my $species = $support->get_species_scientific_name($dba);
 my %species_lookup = ( 'Mus musculus' => 'Mm', 'Homo sapiens' => 'Hs' );
 my $sp = $species_lookup{$species};
 
-# sanity checks
-#$support->check_required_params('xrefformat');
-my %allowed_formats = map { $_ => 1 } qw(hugo mgi refseq tcag ensemblxref);
-
 # parse input file
 no strict 'refs';
 my %primary;
@@ -252,11 +256,10 @@ my $lcmap = {};
 my $xref_file = $SERVERROOT.'/'.$support->param('dbname').'-parsed_records.file';
 my $lc_xref_file = $SERVERROOT.'/'.$support->param('dbname').'-lc-parsed_records.file';
 
-#only look at Ensembl db if there is no input file to be parsed, or if the file to be parsed is hugo or mgi
+#only look at Ensembl db if there is no input file to be parsed, or if the file to be parsed is hugo
 if (
      (!$support->param('xrefformat'))
      || ($support->param('xrefformat') eq 'hugo')
-     || ($support->param('xrefformat') eq 'mgi') 
    ) {
 	if ($support->param( 'ensembl_xref' )) {
 		if (-e $xref_file) {
@@ -335,7 +338,8 @@ foreach my $chr (@chr_sorted) {
         nomatch_missing => 0,
     );
     my $gnum = 0;
-GENE: foreach my $gene (@$genes) {
+ GENE:
+	foreach my $gene (@$genes) {
 		my $gsi = $gene->stable_id;
         my $gid = $gene->dbID;
 
@@ -357,11 +361,11 @@ GENE: foreach my $gene (@$genes) {
         $support->log("Gene $gene_name ($gid, $gsi)...\n");
 
 		#if this already has a non-Vega display xref then skip it
-		my $xref_dbname = $disp_xref->dbname;
-		unless ( $xref_dbname =~ /^Vega/ ) {
-			$support->log("Display xref from $xref_dbname previously set for gene $gid ($gsi). Skipping.\n",1);
-			next GENE;
-		}
+#		my $xref_dbname = $disp_xref->dbname;
+#		unless ( $xref_dbname =~ /^Vega/ ) {
+#			$support->log("Display xref from $xref_dbname previously set for gene $gid ($gsi). Skipping.\n",1);
+#			next GENE;
+#		}
 	
         # see if the gene_name has a prefix
         if ( ($prefix,$stripped_name) = $gene_name  =~ /(.*?):(.*)/) {
@@ -391,10 +395,30 @@ GENE: foreach my $gene (@$genes) {
 			}
 		}
 
-		#look only for stable_ids if we are adding IMGT xrefs
-		if ($support->param('xrefformat') eq 'imgt') {
+		#look only for stable_ids if we are adding IMGT xrefs or MarkerSymbol ones the first time around
+		if ($support->param('xrefformat') =~ /imgt|mgivega/) {
 			@gene_names = ( $gsi );
 			@lc_names = ( );
+		}
+
+		#get a list of all db_names for xrefs on this gene
+		my %existing_dbnames;
+		my $xrefs = $gene->get_all_DBEntries;
+		foreach my $xref (@{$xrefs}){
+			my $dbname = $xref->dbname;
+			$existing_dbnames{$dbname} = 1;
+		}
+
+		#use previously set MarkerSymbol xrefs as searchable names if we're setting Marker Symbol xrefs for the second time
+		if ( $support->param('xrefformat') eq 'mgi') {
+			foreach my $xref (@{$xrefs}){
+				if ($xref->dbname eq 'MarkerSymbol') {
+					my $mgi_name = $xref->display_id;
+					unless (grep {$_ eq $mgi_name} @gene_names) {
+						push @gene_names, $xref->display_id;
+					}
+				}
+			}
 		}
 
 		my $xref_found = 0;
@@ -418,10 +442,17 @@ GENE: foreach my $gene (@$genes) {
 						}
 					}
 				DB: foreach my $extdb (keys %extdb_def) {
-						my ($xid,$pid,$concat_xid);
 
+						#don't go any further if this gene already has an xref for this source
+						if ($existing_dbnames{$extdb}) {
+							$support->log("$extdb xref previously set for gene $gid, not storing a new one.\n", 1);
+							next DB;
+						}
+
+						#go through each xref for this source
+						my ($xid,$pid,$concat_xid);
 						foreach my $concat_xid ( @{$source->[1]->{$name}->{$extdb}} ) {
-							
+	
 							#catch empty xrefs
 							next DB if (!$concat_xid || $concat_xid =~ /^\|\|$/);
 
@@ -434,13 +465,17 @@ GENE: foreach my $gene (@$genes) {
 							}
 							$stats{$extdb}++;
 							if (!$support->param('dry_run')) {
-								#check if it's there already...
-								my ($existing_xref,$dbID);		
+
+								#use an existing xref if there is one...
+								my ($existing_xref,$dbID);
 								if ($existing_xref = $ea->fetch_by_db_accession($extdb,$pid)) {
 									$support->log("Using previous xref for gene $gid ($extdb display_id $xid, pid = $pid).\n", 1);
 									$gene->add_DBEntry($existing_xref);
 									$dbID = $ea->store($existing_xref, $gid, 'gene');
-								} else {
+								}
+
+								#... or else create a new one
+								else {
 									my $dbentry = Bio::EnsEMBL::DBEntry->new(
 																			 -primary_id => $pid,
 																			 -display_id => $xid,
@@ -454,9 +489,32 @@ GENE: foreach my $gene (@$genes) {
 								}
 								if ($dbID) {
 									$support->log("Stored $extdb display_id $xid, pid = $pid for gene $gid (dbID $dbID).\n", 1);
+
 									#do we want to update the display_xref ?
 									if ($extdb_def{$extdb}->[1]) {
-										#if there is a name then make a new DBEntry and set as display_xref
+
+										#hack to set MGI as a display xref only if the vega name is the same as MGI one
+										if ($support->param('xrefformat') eq 'mgivega') {
+											if (lc($stripped_name) eq lc($xid) ) {
+												if ($stripped_name ne $xid) {
+													$support->log_warning("Setting as a display_xref using MGI record ($xid) - different case from the Vega gene $gid($stripped_name)\n");
+												}
+												else {
+													$support->log("Setting a display_xref - Vega gene $gid($stripped_name) has the same name as the MGI record ($xid)\n");
+												}
+											}
+											else {
+												$support->log_verbose("Not setting as a display_xref - Vega gene $gid($stripped_name) has a different name than the the MGI record ($xid)\n");
+												next GENE;
+											}
+										}
+
+										#hack to no set MGI as display xref unless it's a 'proper' name
+										if ($support->param('xrefformat') eq 'mgi') {
+											next GENE unless ($xid =~ /^[A-Z][a-z]{2}/);
+										}
+
+										#if there is a prefixed name then make a new DBEntry and set as display_xref
 										if ($prefix) {
 											my $new_xid = $prefix.':'.$stripped_name;
 											my $new_dbentry = Bio::EnsEMBL::DBEntry->new(
@@ -471,28 +529,33 @@ GENE: foreach my $gene (@$genes) {
 											$sth_display_xref->execute($new_dbID,$gid);
 											$support->log("updated display_xref ($new_xid) using new $extdb xref ($new_dbID).\n",1);
 										}
+
 										#if the non-prefixed name matches the dbentry name then store it as display_xref
 										elsif ($name eq $xid) {
 											$sth_display_xref->execute($dbID,$gid);
 											$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
 										}
+
+										#warn if something has gone horribly wrong
 										else {
-											$support->log_warning("Expected name for E! display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
-									}
+											$support->log_warning("Expected name for display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
+										}
 									}	
-								} else {
+								}
+								else {
 									$support->log_warning("No dbID for gene $gid, pid $pid, display_id $xid, dbname $extdb.\n", 1);
 								}
-							}
+							}						
 							else {
 								$support->log("Would store $extdb xref $xid (pid = $pid) for gene $gid.\n", 1);
+								
 							}
 						}
 					}
 				}
 			}
 		# no match for some reason (log why)
-		} 
+		}
 		if (!$xref_found) {
 			foreach my $lc_name (@lc_names) {
 				if ($lcmap->{$lc_name}) {
@@ -514,7 +577,7 @@ GENE: foreach my $gene (@$genes) {
 				# probably a clone-based genename - ok
 				$support->log("No match for $gene_name (but has clonename based name).\n", 1);
 				$warnings{'nomatch_clone'}++;
-			} 
+			}
 			else {
 				# other genes without a match
 				$support->log_warning("No match for $gene_name (@syn_names).\n", 1);
@@ -733,6 +796,45 @@ sub parse_hugo {
     close(NOM);
 
     $support->log_stamped("Done processing ".$stats{'total'}." entries.\n\n", 1);
+}
+
+=head2 parse_mgivega
+
+  Arg[1]      : Hashref $xrefs - keys: gene names, values: hashref (extDB =>
+                extID) 
+  Arg[2]      : Hashref $lcmap - keys: lowercase gene names, values: list of
+                gene names (with case preserved)
+  Example     : &parse_mgi($xrefs, $lcmap);
+  Description : Parses a specific rtf file from MGI. Used to add MarkerSymbol, Swissprot
+                RefSeq and EntrezGene xrefs to Vega genes
+  Return type : none
+  Exceptions  : thrown if input file can't be read
+  Caller      : internal
+
+=cut
+
+sub parse_mgivega {
+   my ($xrefs) = @_;
+   $support->log_stamped("MGI...\n", 1);
+
+   # read input file
+   my $mgivegafile = $support->param('mgivegafile');
+   open(MGIV, "< $mgivegafile")
+	   or $support->throw("Couldn't open $mgivegafile for reading: $!\n");
+
+   #parse input file
+   while (<MGIV>) {
+	   chomp;
+	   my @fields = split /\t/;
+	   my $pid = $fields[0];
+	   my $markersymbol = $fields[1];
+       my $desc = $fields[2];
+       my $vegaID = $fields[5];
+	   if ( exists($xrefs->{$vegaID}) ) {
+		   $support->log_warning("$vegaID found more than once in MGI file\n");
+	   }
+	   push @{$xrefs->{$vegaID}{'MarkerSymbol'}}, $markersymbol . '||' . $pid;
+   }
 }
 
 =head2 parse_mgi
