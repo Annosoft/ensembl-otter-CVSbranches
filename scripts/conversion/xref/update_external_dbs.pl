@@ -113,7 +113,7 @@ while (my $row = <IN>) {
         'display_label_linkable'    => $a[5],
         'priority'                  => $a[6],
         'db_display_name'           => $a[7],
-    };
+    } unless $a[0]=~/^#/;
 }
 close(IN);
 $support->log("Done reading ".scalar(@rows)." entries.\n");
