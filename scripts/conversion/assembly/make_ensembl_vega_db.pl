@@ -361,9 +361,22 @@ $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c meta entries.\n\n");
 
 # add assembly.mapping to meta table
+# get the values for vega_assembly and ensembl_assembly from the db
+my $ensembl_assembly;
+my $vega_assembly;
+$sql= "select meta_value from meta where meta_key= 'assembly.default'";
+$sth = $dbh->{'ensembl'}->prepare($sql) or $support->log_error("Couldn't prepare statement: " . $dbh->errstr);
+$sth->execute() or $support->log_error("Couldn't execute statement: " . $sth->errstr);
+while (my @row = $sth->fetchrow_array()) {
+    $ensembl_assembly= $row[0];   
+}
+$sth = $dbh->{'vega'}->prepare($sql) or $support->log_error("Couldn't prepare statement: " . $dbh->errstr);
+$sth->execute() or $support->log_error("Couldn't execute statement: " . $sth->errstr);
+while (my @row = $sth->fetchrow_array()) {
+    $vega_assembly= $row[0];   
+}
 $support->log_stamped("Adding assembly.mapping entry to meta table...\n");
-my $mappingstring = 'chromosome:'.$support->param('assembly').
-    '#chromosome:'.$support->param('ensemblassembly');
+my $mappingstring = 'chromosome:'.$vega_assembly. '#chromosome:'.$ensembl_assembly;
 $sql = qq(
     INSERT INTO $evega_db.meta (meta_key, meta_value)
     VALUES ('assembly.mapping', '$mappingstring')
