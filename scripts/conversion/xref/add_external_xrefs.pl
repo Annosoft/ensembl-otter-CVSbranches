@@ -202,6 +202,16 @@ my $sth_display_xref = $dba->dbc->prepare("UPDATE gene SET display_xref_id=? WHE
 my $sth_case1 = $dba->dbc->prepare("UPDATE gene_name set name = ? WHERE name = ?");
 my $sth_case2 = $dba->dbc->prepare("UPDATE xref set display_label = ? WHERE display_label = ?");
 
+#make sure mgivega xrefs aren't pruned by mistake
+if ( ($support->param('prune')) && ($support->param('xrefformat') eq 'mgi') ) {
+	if ($support->user_proceed('You should not be pruning mgi_vega xrefs now. Shall I switch off pruning for you?') ) {
+		$support->param('prune',0);
+	}
+	else {
+		exit;
+	}
+}
+
 # delete all external xrefs if --prune option is used; basically this resets xrefs to the state before running this script
 if ($support->param('prune') and $support->user_proceed('Would you really like to delete all *external* xrefs before running this script?')) {
 	my $num;
@@ -350,22 +360,16 @@ foreach my $chr (@chr_sorted) {
 		
         # catch missing display_xrefs here!!
         my $disp_xref = $gene->display_xref;
-        my ($stripped_name,$gene_name,$prefix);
+        my ($stripped_name,$gene_name,$xref_dbname,$prefix);
         if ($disp_xref) {
             $gene_name = $disp_xref->display_id;
+			$xref_dbname = $disp_xref->dbname;
         } else {
             $support->log_warning("No display_xref found for gene $gid ($gsi). Skipping.\n");
-            next;
+            next GENE;
         }
 
         $support->log("Gene $gene_name ($gid, $gsi)...\n");
-
-		#if this already has a non-Vega display xref then skip it
-#		my $xref_dbname = $disp_xref->dbname;
-#		unless ( $xref_dbname =~ /^Vega/ ) {
-#			$support->log("Display xref from $xref_dbname previously set for gene $gid ($gsi). Skipping.\n",1);
-#			next GENE;
-#		}
 	
         # see if the gene_name has a prefix
         if ( ($prefix,$stripped_name) = $gene_name  =~ /(.*?):(.*)/) {
@@ -497,19 +501,21 @@ foreach my $chr (@chr_sorted) {
 										if ($support->param('xrefformat') eq 'mgivega') {
 											if (lc($stripped_name) eq lc($xid) ) {
 												if ($stripped_name ne $xid) {
-													$support->log_warning("Setting as a display_xref using MGI record ($xid) - different case from the Vega gene $gid($stripped_name)\n");
+													$support->log_warning("Not setting a display_xref using MGI record ($xid) - different case from the Vega gene $gid($stripped_name)\n",1);
+													next GENE;
 												}
 												else {
-													$support->log("Setting a display_xref - Vega gene $gid($stripped_name) has the same name as the MGI record ($xid)\n");
+													$support->log("Setting a display_xref - Vega gene $gid($stripped_name) has the same name as the MGI record ($xid)\n",1);
+#													$sth_display_xref->execute($dbID,$gid);
 												}
 											}
 											else {
-												$support->log_verbose("Not setting as a display_xref - Vega gene $gid($stripped_name) has a different name than the the MGI record ($xid)\n");
-												next GENE;
+												$support->log_verbose("Not setting as a display_xref - Vega gene $gid($stripped_name) has a different name than the the MGI record ($xid)\n",1);
+											next GENE;
 											}
 										}
 
-										#hack to no set MGI as display xref unless it's a 'proper' name
+										#hack to not set MGI as display xref unless it's a 'proper' name
 										if ($support->param('xrefformat') eq 'mgi') {
 											next GENE unless ($xid =~ /^[A-Z][a-z]{2}/);
 										}
@@ -531,14 +537,14 @@ foreach my $chr (@chr_sorted) {
 										}
 
 										#if the non-prefixed name matches the dbentry name then store it as display_xref
-										elsif ($name eq $xid) {
+										elsif ($stripped_name eq $xid) {
 											$sth_display_xref->execute($dbID,$gid);
 											$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
 										}
 
 										#warn if something has gone horribly wrong
 										else {
-											$support->log_warning("Expected name for display_xref doesn't match Vega, not updating Vega display_xref for gene $gsi ($gid).\n",1);
+											$support->log_warning("Expected name for display_xref ($xid) doesn't match Vega ($name), not updating Vega display_xref for gene $gsi ($gid).\n",1);
 										}
 									}	
 								}
