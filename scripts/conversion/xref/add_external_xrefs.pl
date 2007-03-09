@@ -504,10 +504,6 @@ foreach my $chr (@chr_sorted) {
 													$support->log_warning("Not setting a display_xref using MGI record ($xid) - different case from the Vega gene $gid($stripped_name)\n",1);
 													next GENE;
 												}
-												else {
-													$support->log("Setting a display_xref - Vega gene $gid($stripped_name) has the same name as the MGI record ($xid)\n",1);
-#													$sth_display_xref->execute($dbID,$gid);
-												}
 											}
 											else {
 												$support->log_verbose("Not setting as a display_xref - Vega gene $gid($stripped_name) has a different name than the the MGI record ($xid)\n",1);
@@ -539,7 +535,7 @@ foreach my $chr (@chr_sorted) {
 										#if the non-prefixed name matches the dbentry name then store it as display_xref
 										elsif ($stripped_name eq $xid) {
 											$sth_display_xref->execute($dbID,$gid);
-											$support->log("updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
+											$support->log("Updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
 										}
 
 										#warn if something has gone horribly wrong
