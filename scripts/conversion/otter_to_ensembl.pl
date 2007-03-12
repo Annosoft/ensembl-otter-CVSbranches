@@ -160,8 +160,8 @@ foreach my $chr ($support->sort_chromosomes) {
 
         # gene_remark
         foreach my $remark ($gene->gene_info->remark) {
-            # save remarks as long as they are not just whitespace!
-			unless ($remark->remark =~ /^Annotation_remark/) {
+            # save remarks as long as they are Annotation remarks or are just whitespace
+			unless ( $remark->remark =~ /^Annotation_remark/ ) {
 				push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
                     -CODE => 'remark',
                     -NAME => 'Remark',

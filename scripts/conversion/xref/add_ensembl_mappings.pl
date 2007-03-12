@@ -30,6 +30,7 @@ Specific options:
     --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
                                         (or read list from FILE)
     --id_file=FILE                      file containing mappings between E! and vega transcripts
+                                         - if not tab delimited then whitespace delimited
     --prune                             reset to the state before running this
                                         script (i.e. after running
                                         add_vega_xrefs.pl)
@@ -125,7 +126,6 @@ $support->init_log;
 # get an ensembl database for better performance (no otter tables are needed)
 my $dba = $support->get_database('ensembl');
 my $dbh = $dba->dbc->db_handle;
-$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $ta = $dba->get_TranscriptAdaptor();
@@ -172,7 +172,8 @@ open (ID, '<', $support->param('id_file')) or $support->throw(
 my $ens_ids;
 while (<ID> ) {
 	next if (/stable_id/);
-	my ($e_id,$v_id) = split /\t/;#
+	my ($e_id,$v_id) = split /\t/;
+	($e_id,$v_id) = split / / unless ($e_id && $v_id);
 	chomp $v_id;
 	if ( exists($ens_ids->{$v_id}) && ($e_id ne $ens_ids->{$v_id}) ) {
 		my $prev_id = $ens_ids->{$v_id};
