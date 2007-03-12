@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-change_analysis_by_stable_id.pl - change the analysis of genes
+change_analysis_by_stable_id.pl - change the analysis of genes and transcripts
 
 =head1 SYNOPSIS
 
@@ -36,7 +36,9 @@ Specific options:
 =head1 DESCRIPTION
 
 This script reads a list of gene stable IDs from a file and sets the analysis
-for these genes to the logic_name provided.
+for these genes to the logic_name provided. It then sets the analysis_ids of all
+transcripts to be the same as the parent genes (cannot cope with a single gene having
+multiple transcripts with different analysis_ids).
 
 =head1 LICENCE
 
@@ -121,7 +123,7 @@ if ($support->param('dry_run')) {
     exit(0);
 }
 
-# change analysis
+# change analysis of gene and transcripts
 &change_analysis($gene_stable_ids);
 
 # finish logfile
@@ -259,6 +261,20 @@ sub change_analysis {
         WHERE g.gene_id = gsi.gene_id
         AND gsi.stable_id in ('$gsi_string')
     ));
-    $support->log("Done updating $num entries.\n\n");
+    $support->log("Done updating $num genes.\n\n");
+
+	#change analysis_ids of transcripts
+	if ($support->user_proceed("\nSet all transcript analysis_ids to equal those of their genes ?")) {	
+		$support->log("Updating analysis of corresponding transcripts...\n");
+		$dbh->do(qq(
+            UPDATE transcript t, gene g
+            SET t.analysis_id = g.analysis_id
+            WHERE g.gene_id = t.gene_id
+        ));
+		$support->log("Done updating transcripts.\n\n");
+	}
+	else {
+		$support->log("Transcripts analysis_ids not updated.\n\n");
+	}
 }
 
