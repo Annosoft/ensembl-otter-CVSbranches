@@ -4,9 +4,8 @@ package Bio::Otter::GeneInfo;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Root;
-
-@ISA = qw(Bio::EnsEMBL::Root);
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
+use Bio::EnsEMBL::Utils::Exception qw(throw warning);
 
 sub new {
   my($class,@args) = @_;
@@ -14,7 +13,7 @@ sub new {
   my $self = bless {}, $class;
 
   my ($dbid,$gene_stable_id,$author,$timestamp,$name,$synonym,$remark)  = 
-        $self->_rearrange([qw(DBID GENE_STABLE_ID AUTHOR TIMESTAMP NAME SYNONYM REMARK
+        rearrange([qw(DBID GENE_STABLE_ID AUTHOR TIMESTAMP NAME SYNONYM REMARK
                             )],@args);
 
   $self->dbID          ($dbid);
