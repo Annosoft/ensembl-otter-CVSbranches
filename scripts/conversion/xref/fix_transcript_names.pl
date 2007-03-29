@@ -116,6 +116,8 @@ while (<DATA>) {
 # connect to database and get adaptors
 my $dba = $support->get_database('vega');
 my $ga  = $dba->get_GeneAdaptor;
+my $ta  = $dba->get_TranscriptAdaptor;
+my $aa  = $dba->get_AttributeAdaptor;
 my $dbh = $dba->dbc->db_handle;
 
 # get gene name to transcript_stable_id mapping from db
@@ -150,6 +152,22 @@ while (my ($gene_name, $gsi, $tsi, $trans_name) = $sth->fetchrow_array) {
         my $new_name = "$gene_name$1";
 		$transnames{$gsi}->{$new_name}++;
         next if ($new_name eq $trans_name);
+		
+		#store a transcript attrib for the old name
+        my $attrib = [
+			Bio::EnsEMBL::Attribute->new(
+                -CODE => 'synonym',
+                -NAME => 'Synonym',
+                -DESCRIPTION => 'Synonymous names',
+                -VALUE => $trans_name,
+            )
+		];
+		my $trans = $ta->fetch_by_stable_id($tsi);
+		my $t_dbID = $trans->dbID;
+		unless ($support->param('dry_run')) {
+			$aa->store_on_Transcript($t_dbID, $attrib);
+			$support->log("Stored transcript attrib for old name for transcript $tsi\n");
+		}
         $support->log_verbose(sprintf("%-20s%-3s%-20s", $trans_name, "->", $new_name)."\n", 1);
 
         # update transcript_info.name
@@ -178,7 +196,6 @@ $support->log("Done updating $stats{transcript_info} transcript_infos, $stats{xr
 #check for duplicated names and fix as appropriate
 if ($support->user_proceed("Do you want to check and fix duplicated transcript names?") ) {
 	foreach my $gid (keys %transnames) {
-
 		my $gene;
 		my %transcripts = %{$transnames{$gid}};
 		if ( grep { $transcripts{$_} > 1 } keys %transcripts ) {
@@ -195,26 +212,43 @@ $support->finish_log;
 sub update_names {
 	my ($gene,$stats,$dbh) = @_;
 	my $gid    = $gene->stable_id;
+	my $g_dbID = $gene->dbID;
 	#get gene name from xref (if xrefs are to be fixed) or gene_name
 	my $gene_name = ($support->param('fix_xrefs')) ? $gene->display_xref->display_id || $gene->gene_info->name->name
                     : $gene->gene_info->name->name;
-	my @remarks = $gene->gene_info->remark;
+	my @gene_remarks = $gene->gene_info->remark;
 
-	#add a remark for the website if it's a framented gene - need correct wording from Jen
-	if ( grep { $_->remark eq 'Annotation_remark- fragmented_loci'} @remarks ) {
-		my $comment = 'This locus has been annotated as fragmented because either there is not enough evidence covering the whole locus to identify the exact exon structure of the transcript, or because the transcript spans a gap in  the assembly';
-		unless ( $support->param('dry_run') ) {
-			if (grep { $_->remark eq $comment} @remarks) {
-				$support->log("Fragmented loci annotation remark for gene $gid already exists\n");
+	#get transcript_remarks for zfish
+	my %trans_remarks;
+	if ($support->param('dbname') =~ /danio/i) { 
+		foreach my $trans (@{$ta->fetch_all_by_Gene($gene)}) {
+			my @remarks = $trans->transcript_info->remark;
+			foreach my $remark (@remarks) {
+				my $r = $remark->remark;
+				$trans_remarks{$r}++;
 			}
-			else {
-				my $remark = new Bio::Otter::GeneRemark(
-												-remark => $comment,
-												-gene_info_id => $gene->gene_info->dbID,
-													   );
-				$gene->gene_info->remark($remark);
+		}
+	}
+
+	#add a gene remark for the website if it's a framented gene
+	if ( (grep { $_->remark eq 'Annotation_remark- fragmented_loci'} @gene_remarks )
+			 || (grep { $_ =~ /fragmen/} keys %trans_remarks ) ) {
+		my $comment = 'This locus has been annotated as fragmented because either there is not enough evidence covering the whole locus to identify the exact exon structure of the transcript, or because the transcript spans a gap in  the assembly';
+		if (grep { $_->remark eq $comment} @gene_remarks) {
+			$support->log("Fragmented loci annotation remark for gene $gid already exists\n");
+		}
+		else {
+			my $attrib = [
+				Bio::EnsEMBL::Attribute->new(
+					-CODE => 'remark',
+					-NAME => 'Remark',
+					-DESCRIPTION => 'Annotation remark',
+					-VALUE => $comment,
+				)
+				];
+			unless ( $support->param('dry_run') ) {
+				$aa->store_on_Gene($g_dbID,$attrib);
 				$support->log("Added fragmented loci annotation remark for gene $gid\n");
-				# need to update the gene in the database, using $ga->update($gene) ?
 			}
 		}
 		return;
@@ -224,7 +258,7 @@ sub update_names {
 	else {
 		# warn if this is a potential fragmented loci
 		unless ( $seen_genes{$gid} ) {
-			$support->log_warning("Gene $gid has duplicated names and has no Fragmented loci Annotation remark. Transcript names are being patched but this ID should be reported to Havana for double checking\n");
+			$support->log_warning("$gid has duplicated names and has no \'Annotation_remark- fragmented_loci\' on the gene or \'\%fragmen\%\' remark on any transcripts. Transcript names are being patched but this ID should be reported to Havana for double checking\n");
 		}
 		my @trans = $gene->get_all_Transcripts();
 		#seperate coding and non_coding transcripts
