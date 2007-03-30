@@ -123,6 +123,9 @@ $| = 1;
 
 our $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
 
+$SIG{INT}= 'do_stats_logging';      # signal handler for Ctrl-C, i.e. will call sub do_stats_logging
+
+
 # parse options
 $support->parse_common_options(@_);
 $support->parse_extra_options(
@@ -219,6 +222,9 @@ if ($support->param('prune')) {
     $support->log("Done.\n");
 }
 
+
+my %stat_hash;
+
 # loop over chromosomes
 $support->log("Looping over chromosomes...\n");
 my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'));
@@ -233,7 +239,8 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
         $support->log("Chromosome not in Ensembl. Skipping.\n", 1);
         next;
     }
-
+    
+   
     # fetch chromosome slices
     my $V_slice = $V_sa->fetch_by_region('chromosome', $V_chr, undef, undef,
         undef, $support->param('assembly'));
@@ -244,10 +251,13 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     my $genes = $V_ga->fetch_all_by_Slice($V_slice);
     foreach my $gene (@{ $genes }) {
         $support->log("Gene ".$gene->stable_id."\n", 2);
+        $stat_hash{$V_chr}->{'genes'}++;
 
         my $transcripts = $gene->get_all_Transcripts;
         my (@finished, %all_protein_features);
         foreach my $transcript (@{ $transcripts }) {
+            $stat_hash{$V_chr}->{'transcripts'}++;
+            
             my $interim_transcript = transfer_transcript($transcript, $mapper,
                 $V_cs, $V_pfa, $E_slice);
             my ($finished_transcripts, $protein_features) =
@@ -277,6 +287,9 @@ $support->log("Done.\n");
 
 # finish logfile
 $support->finish_log;
+
+# write out to statslog file
+do_stats_logging();
 
 
 ### END main
@@ -475,6 +488,26 @@ sub create_transcripts {
     }
 
     return \@finished_transcripts, \%protein_features;
+}
+
+
+sub do_stats_logging{
+
+    #writes the number of genes and transcripts processed to the stats log file
+    #note: this can be called as an interrupt handler for ctrl-c,
+    #so can also give current stats if script terminated
+
+    my $logfile= $support->param('logpath').'/'.$support->param('statlog');
+    my $fh;
+    open($fh, ">$logfile") || $support->log_error("Could not open stats log file: $logfile\n");
+    foreach my $chrom(keys %stat_hash){
+        my $num_genes= $stat_hash{$chrom}->{'genes'};
+        my $num_transcripts= $stat_hash{$chrom}->{'transcripts'};
+        print $fh "Chromosome $chrom: Total genes:$num_genes\n";
+        print $fh "Chromosome $chrom: Total transcripts:$num_transcripts\n";
+    }
+    close($fh);
+    exit;  
 }
 
 
