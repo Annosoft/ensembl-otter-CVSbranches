@@ -276,6 +276,14 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
                 keys %{ $protein_features || {} };
         }
 
+
+        # if there are no finished transcripts, count this gene as being NOT transfered
+        my $num_finished_t= @finished;
+        if(! $num_finished_t){
+            push @{$stat_hash{$V_chr}->{'failed'}}, $gene->stable_id;
+        
+        }
+
         unless ($support->param('dry_run')) {
             Gene::store_gene($support, $E_slice, $E_ga, $E_pfa, $gene,
                 \@finished, \%all_protein_features);
@@ -503,8 +511,16 @@ sub do_stats_logging{
     foreach my $chrom(keys %stat_hash){
         my $num_genes= $stat_hash{$chrom}->{'genes'};
         my $num_transcripts= $stat_hash{$chrom}->{'transcripts'};
+        my @failed_list=();
+        if(defined($stat_hash{$chrom}->{'failed'})){
+            @failed_list=@{$stat_hash{$chrom}->{'failed'}};
+        
+        }
         print $fh "Chromosome $chrom: Total genes:$num_genes\n";
         print $fh "Chromosome $chrom: Total transcripts:$num_transcripts\n";
+        foreach my $failed_stable_id(@failed_list){
+            print $fh "no transcripts mapped to Ensembl for gene: $failed_stable_id\n";
+        }
     }
     close($fh);
     exit;  
