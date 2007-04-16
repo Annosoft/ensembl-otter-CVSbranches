@@ -119,7 +119,8 @@ sub get_available_adaptors{
     'SupportingFeature'    => 'Bio::EnsEMBL::DBSQL::SupportingFeatureAdaptor',
     'TranscriptSupportingFeature'    => 'Bio::EnsEMBL::DBSQL::TranscriptSupportingFeatureAdaptor',
     # 'Transcript'           => 'Bio::EnsEMBL::DBSQL::TranscriptAdaptor',
-    'Translation'          => 'Bio::EnsEMBL::DBSQL::TranslationAdaptor'
+    'Translation'          => 'Bio::EnsEMBL::DBSQL::TranslationAdaptor',
+	'UnconventionalTranscriptAssociation' => 'Bio::EnsEMBL::DBSQL::UnconventionalTranscriptAssociationAdaptor',
   );
   return (\%pairs);
 }
