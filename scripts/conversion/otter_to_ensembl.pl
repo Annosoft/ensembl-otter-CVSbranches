@@ -124,7 +124,7 @@ my $ga = $dba->get_GeneAdaptor;
 foreach my $chr ($support->sort_chromosomes) {
     $support->log_stamped("> Chr $chr\n");
 
-    my $slice = $sa->fetch_by_region('chromosome', $chr);
+    my $slice = $sa->fetch_by_region('toplevel', $chr);
     # loop over genes
     foreach my $gene (@{ $ga->fetch_by_Slice($slice) }) {
 		my $gid = $gene->stable_id;
