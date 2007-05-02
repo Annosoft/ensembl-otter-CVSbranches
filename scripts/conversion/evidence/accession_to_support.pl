@@ -157,7 +157,8 @@ foreach my $chr (@chr_sorted) {
     
     # fetch genes from db
     $support->log("Fetching genes...\n");
-    my $slice = $sa->fetch_by_region('chromosome', $chr);
+    #changed 'chromosome' to 'top_level' in next line
+    my $slice = $sa->fetch_by_region('toplevel', $chr);
     my $genes = $ga->fetch_by_Slice($slice);
     $support->log("Done fetching ".scalar @$genes." genes. " .
                    $support->date_and_mem."\n\n");
@@ -176,7 +177,7 @@ foreach my $chr (@chr_sorted) {
         }
 
         # adjust gene's slice to cover gene +/- 1000 bp
-        my $gene_slice = $sa->fetch_by_region('chromosome', $chr, $gene->start - 1000, $gene->end + 1000);
+        my $gene_slice = $sa->fetch_by_region('toplevel', $chr, $gene->start - 1000, $gene->end + 1000);
         $gene = $gene->transfer($gene_slice);
         unless ($gene) {
             $support->log_warning("Gene $gene_name ($gid, $gsi) doesn't transfer to padded gene_slice.\n");
