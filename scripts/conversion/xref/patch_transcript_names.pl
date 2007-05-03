@@ -93,7 +93,7 @@ my $sth = $dba->dbc->prepare("update xref set display_label=? where xref_id=?");
 my $c;
 foreach my $chr ($support->sort_chromosomes) {
 	$support->log_stamped("Looping over chromosome $chr\n");
-	my $slice = $sa->fetch_by_region('chromosome', $chr);
+	my $slice = $sa->fetch_by_region('toplevel', $chr);
 	foreach my $gene (@{$slice->get_all_Genes()}) {
 		my $g_name = $gene->display_xref->display_id;
 		TRANS: foreach my $trans (@{$gene->get_all_Transcripts()}) {
