@@ -142,6 +142,7 @@ sub make_Transcript {
     $transcript->version($itrans->version);
     $transcript->biotype($itrans->biotype);
     $transcript->status($itrans->status);
+	$transcript->analysis($itrans->analysis);
     $transcript->description($itrans->description);
     $transcript->created_date($itrans->created_date);
     $transcript->modified_date($itrans->modified_date);
@@ -167,7 +168,7 @@ sub make_Transcript {
             $pf->score(0) unless ($pf->score);
             $pf->percent_id(0) unless($pf->percent_id);
             $pf->p_value(0) unless ($pf->p_value);
-            $pf->dbID(undef);
+#           $pf->dbID(undef);
             push @protein_features, $pf;
         }
     }
