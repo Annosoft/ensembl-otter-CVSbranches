@@ -41,7 +41,7 @@ Logic is:
 (i) retrieve each gene with a GD: prefix on it's name (gene_name.name)
 (ii) if that gene has an 'Annotation_remark- corf' remark on at least one of it's transcripts
 then set the analysis_id to otter_corf
-(iii) if that gene has a transcript with a 'corf' remark on it then set that to be
+(iii) if that gene has a transcript with a 'corf' remark on it then change that to be
 'Annotation_remark- corf', and then set the analysis_id as above
 
 Reports on other GD: loci that have other remarks containing 'corf'.
