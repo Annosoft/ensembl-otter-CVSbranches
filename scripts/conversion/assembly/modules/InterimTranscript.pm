@@ -88,6 +88,12 @@ sub status {
   return $self->{'status'};
 }
 
+sub analysis {
+  my $self = shift;
+  $self->{'analysis'} = shift if(@_);
+  return $self->{'analysis'};
+}
+
 sub description {
   my $self = shift;
   $self->{'description'} = shift if(@_);
