@@ -230,7 +230,6 @@ if ($support->param('prune') && $support->user_proceed("Do you want to delete al
     $support->log("Done.\n");
 }
 
-
 my %stat_hash;
 
 # loop over chromosomes
@@ -240,15 +239,14 @@ my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassemb
 my $ensembl_chr_map = $support->get_ensembl_chr_mapping($V_dba, $support->param('assembly'));
 foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Chromosome $V_chr...\n", 1);
-    
-    # skip non-ensembl chromosomes (e.g. MHC haplotypes)
+
+    # skip non-ensembl chromosomes
     my $E_chr = $ensembl_chr_map->{$V_chr};
     unless ($E_chrlength->{$E_chr}) {
         $support->log("Chromosome not in Ensembl. Skipping.\n", 1);
         next;
     }
-    
-   
+
     # fetch chromosome slices
     my $V_slice = $V_sa->fetch_by_region('chromosome', $V_chr, undef, undef,
         undef, $support->param('assembly'));
@@ -267,13 +265,12 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
 			next GENE;
 		}
         $support->log("Gene $gsi/$name (logic_name $ln)\n", 2);
-        $stat_hash{$V_chr}->{'genes'}++;
 
         my $transcripts = $gene->get_all_Transcripts;
         my (@finished, %all_protein_features);
+		my $c = 0;
         foreach my $transcript (@{ $transcripts }) {
-            $stat_hash{$V_chr}->{'transcripts'}++;
-            
+			$c++;
             my $interim_transcript = transfer_transcript($transcript, $mapper,
                 $V_cs, $V_pfa, $E_slice);
             my ($finished_transcripts, $protein_features) =
@@ -292,13 +289,16 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
                 keys %{ $protein_features || {} };
         }
 
-
         # if there are no finished transcripts, count this gene as being NOT transfered
         my $num_finished_t= @finished;
         if(! $num_finished_t){
-            push @{$stat_hash{$V_chr}->{'failed'}}, $gene->stable_id;
-        
+            push @{$stat_hash{$V_chr}->{'failed'}}, [$gene->stable_id,$gene->seq_region_start,$gene->seq_region_end];
+			next GENE;
         }
+
+		#count gene and transcript if it's been transferred
+        $stat_hash{$V_chr}->{'genes'}++;
+		$stat_hash{$V_chr}->{'transcripts'} += $c;
 
         unless ($support->param('dry_run')) {
             Gene::store_gene($support, $E_slice, $E_ga, $E_pfa, $gene,
@@ -314,7 +314,6 @@ $support->finish_log;
 
 # write out to statslog file
 do_stats_logging();
-
 
 ### END main
 
@@ -524,20 +523,26 @@ sub do_stats_logging{
 
     my $logfile= $support->param('logpath').'/'.$support->param('statlog');
     my $fh;
+	my %failed;
     open($fh, ">$logfile") || $support->log_error("Could not open stats log file: $logfile\n");
-    foreach my $chrom(keys %stat_hash){
+	my $format = "%-20s%-10s%-10s\n";
+	printf $fh ($format,'Chromosome','Genes','Transcripts');
+	print $fh ('-'x41)."\n";
+    foreach my $chrom(sort keys %stat_hash){
         my $num_genes= $stat_hash{$chrom}->{'genes'};
         my $num_transcripts= $stat_hash{$chrom}->{'transcripts'};
-        my @failed_list=();
         if(defined($stat_hash{$chrom}->{'failed'})){
-            @failed_list=@{$stat_hash{$chrom}->{'failed'}};
-        
+            $failed{$chrom} = $stat_hash{$chrom}->{'failed'};
         }
-        print $fh "Chromosome $chrom: Total genes:$num_genes\n";
-        print $fh "Chromosome $chrom: Total transcripts:$num_transcripts\n";
-        foreach my $failed_stable_id(@failed_list){
-            print $fh "no transcripts mapped to Ensembl for gene: $failed_stable_id\n";
-        }
+        printf $fh ($format,$chrom,$num_genes,$num_transcripts);
+	}
+	printf $fh "\n";
+	foreach my $failed_chr (keys %failed){
+		my $no = scalar @{$failed{$failed_chr}};
+		print $fh "$no genes not transferred on chromosome $failed_chr:\n";
+		foreach my $g (@{$failed{$failed_chr}}) {
+			print $fh "  ",$g->[0],": ",$g->[1],"-",$g->[2],"\n";
+		}
     }
     close($fh);
     exit;  
