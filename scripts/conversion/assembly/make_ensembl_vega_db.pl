@@ -423,56 +423,64 @@ $support->log_stamped("Done.\n\n");
 $support->finish_log;
 
 sub delete_mappings{
-	# delete all mappings in the ensembl core db to an old version
-	# e.g. references to NCBI35 in a NCBI36 db
+	# delete all mappings in the ensembl core db to an old version  e.g. references to NCBI35 in a NCBI36 db
 	my($dbh)= @_;
 	my @db_types=();
 	my @row=();
+	$support->log("Removing extra assembly mappings from ensembl database\n");
 	my $sth = $dbh->prepare("select coord_system_id, name, version from coord_system where name='chromosome'") or $support->log_error("Couldn't prepare statement: " . $dbh->errstr);
 	$sth->execute() or $support->log_error("Couldn't execute statement: " . $sth->errstr);
 	while (@row = $sth->fetchrow_array()) {
-            push @db_types, {coord_system_id => $row[0], name => $row[1], version => $row[2]};    
-    }
-    
-    # we expect only 2 rows in the array: check
-    my $num_rows = @db_types;
-    if($num_rows != 2){
-    	$support->log_error("assumption of 2 db mappings is invalid as there are $num_rows \n");
+		push @db_types, {coord_system_id => $row[0], name => $row[1], version => $row[2]};    
     }
 
-	# compare the versions of each row, we assume the higher one is the one we want to keep and the lower one
-	# the one we want to remove
-	my $cmp_val= $db_types[0] cmp $db_types[1];
-	my $id_to_delete;
-	my $version_to_delete;
-	if($cmp_val < 0){
-		# first comes before second, i.e. the one to delete is at index 0
-		$id_to_delete= $db_types[0]->{'coord_system_id'};
-		$version_to_delete= $db_types[0]->{'version'};
+    # we expect 1 or 2 assembly mappings: check
+    my $num_rows = @db_types;
+    if($num_rows > 2){
+    	$support->log_error("There are $num_rows assembly_mappings in the ensembl database and I can only work with 1 or 2, please investigate\n");
+    }
+	if($num_rows == 1){
+		$support->log("Only $num_rows assembly_mappings in the ensembl database, nothing to remove \n");
+		return;
 	}
-	elsif($cmp_val > 0){
-		# second comes before first, i.e. the one to delete is at index 1
-		$id_to_delete= $db_types[1]->{'coord_system_id'};
-		$version_to_delete= $db_types[1]->{'version'};
+
+	#go ahead and remove
+	else {
+		# compare the versions of each row, we assume the higher one is the one we want to keep and the lower one
+		# the one we want to remove
+		my $cmp_val= $db_types[0] cmp $db_types[1];
+		my $id_to_delete;
+		my $version_to_delete;
+		if($cmp_val < 0){
+			# first comes before second, i.e. the one to delete is at index 0
+			$id_to_delete= $db_types[0]->{'coord_system_id'};
+			$version_to_delete= $db_types[0]->{'version'};
+		}
+		elsif($cmp_val > 0){
+			# second comes before first, i.e. the one to delete is at index 1
+			$id_to_delete= $db_types[1]->{'coord_system_id'};
+			$version_to_delete= $db_types[1]->{'version'};
+		}
+		else{
+			# identical: database error
+			$support->log_error("When trying to remove mappings, got identical dbs; they must be different\n");
+		}
+		$support->log("removing mappings to old version: $version_to_delete\n");
+		
+		# set up sql query to delete old seq_regions and assemblies that contain them
+		my $query= "delete a, sr from assembly a, seq_region sr where sr.seq_region_id = a.cmp_seq_region_id and sr.coord_system_id = $id_to_delete";
+		$dbh->do($query) or $support->log_error("Query failed to delete old seq regions and assembies");
+		$support->log("deleted old assemblies and seq_regions\n");
+		
+		# delete the old coord_system from the coord_system table
+		$query= "delete from coord_system where coord_system_id = $id_to_delete";
+		$dbh->do($query) or $support->log_error("Query failed to delete old coord_system");
+		$support->log("Deleted old coord_system\n");
+		
+		#delete from the meta table
+		$query= "delete from meta where meta_value like '%:$version_to_delete%'";
+		$dbh->do($query) or $support->log_error("Query failed to delete old meta entries");
+		$support->log("Deleted old meta table entries\n");
+		return;
 	}
-	else{
-		# identical: database error
-		$support->log_error("When trying to remove mappings, got identical dbs; they must be different\n");
-	}
-	$support->log("removing mappings to old version: $version_to_delete\n");
-	
-	# set up sql query to delete old seq_regions and assemblies that contain them
-	my $query= "delete a, sr from assembly a, seq_region sr where sr.seq_region_id = a.cmp_seq_region_id and sr.coord_system_id = $id_to_delete";
-	$dbh->do($query) or $support->log_error("Query failed to delete old seq regions and assembies");
-	$support->log("deleted old assemblies and seq_regions\n");
-	
-	# delete the old coord_system from the coord_system table
-	$query= "delete from coord_system where coord_system_id = $id_to_delete";
-	$dbh->do($query) or $support->log_error("Query failed to delete old coord_system");
-	$support->log("Deleted old coord_system\n");
-	
-	#delete from the meta table
-	$query= "delete from meta where meta_value like '%:$version_to_delete%'";
-	$dbh->do($query) or $support->log_error("Query failed to delete old meta entries");
-	$support->log("Deleted old meta table entries\n");
 }
