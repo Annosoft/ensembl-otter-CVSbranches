@@ -154,5 +154,12 @@ sub get_all_TranscriptSupportingFeatures {
     return $self->{'transcript_supporting_features'};
 }
 
+#sub display_xref {
+#    my $self = shift;
+#    $self->{'display_xref'} = shift if (@_);
+#    return $self->{'display_xref'};
+#}
+
+
 
 1;

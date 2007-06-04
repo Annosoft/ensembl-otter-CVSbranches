@@ -149,6 +149,10 @@ sub make_Transcript {
     $transcript->add_Attributes(@{ $itrans->transcript_attribs });
     $transcript->add_supporting_features(@{ $itrans->get_all_TranscriptSupportingFeatures });
 
+
+	#this is where is should go I reckon!
+#	$transcript->display_xref($itrans->display_xref);
+
     $support->log_verbose("making final transcript for ".$itrans->stable_id."\n", 4);
 
     # the whole translation may have been deleted
