@@ -163,6 +163,8 @@ my $E_dbh = $E_dba->dbc->db_handle;
 my $E_sa = $E_dba->get_SliceAdaptor;
 my $E_aa = $E_dba->get_AttributeAdaptor;
 
+my $Ens_dba = $support->get_database('ensembl', 'ensembl');
+
 # create temporary table for storing non-aligned blocks
 unless ($support->param('dry_run')) {
     $E_dbh->do(qq(
@@ -184,8 +186,8 @@ unless ($support->param('dry_run')) {
 }
 
 # get Vega and Ensembl chromosomes
-my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'));
-my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassembly'));
+my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'),'chromosome',1);
+my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassembly'),'chromosome',1);
 my $ensembl_chr_map = $support->get_ensembl_chr_mapping($V_dba, $support->param('assembly'));
 
 # loop over chromosomes
@@ -209,7 +211,7 @@ my $sth2 = $E_dbh->prepare(qq(INSERT INTO tmp_align values(NULL, ?, ?, ?, ?, ?, 
 foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Chromosome $V_chr...\n", 1);
     
-    # skip non-ensembl chromosomes (e.g. MHC haplotypes)
+    # skip any non-ensembl chromosomes
     my $E_chr = $ensembl_chr_map->{$V_chr};
     unless ($E_chrlength->{$E_chr}) {
         $support->log("No equivalent chromosome in Ensembl. Skipping.\n", 1);

@@ -20,6 +20,7 @@ General options:
     --logfile, --log=FILE               log to FILE (default: *STDOUT)
     --logpath=PATH                      write logfile to PATH (default: .)
     --logappend, --log_append           append to logfile (default: truncate)
+    --prune=0|1                         remove changes from previous runs of this script
     -v, --verbose                       verbose logging (default: false)
     -i, --interactive=0|1               run script interactively (default: true)
     -n, --dry_run, --dry=0|1            don't write results to database
@@ -37,18 +38,23 @@ based transcript names) with names that reflect the gene name.
 Where the above results in identical names for transcripts from the same gene then
 the transcripts are numbered incrementaly after ordering from the longest coding
 to the shortest non-coding. The exceptions to this is are genes that have a
-'Annotation_remark - fragmented loci' remark - these are truly fragmented genes
-so a remark to this effect is added and the transcript IDs are not patched. The list
+'Annotation_remark - fragmented loci' gene_remark, or a '%fragmented%' transcript_remark
+ - these are truly fragmented genes so a remark to this effect is added and the transcript IDs are not patched. The list
 of gene IDs at the end of the script are those that have been checked by Havana -
 new ones are reported and should be passed back to Havana to check that they're not
 true fragmented loci.
 
 If you run the script after you ran add_vega_xrefs.pl, you can use the
---fix_xrefs option to also patch the diplay_xrefs. Note that if used with zebrafish
-then transcript_info.name will be updated to the imported Zfin name (if present).
+--fix_xrefs option to also patch the diplay_xrefs. Note that if this option is used,
+as it is might be with zebrafish, then transcript_info.name as well as the display_xref
+will be updated to any imported Zfin name. Take care with this legacy option!
 
-It cannot be used to change transcript names after the addition of Zfin gene names -
-that must be done using patch_transcript_names.pl.
+CAUTION: The -prune option restores the data to the stage before this script was *first*
+run, ie do not use this option if add_vega_xrefs.pl has been run, or if gene or transcript_attribs
+have been added between times. Or else be prepared to regenerate them.
+
+It cannot be used to change the root of transcript names after the addition of Zfin gene
+names - that must be done using patch_transcript_names.pl.
 
 =head1 LICENCE
 
@@ -92,8 +98,8 @@ my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
 
 # parse options
 $support->parse_common_options(@_);
-$support->parse_extra_options('fix_xrefs=s');
-$support->allowed_params($support->get_common_params, 'fix_xrefs');
+$support->parse_extra_options('fix_xrefs=s','prune=s');
+$support->allowed_params($support->get_common_params, 'fix_xrefs','prune');
 
 if ($support->param('help') or $support->error) {
     warn $support->error if $support->error;
@@ -116,7 +122,47 @@ while (<DATA>) {
 # connect to database and get adaptors
 my $dba = $support->get_database('vega');
 my $ga  = $dba->get_GeneAdaptor;
+my $ta  = $dba->get_TranscriptAdaptor;
+my $aa  = $dba->get_AttributeAdaptor;
 my $dbh = $dba->dbc->db_handle;
+
+# make a backup table the first time the script is run
+my (%tabs);
+map { $_ =~ s/`//g; $tabs{$_} += 1; } $dbh->tables;
+if (! exists ($tabs{'backup_transcript_info_original'})) {
+	$support->log("Creating backup of transcript_info table\n\n");
+	$dbh->do("CREATE table backup_transcript_info_original
+              SELECT * FROM transcript_info");
+	$support->log("Creating backup of transcript_attrib\n\n");
+	$dbh->do("CREATE table backup_transcript_attrib_original
+              SELECT * FROM transcript_attrib");
+	$support->log("Creating backup of gene_attrib\n\n");
+	$dbh->do("CREATE table backup_gene_attrib_original
+              SELECT * FROM gene_attrib");
+	$support->log("Creating backup of xref\n\n");
+	$dbh->do("CREATE table backup_xref_original
+              SELECT * FROM xref");
+}
+
+if ($support->param('prune') 
+		&& (exists ($tabs{'backup_transcript_info_original'}))
+			&& $support->user_proceed("\nDo you want to undo changes from previous runs of this script?")) {
+    $support->log("Undoing changes from previous runs of this script...\n");
+	$dbh->do("DELETE from transcript_info");
+	$dbh->do("INSERT into transcript_info SELECT * FROM backup_transcript_info_original");
+	$dbh->do("DELETE from transcript_attrib");
+	$dbh->do("INSERT into transcript_attrib SELECT * FROM backup_transcript_attrib_original");
+	$dbh->do("DELETE from xref");
+	$dbh->do("INSERT into xref SELECT * FROM backup_xref_original");
+	$dbh->do("DELETE from gene_attrib");
+	$dbh->do("INSERT into gene_attrib SELECT * FROM backup_gene_attrib_original");
+}
+
+#are duplicate transcript names going to be fixed later on ?
+my $fix_names = 0;
+if ($support->user_proceed("Do you want to check and fix duplicated transcript names?") ) {
+	$fix_names = 1;
+}
 
 # get gene name to transcript_stable_id mapping from db
 $support->log("Fetching gene name to transcript_stable_id mapping from db...\n");
@@ -150,6 +196,22 @@ while (my ($gene_name, $gsi, $tsi, $trans_name) = $sth->fetchrow_array) {
         my $new_name = "$gene_name$1";
 		$transnames{$gsi}->{$new_name}++;
         next if ($new_name eq $trans_name);
+		
+		#store a transcript attrib for the old name
+        my $attrib = [
+			Bio::EnsEMBL::Attribute->new(
+                -CODE => 'synonym',
+                -NAME => 'Synonym',
+                -DESCRIPTION => 'Synonymous names',
+                -VALUE => $trans_name,
+            )
+		];
+		my $trans = $ta->fetch_by_stable_id($tsi);
+		my $t_dbID = $trans->dbID;
+		unless ($support->param('dry_run')) {
+			$aa->store_on_Transcript($t_dbID, $attrib);
+			$support->log("Stored transcript attrib for old name for transcript $tsi\n");
+		}
         $support->log_verbose(sprintf("%-20s%-3s%-20s", $trans_name, "->", $new_name)."\n", 1);
 
         # update transcript_info.name
@@ -176,9 +238,8 @@ while (my ($gene_name, $gsi, $tsi, $trans_name) = $sth->fetchrow_array) {
 $support->log("Done updating $stats{transcript_info} transcript_infos, $stats{xref} xrefs.\n");
 
 #check for duplicated names and fix as appropriate
-if ($support->user_proceed("Do you want to check and fix duplicated transcript names?") ) {
+if ($fix_names) {
 	foreach my $gid (keys %transnames) {
-
 		my $gene;
 		my %transcripts = %{$transnames{$gid}};
 		if ( grep { $transcripts{$_} > 1 } keys %transcripts ) {
@@ -195,37 +256,50 @@ $support->finish_log;
 sub update_names {
 	my ($gene,$stats,$dbh) = @_;
 	my $gid    = $gene->stable_id;
+	my $g_dbID = $gene->dbID;
 	#get gene name from xref (if xrefs are to be fixed) or gene_name
 	my $gene_name = ($support->param('fix_xrefs')) ? $gene->display_xref->display_id || $gene->gene_info->name->name
                     : $gene->gene_info->name->name;
-	my @remarks = $gene->gene_info->remark;
+	my @gene_remarks = $gene->gene_info->remark;
 
-	#add a remark for the website if it's a framented gene - need correct wording from Jen
-	if ( grep { $_->remark eq 'Annotation_remark- fragmented_loci'} @remarks ) {
+#	#get transcript_remarks
+	my %trans_remarks;
+	foreach my $trans (@{$ta->fetch_all_by_Gene($gene)}) {
+		my @remarks = $trans->transcript_info->remark;
+		foreach my $remark (@remarks) {
+			my $r = $remark->remark;
+			$trans_remarks{$r}++;
+		}
+	}
+
+	#add a gene remark for the website if it's a framented gene
+	if ( (grep { $_->remark eq 'Annotation_remark- fragmented_loci'} @gene_remarks )
+			 || (grep { $_ =~ /fragmen/} keys %trans_remarks ) ) {
 		my $comment = 'This locus has been annotated as fragmented because either there is not enough evidence covering the whole locus to identify the exact exon structure of the transcript, or because the transcript spans a gap in  the assembly';
-		unless ( $support->param('dry_run') ) {
-			if (grep { $_->remark eq $comment} @remarks) {
-				$support->log("Fragmented loci annotation remark for gene $gid already exists\n");
-			}
-			else {
-				my $remark = new Bio::Otter::GeneRemark(
-												-remark => $comment,
-												-gene_info_id => $gene->gene_info->dbID,
-													   );
-				$gene->gene_info->remark($remark);
+		if (grep { $_->remark eq $comment} @gene_remarks) {
+			$support->log("Fragmented loci annotation remark for gene $gid already exists\n");
+		}
+		else {
+			my $attrib = [
+				Bio::EnsEMBL::Attribute->new(
+					-CODE => 'remark',
+					-NAME => 'Remark',
+					-DESCRIPTION => 'Annotation remark',
+					-VALUE => $comment,
+				)
+				];
+			unless ( $support->param('dry_run') ) {
+				$aa->store_on_Gene($g_dbID,$attrib);
 				$support->log("Added fragmented loci annotation remark for gene $gid\n");
-				# need to update the gene in the database, using $ga->update($gene) ?
 			}
 		}
 		return;
 	}
 	
-	#otherwise patch the transcript_name (and xref if requested)
-	else {
-		# warn if this is a potential fragmented loci
-		unless ( $seen_genes{$gid} ) {
-			$support->log_warning("Gene $gid has duplicated names and has no Fragmented loci Annotation remark. Transcript names are being patched but this ID should be reported to Havana for double checking\n");
-		}
+	#otherwise patch the transcript_name  if not OKeyd before (and xref if requested)
+	elsif (! $seen_genes{$gid} ) {
+		$support->log_warning("$gid has duplicated names and has no \'Annotation_remark- fragmented_loci\' on the gene or \'\%fragmen\%\' remark on any transcripts. Transcript names are being patched but this ID should be reported to Havana for double checking\n");
+
 		my @trans = $gene->get_all_Transcripts();
 		#seperate coding and non_coding transcripts
 		my $coding_trans = [];

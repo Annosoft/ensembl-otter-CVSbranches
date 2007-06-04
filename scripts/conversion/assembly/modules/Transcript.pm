@@ -142,11 +142,16 @@ sub make_Transcript {
     $transcript->version($itrans->version);
     $transcript->biotype($itrans->biotype);
     $transcript->status($itrans->status);
+	$transcript->analysis($itrans->analysis);
     $transcript->description($itrans->description);
     $transcript->created_date($itrans->created_date);
     $transcript->modified_date($itrans->modified_date);
     $transcript->add_Attributes(@{ $itrans->transcript_attribs });
     $transcript->add_supporting_features(@{ $itrans->get_all_TranscriptSupportingFeatures });
+
+
+	#this is where is should go I reckon!
+#	$transcript->display_xref($itrans->display_xref);
 
     $support->log_verbose("making final transcript for ".$itrans->stable_id."\n", 4);
 
@@ -167,7 +172,7 @@ sub make_Transcript {
             $pf->score(0) unless ($pf->score);
             $pf->percent_id(0) unless($pf->percent_id);
             $pf->p_value(0) unless ($pf->p_value);
-            $pf->dbID(undef);
+#           $pf->dbID(undef);
             push @protein_features, $pf;
         }
     }

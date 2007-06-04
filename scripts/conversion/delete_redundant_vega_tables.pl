@@ -116,6 +116,7 @@ map { $_ =~ s/`//g; $tabs{$_} |= 2; } $mdbh->tables;
 
 my @to_delete = sort grep { $tabs{$_} == 1 } keys %tabs;
 my @missing   = sort grep { $tabs{$_} == 2 } keys %tabs;
+my @backups   = grep { $_ =~ /backup|bkup/i } keys %tabs;
 
 $\ = "\n";
 
@@ -127,18 +128,28 @@ if (@missing) {
 	}
 }
 
-if (@to_delete) {
-	$support->log("The following tables are redundant:\n");
-	my $tables = join "\n", @to_delete;
-	if ($support->user_proceed("$tables\nProceed?\n")) {
-        if ($support->param('dry_run')) {
-			$support->log("Nothing done for a dry run\n");
+if (@to_delete ) {
+	$support->log("The following tables are not core ensembl tables:\n");
+	my $all_tables = join "\n", @to_delete;
+	my $bk_tables = join "\n", @backups;
+	if ($support->param('dry_run')) {
+		$support->log("$all_tables\n\nNothing done for a dry run\n");
+		exit;
+	}
+	if ($support->user_proceed("$all_tables\n\nProceed with deleting all the above non-ensembl databases?\n")) {
+		foreach my $t (@to_delete) {
+			$vdbh->do("DROP TABLE $t");
 		}
-		else {			
-			foreach my $t (@to_delete) {
-				if ($support->user_proceed("Delete table $t ?\n")) {
-					$vdbh->do("DROP TABLE $t");
-				}
+	}
+	elsif (@backups && $support->user_proceed("$bk_tables\n\nProceed with deleting just the above backups?\n")) {
+		foreach my $t (@backups) {
+			$vdbh->do("DROP TABLE $t");
+		}
+	}
+	elsif ($support->user_proceed("Go through each table and decide?\n")) {
+		foreach my $t (@to_delete) {
+			if ($support->user_proceed("\nDelete table $t ?")) {
+				$vdbh->do("DROP TABLE $t");
 			}
 		}
 	}

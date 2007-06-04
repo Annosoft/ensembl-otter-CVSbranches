@@ -52,6 +52,8 @@ at the moment:
 
 After running this script, the webcode no longer requires to load ensembl-otter.
 
+The script prompts the user to remove 'Annotation_remark-'s from the database -
+this does not affect the rest of the script or the website so leave them if you're not sure.
 
 =head1 LICENCE
 
@@ -121,20 +123,29 @@ my $sa = $dba->get_SliceAdaptor;
 my $aa = $dba->get_AttributeAdaptor;
 my $ga = $dba->get_GeneAdaptor;
 
+# drop now obsolete entries from gene_remark and transcript_remark
+unless ($support->param('dry_run')) {
+	if ($support->user_proceed("Would you like to drop no longer wanted 'Annotation_remark-'s from gene_remark and transcript_remark ?")) {
+		foreach my $table (qw(gene_remark transcript_remark)) {
+			$support->log("Deleting obsolete $table entries...\n");
+			my $numrow = $dbh->do("DELETE FROM $table WHERE remark LIKE 'annotation_remark%'");
+			$support->log("Deleted $numrow entries.\n");
+		}
+	}
+}
+
 foreach my $chr ($support->sort_chromosomes) {
     $support->log_stamped("> Chr $chr\n");
-
     my $slice = $sa->fetch_by_region('toplevel', $chr);
-    # loop over genes
     foreach my $gene (@{ $ga->fetch_by_Slice($slice) }) {
 		my $gid = $gene->stable_id;
 		my $g_dbID = $gene->dbID;
         $support->log_verbose($gene->display_xref->display_id." (".$gid.")...\n", 1);
-        
+
         # create attributes for all Vega-specific annotation
         my $gene_attribs = [];
-        
-        # author
+
+        # author and author_email
         push @{ $gene_attribs }, Bio::EnsEMBL::Attribute->new(
             -CODE => 'author',
             -NAME => 'Author',
@@ -182,7 +193,7 @@ foreach my $chr ($support->sort_chromosomes) {
 			my $tid = $transcript->stable_id;
 			my $t_dbID = $transcript->dbID;
             $support->log_verbose($transcript->display_xref->display_id." (".$tid.")...\n", 2);
-            
+
             my $trans_attribs = [];
 
             # author
@@ -245,7 +256,6 @@ foreach my $chr ($support->sort_chromosomes) {
             }
         }
     }
-
     $support->log_stamped("Done with chr $chr.\n\n");
 }
 

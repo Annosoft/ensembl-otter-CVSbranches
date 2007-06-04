@@ -112,7 +112,6 @@ $support->init_log;
 
 # connect to database and get adaptors (caching features on one slice only)
 my $dba = $support->get_database('otter');
-$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $ea = $dba->get_DBEntryAdaptor();
@@ -165,7 +164,7 @@ foreach my $chr (@chr_sorted) {
     
     # fetch genes from db
     $support->log("Fetching genes...\n");
-    my $slice = $sa->fetch_by_region('chromosome', $chr);
+    my $slice = $sa->fetch_by_region('toplevel', $chr);
     my $genes = $ga->fetch_by_Slice($slice);
     $support->log("Done fetching ".scalar @$genes." genes. " .
                    $support->date_and_mem."\n\n");

@@ -167,14 +167,77 @@ $dbh->{'vega'} = $dba->{'vega'}->dbc->db_handle;
 $dba->{'ensembl'} = $support->get_database('ensembl', 'ensembl');
 $dbh->{'ensembl'} = $dba->{'ensembl'}->dbc->db_handle;
 
-# delete any preexisting mappings in the Ensembl db. For example
-# mappings between NCBIM35 and NCBIM36
+##update external_db and attrib tables in vega and ensembl-vega database
+if ( (! $support->param('dry_run'))
+	 && $support->user_proceed("Would you like to update the attrib_type tables for the ensembl and vega databases?\n")) {
+
+	#update ensembl database
+	my $options = $support->create_commandline_options({
+		'allowed_params' => 1,
+		'exclude' => [
+			'ensemblhost',
+			'ensemblport',
+			'ensembluser',
+			'ensemblpass',
+			'ensembldbname',
+			'evegahost',
+			'evegaport',
+			'evegauser',
+			'evegapass',
+			'evegadbname',
+		],
+		'replace' => {
+			dbname      => $support->param('ensembldbname'),
+			host        => $support->param('ensemblhost'),
+			port        => $support->param('ensemblport'),
+			user        => $support->param('ensembluser'),
+			pass        => $support->param('ensemblpass'),
+			logfile     => 'make_ensembl_vega_update_attributes_ens.log',
+			interactive => 0,
+		},
+	});
+
+	$support->log_stamped("Updating attrib_type table for ".$support->param('ensembldbname')."...\n");
+	system("../update_attributes.pl $options") == 0
+		or $support->throw("Error running update_attributes.pl: $!");
+	$support->log_stamped("Done.\n\n");
+
+	#update vega database
+	$options = $support->create_commandline_options({
+		'allowed_params' => 1,
+		'exclude' => [
+			'ensemblhost',
+			'ensemblport',
+			'ensembluser',
+			'ensemblpass',
+			'ensembldbname',
+			'evegahost',
+			'evegaport',
+			'evegauser',
+			'evegapass',
+			'evegadbname',
+		],
+		'replace' => {
+			logfile     => 'make_ensembl_vega_update_attributes_vega.log',
+			interactive => 0,
+		},
+	});
+
+	$support->log_stamped("Updating attrib_type table for ".$support->param('dbname')."...\n");
+	eval {
+		system("../update_attributes.pl $options") == 0
+			or $support->throw("Error running update_attributes.pl: $!");
+		$support->log_stamped("Done.\n\n");
+	};
+}
+
+# delete any preexisting mappings in the Ensembl db
 delete_mappings($dbh->{'ensembl'}) unless ($support->param('dry_run'));
 
 # create new ensembl-vega (target) database
 my $evega_db = $support->param('evegadbname');
-$support->log_stamped("Creating ensembl-vega db $evega_db...\n");
 if ($support->user_proceed("Would you like to drop the ensembl-vega db $evega_db (if it exists) and create a new one?")) {
+	$support->log_stamped("Creating ensembl-vega db $evega_db...\n");
     $support->log("Dropping existing ensembl-vega db...\n", 1);
     $dbh->{'vega'}->do("DROP DATABASE IF EXISTS $evega_db") unless ($support->param('dry_run'));
     $support->log("Done.\n", 1);
@@ -254,6 +317,57 @@ $sql = qq(
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c seq_region_attrib entries.\n\n");
 
+#transfer attrib_type table from Vega
+$support->log_stamped("Transfering Vega attrib_type...\n");
+$sql = qq(
+    INSERT INTO $evega_db.attrib_type
+    SELECT *
+    FROM attrib_type
+);
+$c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c attrib_type entries.\n\n");
+
+#transfer encode misc sets, features and attribs from Ensembl db
+$support->log_stamped("Transfering Ensembl Encode misc_sets and features...\n");
+$sql = qq(
+    INSERT INTO $evega_db.misc_set
+    SELECT * from misc_set
+    WHERE code = \'encode\'
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c misc_sets entries.\n");
+$sth = $dbh->{'evega'}->prepare(qq(
+                                  SELECT misc_set_id from misc_set
+                                  WHERE code = \'encode\'
+));
+$sth->execute;
+my ($ms_id) = $sth->fetchrow_array;
+$sql = qq(
+   INSERT into $evega_db.misc_feature_misc_set
+   SELECT * from misc_feature_misc_set
+   WHERE misc_set_id = $ms_id
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c misc_feature_misc_sets entries.\n");
+$sql = qq(
+   INSERT into $evega_db.misc_feature
+   SELECT mf.misc_feature_id, mf.seq_region_id+$sri_adjust, mf.seq_region_start, mf.seq_region_end, mf.seq_region_strand
+   FROM misc_feature mf, misc_feature_misc_set mfms
+   WHERE mf.misc_feature_id = mfms.misc_feature_id
+   AND mfms.misc_set_id = $ms_id
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c misc_feature entries.\n");
+$sql = qq(
+   INSERT into $evega_db.misc_attrib
+   SELECT ma.*
+   FROM misc_attrib ma, misc_feature_misc_set mfms
+   WHERE ma.misc_feature_id = mfms.misc_feature_id
+   AND mfms.misc_set_id = $ms_id
+);
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$support->log_stamped("Done transfering $c misc_attrib entries.\n\n");
+
 # transfer assembly from Ensembl db
 $support->log_stamped("Transfering Ensembl assembly...\n");
 $sql = qq(
@@ -294,17 +408,19 @@ $sql = qq(
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c repeat_feature entries.\n\n");
 
-# transfer xrefs to external_db Vega_gene, Vega_transcript and Vega_translation
+# transfer Interpro xrefs
+# to external_db Vega_gene, Vega_transcript and Vega_translation
 # from Vega db
-$support->log_stamped("Transfering Vega xrefs (Vega_*)...\n");
+$support->log_stamped("Transfering Vega Interpro xrefs (Vega_*)...\n");
 $sql = qq(
     INSERT INTO $evega_db.xref
     SELECT x.*
     FROM xref x, external_db ed
     WHERE x.external_db_id = ed.external_db_id
-    AND ed.db_name IN
-        ('Vega_gene', 'Vega_transcript', 'Vega_translation', 'Interpro');
+    AND ed.db_name = 'Interpro'
 );
+#      IN ('Vega_gene', 'Vega_transcript', 'Vega_translation', 'Interpro');
+
 $c = $dbh->{'vega'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done transfering $c xref entries.\n\n");
 
@@ -384,95 +500,107 @@ $sql = qq(
 $c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
 $support->log_stamped("Done inserting $c meta entries.\n");
 
-# run update_external_dbs.pl
-my $options = $support->create_commandline_options({
-    'allowed_params' => 1,
-    'exclude' => [
-        'ensemblhost',
-        'ensemblport',
-        'ensembluser',
-        'ensemblpass',
-        'ensembldbname',
-        'evegahost',
-        'evegaport',
-        'evegauser',
-        'evegapass',
-        'evegadbname',
-    ],
-    'replace' => {
-        dbname      => $support->param('evegadbname'),
-        host        => $support->param('evegahost'),
-        port        => $support->param('evegaport'),
-        user        => $support->param('evegauser'),
-        pass        => $support->param('evegapass'),
-        logappend   => 1,
-    },
-});
-$support->log_stamped("Updating external_db table...\n");
-system("../xref/update_external_dbs.pl $options") == 0
-    or $support->throw("Error running update_external_dbs.pl: $!");
-$support->log_stamped("Done.\n\n");
+#update external_db and attrib_type on ensembl_vega
+if (! $support->param('dry_run') ) {
+	# run update_external_dbs.pl
+	my $options = $support->create_commandline_options({
+		'allowed_params' => 1,
+		'exclude' => [
+			'ensemblhost',
+			'ensemblport',
+			'ensembluser',
+			'ensemblpass',
+			'ensembldbname',
+			'evegahost',
+			'evegaport',
+			'evegauser',
+			'evegapass',
+			'evegadbname',
+		],
+		'replace' => {
+			dbname      => $support->param('evegadbname'),
+			host        => $support->param('evegahost'),
+			port        => $support->param('evegaport'),
+			user        => $support->param('evegauser'),
+			pass        => $support->param('evegapass'),
+			logfile     => 'make_ensembl_vega_update_external_dbs_ensvega.log',
+			interactive => 0,
+		},
+	});
+	$support->log_stamped("\nUpdating external_db table on ".$support->param('evegadbname')."...\n");
+	system("../xref/update_external_dbs.pl $options") == 0
+		or $support->throw("Error running update_external_dbs.pl: $!");
+	$support->log_stamped("Done.\n\n");
 
-# update attributes
-$support->log_stamped("Updating attrib_type table...\n");
-system("../update_attributes.pl $options") == 0
-    or $support->throw("Error running update_attributes.pl: $!");
-$support->log_stamped("Done.\n\n");
+	$support->log_stamped("\nUpdating attrib_type table on ".$support->param('evegadbname')."...\n");
+	system("../xref/update_external_dbs.pl $options") == 0
+		or $support->throw("Error running update_external_dbs.pl: $!");
+	$support->log_stamped("Done.\n\n");
+
+}
 
 # finish logfile
 $support->finish_log;
 
 sub delete_mappings{
-	# delete all mappings in the ensembl core db to an old version
-	# e.g. references to NCBI35 in a NCBI36 db
+	# delete all mappings in the ensembl core db to an old version  e.g. references to NCBI35 in a NCBI36 db
 	my($dbh)= @_;
 	my @db_types=();
 	my @row=();
+	$support->log("Removing extra assembly mappings from ensembl database\n");
 	my $sth = $dbh->prepare("select coord_system_id, name, version from coord_system where name='chromosome'") or $support->log_error("Couldn't prepare statement: " . $dbh->errstr);
 	$sth->execute() or $support->log_error("Couldn't execute statement: " . $sth->errstr);
 	while (@row = $sth->fetchrow_array()) {
-            push @db_types, {coord_system_id => $row[0], name => $row[1], version => $row[2]};    
-    }
-    
-    # we expect only 2 rows in the array: check
-    my $num_rows = @db_types;
-    if($num_rows != 2){
-    	$support->log_error("assumption of 2 db mappings is invalid as there are $num_rows \n");
+		push @db_types, {coord_system_id => $row[0], name => $row[1], version => $row[2]};    
     }
 
-	# compare the versions of each row, we assume the higher one is the one we want to keep and the lower one
-	# the one we want to remove
-	my $cmp_val= $db_types[0] cmp $db_types[1];
-	my $id_to_delete;
-	my $version_to_delete;
-	if($cmp_val < 0){
-		# first comes before second, i.e. the one to delete is at index 0
-		$id_to_delete= $db_types[0]->{'coord_system_id'};
-		$version_to_delete= $db_types[0]->{'version'};
+    # we expect 1 or 2 assembly mappings: check
+    my $num_rows = @db_types;
+    if($num_rows > 2){
+    	$support->log_error("There are $num_rows assembly_mappings in the ensembl database and I can only work with 1 or 2, please investigate\n");
+    }
+	if($num_rows == 1){
+		$support->log("Only $num_rows assembly_mappings in the ensembl database, nothing to remove \n");
+		return;
 	}
-	elsif($cmp_val > 0){
-		# second comes before first, i.e. the one to delete is at index 1
-		$id_to_delete= $db_types[1]->{'coord_system_id'};
-		$version_to_delete= $db_types[1]->{'version'};
+
+	#go ahead and remove
+	else {
+		# compare the versions of each row, we assume the higher one is the one we want to keep and the lower one
+		# the one we want to remove
+		my $cmp_val= $db_types[0] cmp $db_types[1];
+		my $id_to_delete;
+		my $version_to_delete;
+		if($cmp_val < 0){
+			# first comes before second, i.e. the one to delete is at index 0
+			$id_to_delete= $db_types[0]->{'coord_system_id'};
+			$version_to_delete= $db_types[0]->{'version'};
+		}
+		elsif($cmp_val > 0){
+			# second comes before first, i.e. the one to delete is at index 1
+			$id_to_delete= $db_types[1]->{'coord_system_id'};
+			$version_to_delete= $db_types[1]->{'version'};
+		}
+		else{
+			# identical: database error
+			$support->log_error("When trying to remove mappings, got identical dbs; they must be different\n");
+		}
+		$support->log("removing mappings to old version: $version_to_delete\n");
+		
+		# set up sql query to delete old seq_regions and assemblies that contain them
+		my $query= "delete a, sr from assembly a, seq_region sr where sr.seq_region_id = a.cmp_seq_region_id and sr.coord_system_id = $id_to_delete";
+		$dbh->do($query) or $support->log_error("Query failed to delete old seq regions and assembies");
+		$support->log("deleted old assemblies and seq_regions\n");
+		
+		# delete the old coord_system from the coord_system table
+		$query= "delete from coord_system where coord_system_id = $id_to_delete";
+		$dbh->do($query) or $support->log_error("Query failed to delete old coord_system");
+		$support->log("Deleted old coord_system\n");
+		
+		#delete from the meta table
+		$query= "delete from meta where meta_value like '%:$version_to_delete%'";
+		$dbh->do($query) or $support->log_error("Query failed to delete old meta entries");
+		$support->log("Deleted old meta table entries\n");
+		return;
 	}
-	else{
-		# identical: database error
-		$support->log_error("When trying to remove mappings, got identical dbs; they must be different\n");
-	}
-	$support->log("removing mappings to old version: $version_to_delete\n");
-	
-	# set up sql query to delete old seq_regions and assemblies that contain them
-	my $query= "delete a, sr from assembly a, seq_region sr where sr.seq_region_id = a.cmp_seq_region_id and sr.coord_system_id = $id_to_delete";
-	$dbh->do($query) or $support->log_error("Query failed to delete old seq regions and assembies");
-	$support->log("deleted old assemblies and seq_regions\n");
-	
-	# delete the old coord_system from the coord_system table
-	$query= "delete from coord_system where coord_system_id = $id_to_delete";
-	$dbh->do($query) or $support->log_error("Query failed to delete old coord_system");
-	$support->log("Deleted old coord_system\n");
-	
-	#delete from the meta table
-	$query= "delete from meta where meta_value like '%:$version_to_delete%'";
-	$dbh->do($query) or $support->log_error("Query failed to delete old meta entries");
-	$support->log("Deleted old meta table entries\n");
 }

@@ -2,8 +2,7 @@
 
 =head1 NAME
 
-map_annotation.pl - map features from one assembly onto
-another
+map_annotation.pl - map features from one assembly onto another
 
 =head1 SYNOPSIS
 
@@ -27,6 +26,7 @@ General options:
     -h, --help, -?                      print help (this message)
 
 Specific options:
+
     --evegadbname=NAME                  use ensembl-vega (target) database NAME
     --evegahost=HOST                    use ensembl-vega (target) database host
                                         HOST
@@ -39,7 +39,7 @@ Specific options:
     --chromosomes, --chr=LIST           only process LIST chromosomes
     --prune=0|1                         delete results from previous runs of
                                         this script first
-    --statlog=FILE                      log stats to FILE
+    --logic_names=LIST                  restrict transfer to gene logic_names
 
 =head1 DESCRIPTION
 
@@ -61,6 +61,9 @@ Currently, only complete transfers are considered. This is the easiest way to
 ensure that the resulting gene structures are identical to the original ones.
 For future release, there are plans to store incomplete matches by using the
 Ensembl API's SeqEdit facilities.
+
+Genes transferred can be restricted to on logic_names using the --logic_names
+option.
 
 =head1 RELATED SCRIPTS
 
@@ -111,13 +114,12 @@ use Bio::EnsEMBL::Gene;
 use Bio::EnsEMBL::Analysis;
 use InterimTranscript;
 use InterimExon;
-use StatMsg;
 use Deletion;
 use Transcript;
 use Gene;
-use StatLogger;
-use StatMsg;
-use Utils qw(print_exon print_coords print_translation);
+
+#use Data::Dumper;
+#$Data::Dumper::Maxdepth=2;
 
 $| = 1;
 
@@ -134,8 +136,8 @@ $support->parse_extra_options(
     'evegauser=s',
     'evegapass=s',
     'evegadbname=s',
-    'statlog=s',
     'chromosomes|chr=s@',
+	'logic_names=s@',
     'prune=s',
 );
 $support->allowed_params(
@@ -145,8 +147,8 @@ $support->allowed_params(
     'evegauser',
     'evegapass',
     'evegadbname',
-    'statlog',
     'chromosomes',
+	'logic_names',
     'prune',
 );
 
@@ -156,19 +158,13 @@ if ($support->param('help') or $support->error) {
 }
 
 $support->comma_to_list('chromosomes');
+$support->comma_to_list('logic_names');
 
 # ask user to confirm parameters to proceed
 $support->confirm_params;
 
 # get log filehandle and print heading and parameters to logfile
 $support->init_log;
-
-# check required params
-$support->check_required_params(qw(statlog));
-
-# this isn't really used, but still needed so modules don't break
-StatMsg::set_logger(StatLogger->new(
-    $support->param('logpath').'/'.$support->param('statlog')));
 
 # connect to database and get adaptors
 my $V_dba = $support->get_database('core');
@@ -184,6 +180,19 @@ my $E_pfa = $E_dba->get_ProteinFeatureAdaptor;
 my $cs_adaptor = $E_dba->get_CoordSystemAdaptor;
 my $asmap_adaptor = $E_dba->get_AssemblyMapperAdaptor;
 
+#get all logic names if none specified
+if (! $support->param('logic_names')) {
+	my $sth = $V_dbh->prepare(qq(SELECT distinct(a.logic_name)
+                                 FROM gene g, analysis a
+                                 WHERE g.analysis_id = a.analysis_id));
+	$sth->execute;
+	my @lns;
+	while ( (my $ln) = $sth->fetchrow_array) {
+		push @lns,$ln;
+	}	
+	$support->param('logic_names',\@lns);
+}
+
 my $E_cs = $cs_adaptor->fetch_by_name('chromosome',
     $support->param('ensemblassembly'));
 my $V_cs = $cs_adaptor->fetch_by_name('chromosome',
@@ -195,7 +204,7 @@ $mapper->max_pair_count( 6_000_000 );
 $mapper->register_all;
 
 # if desired, delete entries from previous runs of this script
-if ($support->param('prune')) {
+if ($support->param('prune') && $support->user_proceed("Do you want to delete all entries from previous runs of this script?")) {
     $support->log("Deleting db entries from previous runs of this script...\n");
     $E_dbh->do(qq(DELETE FROM analysis));
     $E_dbh->do(qq(DELETE FROM dna_align_feature));
@@ -204,7 +213,7 @@ if ($support->param('prune')) {
     $E_dbh->do(qq(DELETE FROM exon_transcript));
     $E_dbh->do(qq(DELETE FROM gene));
     $E_dbh->do(qq(DELETE FROM gene_stable_id));
-    $E_dbh->do(qq(DELETE FROM interpro));
+#    $E_dbh->do(qq(DELETE FROM interpro));
     $E_dbh->do(qq(DELETE FROM object_xref));
     $E_dbh->do(qq(DELETE FROM protein_align_feature));
     $E_dbh->do(qq(DELETE FROM protein_feature));
@@ -213,12 +222,12 @@ if ($support->param('prune')) {
     $E_dbh->do(qq(DELETE FROM transcript_stable_id));
     $E_dbh->do(qq(DELETE FROM translation));
     $E_dbh->do(qq(DELETE FROM translation_stable_id));
-    $E_dbh->do(qq(
-        DELETE x
-        FROM xref x, external_db ed
-        WHERE x.external_db_id = ed.external_db_id
-        AND ed.db_name NOT IN ('Vega_gene','Vega_transcript','Vega_translation')
-    ));
+    $E_dbh->do(qq(DELETE x
+                  FROM xref x, external_db ed
+                  WHERE x.external_db_id = ed.external_db_id
+                  AND ed.db_name NOT IN ('Interpro')
+     ));
+#                  AND ed.db_name NOT IN ('Vega_gene','Vega_transcript','Vega_translation')
     $support->log("Done.\n");
 }
 
@@ -227,16 +236,17 @@ my %stat_hash;
 
 # loop over chromosomes
 $support->log("Looping over chromosomes...\n");
-my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'));
-my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassembly'));
+my $V_chrlength = $support->get_chrlength($E_dba, $support->param('assembly'),'chromosome',1);
+my $E_chrlength = $support->get_chrlength($E_dba, $support->param('ensemblassembly'),'chromosome',1);
 my $ensembl_chr_map = $support->get_ensembl_chr_mapping($V_dba, $support->param('assembly'));
+
 foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     $support->log_stamped("Chromosome $V_chr...\n", 1);
-    
-    # skip non-ensembl chromosomes (e.g. MHC haplotypes)
+
+    # skip non-ensembl chromosomes
     my $E_chr = $ensembl_chr_map->{$V_chr};
     unless ($E_chrlength->{$E_chr}) {
-        $support->log("Chromosome not in Ensembl. Skipping.\n", 1);
+        $support->log_warning("Chromosome $E_chr not in Ensembl. Skipping.\n", 1);
         next;
     }
     
@@ -249,15 +259,22 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
 
     $support->log("Looping over genes...\n", 1);
     my $genes = $V_ga->fetch_all_by_Slice($V_slice);
+ GENE:
     foreach my $gene (@{ $genes }) {
-        $support->log("Gene ".$gene->stable_id."\n", 2);
-        $stat_hash{$V_chr}->{'genes'}++;
+		my $gsi = $gene->stable_id;
+		my $ln = $gene->analysis->logic_name;
+		my $name = $gene->display_xref->display_id;
+		unless (grep {$ln eq $_} $support->param('logic_names')) {
+			$support->log_verbose("Skipping gene $gsi/$name (logic_name $ln)\n",2);
+			next GENE;
+		}
+        $support->log("Gene $gsi/$name (logic_name $ln)\n", 2);
 
         my $transcripts = $gene->get_all_Transcripts;
         my (@finished, %all_protein_features);
+		my $c = 0;
         foreach my $transcript (@{ $transcripts }) {
-            $stat_hash{$V_chr}->{'transcripts'}++;
-            
+			$c++;
             my $interim_transcript = transfer_transcript($transcript, $mapper,
                 $V_cs, $V_pfa, $E_slice);
             my ($finished_transcripts, $protein_features) =
@@ -276,13 +293,16 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
                 keys %{ $protein_features || {} };
         }
 
-
-        # if there are no finished transcripts, count this gene as being NOT transfered
+       # if there are no finished transcripts, count this gene as being NOT transfered
         my $num_finished_t= @finished;
         if(! $num_finished_t){
-            push @{$stat_hash{$V_chr}->{'failed'}}, $gene->stable_id;
-        
+            push @{$stat_hash{$V_chr}->{'failed'}}, [$gene->stable_id,$gene->seq_region_start,$gene->seq_region_end];
+			next GENE;
         }
+
+		#count gene and transcript if it's been transferred
+        $stat_hash{$V_chr}->{'genes'}++;
+		$stat_hash{$V_chr}->{'transcripts'} += $c;
 
         unless ($support->param('dry_run')) {
             Gene::store_gene($support, $E_slice, $E_ga, $E_pfa, $gene,
@@ -298,7 +318,6 @@ $support->finish_log;
 
 # write out to statslog file
 do_stats_logging();
-
 
 ### END main
 
@@ -344,6 +363,7 @@ sub transfer_transcript {
     $E_transcript->cdna_coding_start($transcript->cdna_coding_start);
     $E_transcript->cdna_coding_end($transcript->cdna_coding_end);
     $E_transcript->transcript_attribs($transcript->get_all_Attributes);
+	$E_transcript->analysis($transcript->analysis);
 
     # transcript supporting evidence
     foreach my $sf (@{ $transcript->get_all_supporting_features }) {
@@ -501,29 +521,30 @@ sub create_transcripts {
 
 sub do_stats_logging{
 
-    #writes the number of genes and transcripts processed to the stats log file
+    #writes the number of genes and transcripts processed to the log file
     #note: this can be called as an interrupt handler for ctrl-c,
     #so can also give current stats if script terminated
 
-    my $logfile= $support->param('logpath').'/'.$support->param('statlog');
-    my $fh;
-    open($fh, ">$logfile") || $support->log_error("Could not open stats log file: $logfile\n");
-    foreach my $chrom(keys %stat_hash){
+	my %failed;
+	my $format = "%-20s%-10s%-10s\n";
+	$support->log(sprintf($format,'Chromosome','Genes','Transcripts'));
+	my $sep = '-'x41;
+	$support->log("$sep\n");
+    foreach my $chrom(sort keys %stat_hash){
         my $num_genes= $stat_hash{$chrom}->{'genes'};
         my $num_transcripts= $stat_hash{$chrom}->{'transcripts'};
-        my @failed_list=();
         if(defined($stat_hash{$chrom}->{'failed'})){
-            @failed_list=@{$stat_hash{$chrom}->{'failed'}};
-        
+            $failed{$chrom} = $stat_hash{$chrom}->{'failed'};
         }
-        print $fh "Chromosome $chrom: Total genes:$num_genes\n";
-        print $fh "Chromosome $chrom: Total transcripts:$num_transcripts\n";
-        foreach my $failed_stable_id(@failed_list){
-            print $fh "no transcripts mapped to Ensembl for gene: $failed_stable_id\n";
-        }
+        $support->log(sprintf($format,$chrom,$num_genes,$num_transcripts));
+	}
+	$support->log("\n");
+	foreach my $failed_chr (keys %failed){
+		my $no = scalar @{$failed{$failed_chr}};
+		$support->log("$no genes not transferred on chromosome $failed_chr:\n");
+		foreach my $g (@{$failed{$failed_chr}}) {
+			$support->log("  ".$g->[0].": ".$g->[1]."-".$g->[2]."\n");
+		}
     }
-    close($fh);
-    exit;  
+    exit;
 }
-
-

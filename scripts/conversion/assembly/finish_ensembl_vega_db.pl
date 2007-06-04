@@ -443,6 +443,10 @@ $support->log_stamped("Updating seq_region_ids on all tables:\n");
     $support->log_stamped("protein_align_feature...\n", 1);
     $sql = qq(UPDATE protein_align_feature SET seq_region_id = seq_region_id-$E_sri_adjust);
     $c = $dbh->{'evega'}->do($sql);
+    # misc_feature
+    $support->log_stamped("misc_feature...\n", 1);
+    $sql = qq(UPDATE misc_feature SET seq_region_id = seq_region_id-$E_sri_adjust);
+    $c = $dbh->{'evega'}->do($sql);
 
 $support->log_stamped("Done.\n\n");
 
@@ -482,7 +486,6 @@ if ($support->user_proceed("Would you like to delete orphan entries from object_
               WHERE x.xref_id IS NULL);	
 	$c = $dbh->{'evega'}->do($sql);
 }
-
 
 if ($support->user_proceed("Would you like to drop the temporary tables tmp_assembl and tmp_seq_region?")) {
     $sql = qq(DROP TABLE tmp_assembly);

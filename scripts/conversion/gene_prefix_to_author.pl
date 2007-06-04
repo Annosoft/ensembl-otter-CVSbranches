@@ -103,8 +103,7 @@ my %authors = (
 );
 
 
-##prepare sql
-#update gene_info
+#prepare sql
 my $sql = $dbh->prepare(qq(
         UPDATE  gene_info
         SET     author_id = ?
@@ -125,11 +124,13 @@ my $sql4 = $dbh->prepare(qq(
            WHERE   transcript_stable_id = ?
 ));
 
-unless ($support->param('dry_run')) {
-	##replace existing author and author_group info with new stuff
+if (! $support->param('dry_run')) {
+	##replace existing author and author_group tables with new stuff
+	$support->log("Replacing data in author and author_group tables\n"); 		
 	$dbh->do("delete from author_group");
 	$dbh->do("delete from author");
 	foreach my $k (keys %authors) {
+		next if ($k eq 'KO');
 		my $a = $authors{$k};
 		$sql2->execute($a->[2],$a->[1],$a->[0],$a->[2]);
 		$sql3->execute($a->[2],$a->[1],$a->[0]);
@@ -139,29 +140,41 @@ unless ($support->param('dry_run')) {
 foreach my $chr ($support->sort_chromosomes) {
     $support->log_stamped("> Chr $chr\n");
     my $slice = $sa->fetch_by_region('chromosome', $chr);
-    # loop over genes
     foreach my $gene (@{ $ga->fetch_all_by_Slice($slice) }) {
 		my $gid = $gene->stable_id;
 		my $g_dbID = $gene->dbID;
 		my $name = $gene->display_xref->display_id;
+		my $det;			
 		my $prefix = $name;
-		$prefix =~ s/(.*?):.*/$1/;
-#		warn "gene $gid has prefix $prefix";
-		my $det = $authors{$prefix} || $authors{'HAVANA'};
-		unless ($support->param('dry_run')) {
-			if ($authors{$prefix}) { 
-				$support->log("Updating gene $gid ($name) with author ".$det->[0]." (".$det->[2].")\n"); 
-				$sql->execute($det->[2],$gid);
+		#set authors for prefixed genes
+		if ($prefix =~ s/(.*?):.*/$1/){
+			if ($det = $authors{$prefix}) {
+				$support->log("Updating gene $gid ($name) with author ".$det->[0]."\n"); 		
+				if (! $support->param('dry_run')) {				
+					$sql->execute($det->[2],$gid);
+				}
 			}
 			else {
-				$support->log_warning("Setting gene $gid ($name) to default author ".$authors{'HAVANA'}->[0]." (".$authors{'HAVANA'}->[2].")\n"); 
-				$sql->execute($authors{'HAVANA'}->[2],$gid);
-			}		
+				$det = $authors{'HAVANA'};
+				$support->log_warning("Setting gene $gid ($name) to default author ".$det->[0]."\n");
+     			if (! $support->param('dry_run')) {					
+			    	$sql->execute($det->[2],$gid);
+				}
+			}
 		}
+		else {
+			#set Havana as author for non prefixed genes
+			$det = $authors{'HAVANA'};
+			$support->log("Setting gene $gid ($name) to default author ".$det->[0]."\n");
+			if (! $support->param('dry_run')) {		
+				$sql->execute($det->[2],$gid);
+			}
+		}
+
 		foreach my $trans (@{$gene->get_all_Transcripts}) {
 			my $tid = $trans->stable_id;
-			unless ($support->param('dry_run')) {
-				$support->log("Setting author for transcript $tid to the same as the parent gene: ".$det->[0]." (".$det->[2].")\n",1);
+			$support->log_verbose("Setting author for transcript $tid to the same as the parent gene: ".$det->[0]."\n",1);
+			if (! $support->param('dry_run')) {				
 				$sql4->execute($det->[2],$tid);
 			}
 		}	
