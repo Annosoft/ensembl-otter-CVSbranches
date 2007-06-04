@@ -112,7 +112,6 @@ $support->init_log;
 
 # connect to database and get adaptors (caching features on one slice only)
 my $dba = $support->get_database('otter');
-$Bio::EnsEMBL::DBSQL::BaseFeatureAdaptor::SLICE_FEATURE_CACHE_SIZE = 1;
 my $sa = $dba->get_SliceAdaptor();
 my $ga = $dba->get_GeneAdaptor();
 my $ea = $dba->get_DBEntryAdaptor();
