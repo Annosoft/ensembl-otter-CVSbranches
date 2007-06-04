@@ -27,7 +27,7 @@ General options:
 
 Specific options:
 
-    --delete=FILE                  file for stable IDs of GD genes to delete
+    --delete=FILE                       file for stable IDs of GD genes to delete
     --chromosomes=LIST                  list of chromosomes to read (not working)
 
 =head1 DESCRIPTION
@@ -158,7 +158,7 @@ my $log_c_o = keys %gomi_to_log_overlap;
 my $log_c_no = keys %gomi_to_log_no_overlap;
 $support->log("There are $tot_c GD genes in total:\n");	
 $support->log("$noverlap_c of these do not overlap with Havana\n",1);
-$support->log("$overlap_c of these overlap with Havana and wil be deleted\n",1);
+$support->log("$overlap_c of these overlap with Havana and will be deleted\n",1);
 
 $support->log_verbose("$log_c_no GD genes do not overlap Havana loci but do have a gomi remark\n");
 $support->log_verbose("$log_c_o GD genes overlap Havana loci (and will be pruned from Vega) and have a gomi remark\n");
