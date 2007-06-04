@@ -121,10 +121,17 @@ my $ta  = $dba->get_TranscriptAdaptor;
 
 my $sth1 = $dbh->prepare("insert into transcript_remark values ('',?,?)");
 my $sth2 = $dbh->prepare("delete from transcript_remark where transcript_info_id = ? and remark = ?");
+my $sth = $dbh->prepare("update transcript_remark set remark = ? where transcript_info_id = ? and remark = ?");
 my (%non_GD,%to_change,%wrong_syntax_GD,%wrong_syntax_nonGD);
+
+# which chromosomes do we study?
+my @chroms;
+foreach my $chr ($support->sort_chromosomes) {
+	push @chroms,  $sa->fetch_by_region('toplevel', $chr);
+}
+
 CHR:
-foreach my $chr (@{$sa->fetch_all('chromosome')}) {
-#	next CHR if ($chr->seq_region_name eq 'chrY-03');
+foreach my $chr (@chroms) {
 	$support->log_stamped("Looping over chromosome ".$chr->seq_region_name."\n");
  GENE:
     foreach my $gene (@{ $ga->fetch_by_Slice($chr) }) {
@@ -153,9 +160,8 @@ foreach my $chr (@{$sa->fetch_all('chromosome')}) {
 					}
 					#capture genes with a remark that should be a corf annotation remark
 					elsif ( ($value =~ /^corf/i) && ($name =~ /^GD:/)) { 
-						unless (! $support->param('dry_run')) {
-							$sth1->execute('Annotation_remark- corf',$t_info_id) unless (! $support->param('dry_run'));
-							$sth2->execute($t_info_id,'corf');
+						if (! $support->param('dry_run')) {
+							$sth->execute('Annotation_remark- corf',$t_info_id,$value); 
 						}
 						$support->log_warning("Setting gene $gsi to corf despite not having the properly formatted Annotation remark\n");
 						$to_change{$gsi}->{'name'} = $name;
