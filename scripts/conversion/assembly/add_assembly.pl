@@ -1,10 +1,109 @@
 #!/usr/local/bin/perl
 
+=head1 NAME
+
+add_assembly.pl
+
+=head1 SYNOPSIS
+
+add_assembly.pl [options]
+
+General options:
+    --conffile, --conf=FILE             read parameters from FILE
+                                        (default: conf/Conversion.ini)
+
+    --dbname, db_name=NAME              use database NAME
+    --host, --dbhost, --db_host=HOST    use database host HOST
+    --port, --dbport, --db_port=PORT    use database port PORT
+    --user, --dbuser, --db_user=USER    use database username USER
+    --pass, --dbpass, --db_pass=PASS    use database passwort PASS
+    --logfile, --log=FILE               log to FILE (default: *STDOUT)
+    --logpath=PATH                      write logfile to PATH (default: .)
+    --logappend, --log_append           append to logfile (default: truncate)
+    -v, --verbose                       verbose logging (default: false)
+    -i, --interactive=0|1               run script interactively (default: true)
+    -n, --dry_run, --dry=0|1            don't write results to database
+    -h, --help, -?                      print help (this message)
+
+Specific options:
+    --ensembldbname=NAME                use Ensembl database NAME
+    --ensemblhost=HOST                  use Ensembl database host HOST
+    --ensemblport=PORT                  use Ensembl database port PORT
+    --ensembluser=USER                  use Ensembl database username USER
+    --ensemblpass=PASS                  use Ensembl database passwort PASS
+
+=head1 DESCRIPTION
+
+
+=head1 LICENCE
+
+This code is distributed under an Apache style licence:
+Please see http://www.ensembl.org/code_licence.html for details
+
+=head1 AUTHOR
+
+Patrick Meidl <pm2@sanger.ac.uk>
+
+=head1 CONTACT
+
+Post questions to the EnsEMBL development list ensembl-dev@ebi.ac.uk
+
+=cut
+
 use strict;
+use warnings;
+no warnings 'uninitialized';
+
+use FindBin qw($Bin);
+use vars qw($SERVERROOT);
+
+BEGIN {
+    $SERVERROOT = "$Bin/../../../..";
+    unshift(@INC, "$SERVERROOT/ensembl-otter/modules");
+    unshift(@INC, "$SERVERROOT/ensembl/modules");
+    unshift(@INC, "$SERVERROOT/bioperl-live");
+}
+
 use Getopt::Long;
+use Pod::Usage;
+use Bio::EnsEMBL::Utils::ConversionSupport;
 
-use Bio::EnsEMBL::DBSQL::DBAdaptor;
+$| = 1;
 
+my $support = new Bio::EnsEMBL::Utils::ConversionSupport($SERVERROOT);
+
+# parse options
+$support->parse_common_options(@_);
+$support->parse_extra_options(
+    'ensemblhost=s',
+    'ensemblport=s',
+    'ensembluser=s',
+    'ensemblpass=s',
+    'ensembldbname=s',
+);
+$support->allowed_params(
+    $support->get_common_params,
+    'ensemblhost',
+    'ensemblport',
+    'ensembluser',
+    'ensemblpass',
+    'ensembldbname',
+);
+
+if ($support->param('help') or $support->error) {
+    warn $support->error if $support->error;
+    pod2usage(1);
+}
+
+# ask user to confirm parameters to proceed
+$support->confirm_params;
+
+# get log filehandle and print heading and parameters to logfile
+$support->init_log;
+
+# connect to database and get adaptors
+my $dba = $support->get_database('ensembl');
+my $dbh = $dba->dbc->db_handle;
 
 my $s_host    = 'ecs2b';
 my $s_user    = 'ensro';
@@ -23,6 +122,8 @@ my $chrstart = 1;
 my $chrend   = 100000000;
 my $path     = 'NCBI31';
 
+my $no_offset;
+
 &GetOptions( 's_host:s'    => \$s_host,
              's_user:s'    => \$s_user,
              's_pass:s'    => \$s_pass,
@@ -37,6 +138,7 @@ my $path     = 'NCBI31';
              'chrstart:n'=> \$chrstart,
              'chrend:n'  => \$chrend,
              'path:s'  => \$path,
+	     'no_offset' => \$no_offset,
             );
 
 
@@ -152,6 +254,9 @@ while ($hashref = $sth->fetchrow_hashref()) {
 
   my $clonename = $bits[0] . "." . $bits[1];
 
+  $hashref->{'t_contig_start'}=$hashref->{'contig_start'};
+  $hashref->{'t_contig_end'}=$hashref->{'contig_end'};
+
   if (!exists($dupclones{$clonename})) {
 
     my $contig = $rca->fetch_by_name($hashref->{'name'});
@@ -178,9 +283,26 @@ while ($hashref = $sth->fetchrow_hashref()) {
       $sth->execute;
       my $hashref2 = $sth->fetchrow_hashref;
       if (defined($hashref2)) {
-        print "Looking for $acc did find " . $hashref2->{'name'} . "\n";
+	my $name2=$hashref2->{'name'};
+        print "Looking for $acc did find $name2\n";
+	$contig = $rca->fetch_by_name($hashref2->{'name'});
+
+	# contig fetch worked - now fix start end
+	my $name = $hashref->{'name'};
+	if($name=~/^(\w+\.\d+)\.(\d+)\.(\d+)$/ && !$no_offset){
+	  # change from AC.V.ST.ED -> AC.V.1.ED
+	  my($sv,$st,$ed)=($1,$2,$3);
+	  my $cst = $hashref->{'contig_start'};
+	  my $ced = $hashref->{'contig_end'};
+	  if($cst==1 && $ced==$ed-$st+1){
+	    $cst=$st;
+	    $ced=$ced+$st-1;
+	    print STDOUT "  assembly coordinates remapped to $cst-$ced\n";
+	    $hashref->{'t_contig_start'}=$cst;
+	    $hashref->{'t_contig_end'}=$ced;
+	  }
+	}
       }
-      $contig = $rca->fetch_by_name($hashref2->{'name'});
     }
 
     if (!defined($contig)) {
@@ -208,7 +330,7 @@ while ($hashref = $sth->fetchrow_hashref()) {
       my $s_contig = @{$s_clone->get_all_Contigs}[0];
 
       my $s_assseq = $s_contig->subseq($hashref->{contig_start},$hashref->{contig_end});
-      my $t_assseq = $contig->subseq($hashref->{contig_start},$hashref->{contig_end});
+      my $t_assseq = $contig->subseq($hashref->{t_contig_start},$hashref->{t_contig_end});
       if ($s_assseq ne $t_assseq) {
 	print "start = " . $hashref->{contig_start} . " end " . $hashref->{contig_end} . "\n";
         print "NOTE Contig subseqs sequences different for $clonename\n";
@@ -241,8 +363,8 @@ while ($hashref = $sth->fetchrow_hashref()) {
                            $hashref->{superctg_end},
                            $hashref->{superctg_ori},
                            $contig_id,
-                           $hashref->{contig_start},
-                           $hashref->{contig_end},
+                           $hashref->{t_contig_start},
+                           $hashref->{t_contig_end},
                            $hashref->{contig_ori},
                            "$hashref->{type}"
                          ):);
@@ -267,6 +389,9 @@ print "Total failures = $totfailed\n";
 print "No. with different seq = $ndiffseq\n";
 print "No. not found in target db = $nnotfound\n";
 print "No. of clones with duplicates = " . scalar(keys(%dupclones)) . " (n contig  = $ndupcontig)\n";
+
+# finish logfile
+$support->finish_log;
 
 
 sub compare_seqs {

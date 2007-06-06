@@ -4,6 +4,7 @@ use vars qw(@ISA);
 use strict;
 
 use Bio::Otter::EnsEMBL2SQL::Base;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::Otter::EnsEMBL2SQL::Base);
 
@@ -13,7 +14,7 @@ sub new {
 
   my $self = $class->SUPER::new(@args);
 
-  my ($species_name) = $self->_rearrange(['SPECIES'], @args);  
+  my ($species_name) = rearrange(['SPECIES'], @args);  
 
 
   if (!defined($species_name)) {

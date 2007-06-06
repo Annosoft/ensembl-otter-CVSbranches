@@ -6,13 +6,12 @@ use Bio::EnsEMBL::DBSQL::BaseAdaptor;
 
 use Bio::Otter::AnnotatedClone;
 
-use Bio::EnsEMBL::DBSQL::CloneAdaptor;
-use Bio::Otter::DBSQL::AnnotatedCloneAdaptor;
+use Bio::EnsEMBL::DBSQL::SliceAdaptor;
 use Bio::Otter::CloneInfo;
 
 use vars qw(@ISA);
 
-@ISA = qw ( Bio::EnsEMBL::DBSQL::CloneAdaptor);
+@ISA = qw ( Bio::EnsEMBL::DBSQL::SliceAdaptor);
 
 
 # This is assuming the otter info and the ensembl genes are in the same database 
