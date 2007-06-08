@@ -217,7 +217,7 @@ if ($support->param('prune') and $support->user_proceed('Would you really like t
            FROM xref x, external_db ed
            WHERE x.external_db_id = ed.external_db_id
            AND ed.db_name not in ('Vega_gene', 'Vega_transcript',
-                                  'Vega_translation', 'Interpro', 'CCDS')
+                                  'Vega_translation', 'Interpro', 'CCDS', 'Havana_gene', 'ENST')
         ));
 	$support->log("Done deleting $num entries.\n");
 
@@ -257,14 +257,30 @@ my $format = ($support->param('xrefformat'));
 my $xref_file    = $SERVERROOT.'/'.$support->param('dbname')."-$format-parsed_records.file";
 my $lc_xref_file = $SERVERROOT.'/'.$support->param('dbname')."-$format-lc-parsed_records.file";
 
-#retrieve from disc if possible
+#retrieve from disc
 if (-e $xref_file) {
 	if ($support->user_proceed("Read xref records from a previously saved files - $xref_file ?\n")) {
 		$xrefs = retrieve($xref_file);
 		$lcmap = retrieve($lc_xref_file);
 	}
+	#or parse
+	else {
+		$support->log_stamped("Reading xref input files...\n");
+		my $parser = "parse_$format";
+		&$parser($xrefs, $lcmap);
+	
+		#only look at Ensembl db if the file to be parsed is hugo
+		if ($support->param('xrefformat') eq 'hugo') {	
+			$support->log_stamped("Reading records from E! database...\n");
+			&parse_ensdb($xrefs);
+		}		
+		$support->log_stamped("Finished parsing xres, storing to file...\n");
+		store($xrefs,$xref_file);
+		store($lcmap,$lc_xref_file);
+	}
 }
-#otherwise parse records
+		
+#or parse records
 else {
 	$support->log_stamped("Reading xref input files...\n");
 	my $parser = "parse_$format";
@@ -274,8 +290,7 @@ else {
 	if ($support->param('xrefformat') eq 'hugo') {	
 		$support->log_stamped("Reading records from E! database...\n");
 		&parse_ensdb($xrefs);
-	}
-	
+	}		
 	$support->log_stamped("Finished parsing xres, storing to file...\n");
 	store($xrefs,$xref_file);
 	store($lcmap,$lc_xref_file);
@@ -359,13 +374,14 @@ foreach my $chr (@chr_sorted) {
 	
         # see if the gene_name has a prefix
         if ( ($prefix,$stripped_name) = $gene_name  =~ /(.*?):(.*)/) {
-			unless ($stripped_name) {
-				$stripped_name = $prefix;
-				$prefix = 0;
-			}
+#			unless ($stripped_name) {
+#				$stripped_name = $prefix;
+#				$prefix = 0;
+#			}
 		}
-		else { $stripped_name = $gene_name; }
-
+		else {
+			$stripped_name = $gene_name;
+		}
 
 		#skip if we're adding CTAG xrefs and this is not an SK gene
 		next if ( ($support->param('xrefformat') eq 'tcag') && $prefix ne 'SK');		
@@ -378,10 +394,14 @@ foreach my $chr (@chr_sorted) {
 		my @syn_names;
 		if (my @syns = @{$gene->get_all_Attributes('synonym')} ) {
 			foreach my $syn (@syns) {
-				my ($pref,$name) = $syn->value =~ /(.*?):(.*)/;
-				push @syn_names, $syn->value;
-				push @gene_names, $name;
-				push @lc_names, lc($name);
+				my ($pref,$syn_name);
+				if ( ($pref,$syn_name) = $syn->value =~ /(.*?):(.*)/) {
+				}
+				else {
+					$syn_name = $syn->value;
+				}
+				push @gene_names, "synonym:$gene_name:$syn_name";
+				push @lc_names, lc($syn_name);
 			}
 		}
 
@@ -411,11 +431,88 @@ foreach my $chr (@chr_sorted) {
 			}
 		}
 
+		#add aliases/previous symbols from downloaded record
+		my @downloaded_syns;
+		foreach my $name (@gene_names) {
+			my ($syn,$n);
+			if ($name =~ /^synonym/) {
+				($syn,$n) = $name =~ /synonym:(.+?):(.+)/;
+			}
+			else {
+				$n = $name;
+			}
+			foreach my $source (@xref_sources) {
+				if (my $other_names = $source->[1]{'Aliases'}{$n}) {
+					foreach my $ali (@$other_names) {
+						if ($syn) {
+							push @downloaded_syns, "alias_to_syn:$syn:$ali";
+						}
+						else {
+							push @downloaded_syns, "alias:$n:$ali";
+						}
+					}
+				}
+				if (my $other_names = $source->[1]{'Previous_symbol'}{$n}) {
+					foreach my $prev (@$other_names) {
+						if ($syn) {
+							push @downloaded_syns, "previous_to_syn:$syn:$prev";
+						}
+						else {
+							push @downloaded_syns, "previous:$n:$prev";
+						}
+					}
+				}
+			}
+		}
+#		if (@downloaded_syns) {			
+#			warn Dumper(\@downloaded_syns);
+#			exit;
+#		}
+#		if ($gsi eq 'OTTHUMG00000040778') {
+#			warn Dumper(\@gene_names);
+#		}
+		push (@gene_names, @downloaded_syns);
+#		if ($gsi eq 'OTTHUMG00000040778') {
+			warn Dumper(\@gene_names);
+#			exit;
+#		}
+
 		my $xref_found = 0;
-		foreach my $name ( @gene_names) {
-			my $original_name;
+	NAME:
+		foreach my $g_name (@gene_names) {
 			next if $xref_found;
-			$support->log("Searching for name $name\n",1);
+
+			my $update_xref = 1;
+			my $display_filter;
+
+			#log if we are working with an alias, or a previous symbol, or a real name
+			my ($name,$original_name);
+			if ($g_name =~ /^alias_to_syn/) {
+				($original_name,$name) = $g_name =~ /^alias_to_syn:(.+?):(.*)/;
+				$support->log("Searching for aliased $name (aliases Vega name $original_name)\n",1);
+				$update_xref = 0;
+			}
+			elsif ($g_name =~ /^alias/) {
+				($original_name,$name) = $g_name =~ /^alias:(.+?):(.*)/;
+				$support->log("Searching for aliased $name (aliases Vega name $original_name)\n",1);
+			}
+			elsif ($g_name =~ /^previous_to_syn/) {
+				($original_name,$name) = $g_name =~ /^previous_to_syn:(.+?):(.+)/;
+				$support->log("Searching for previous $name (previous name for Vega name $original_name)\n",1);
+				$update_xref = 0;
+			}
+			elsif ($g_name =~ /^previous/) {
+				($original_name,$name) = $g_name =~ /^previous:(.+?):(.+)/;
+				$support->log("Searching for previous $name (previous name for Vega name $original_name)\n",1);
+			}
+			elsif ($g_name =~ /^synonym/) {
+				($original_name,$name) = $g_name =~ /^synonym:(.+?):(.+)/;
+				$support->log("Searching for synonym $name (synonym for Vega name $original_name)\n",1);
+			}
+			else {
+				$name = $g_name;
+				$support->log("Searching for name $name\n",1);
+			}
 
 			foreach my $source (@xref_sources) {
 				next if $xref_found;
@@ -426,19 +523,8 @@ foreach my $chr (@chr_sorted) {
 					#report withdrawn records (HUGO)
 					if ($source->[0] eq 'hugo') {
 						if ($source->[1]->{$name}->{'This symbol is withdrawn'}) {
-							$support->log_warning("Vega name: $name ($gene_name) matches a withdrawn HGNC record\n");
-						}
-						if (my $alias_for = $source->[1]->{$name}->{'Is an alias for'}){
-							$support->log_warning("Vega name: $name ($gene_name) is an alias for HGNC: $alias_for. Generating xrefs using $alias_for\n");
-							#get xrefs for the real name
-							$original_name = $name;
-							$name = $alias_for;
-						}
-						if (my $prev_name = $source->[1]->{$name}->{'Is a previous symbol for'}){
-							$support->log_warning("Vega name: $name ($gene_name) is a previous name for HGNC: $prev_name. Generating xrefs using $prev_name\n");
-							#get xrefs for the real name
-							$original_name = $name;
-							$name = $prev_name;
+							$support->log_warning("Vega name: $name ($gene_name) matches a withdrawn HGNC record\n",1);
+#							next NAME;
 						}
 					}
 				DB: foreach my $extdb (keys %extdb_def) {
@@ -513,7 +599,7 @@ foreach my $chr (@chr_sorted) {
 										}
 
 										#if there is an original name (ie the otter name is an alias or a synonym to an HGNC) then use it
-										if ($original_name) {
+										if ($original_name && $update_xref) {
 											my $new_xid = $original_name;
 											my $info_text;
 											if ($prefix) {
@@ -554,6 +640,10 @@ foreach my $chr (@chr_sorted) {
 											$sth_display_xref->execute($dbID,$gid);
 											$support->log("Updated display xref ($xid) using preexisting $extdb xref ($dbID).\n",1);
 										}
+
+										elsif (! $update_xref) {
+											$support->log("Not updating xref since it comes from a synonym to the vega gene.\n",1);
+										}	
 										
 										#otherwise something has gone horribly wrong
 										else {
@@ -605,7 +695,7 @@ foreach my $chr (@chr_sorted) {
 			}
 			else {
 				# other genes without a match
-				$support->log_verbose("No match for $gene_name (@syn_names).\n", 1);
+				$support->log_verbose("No match for $gene_name (@gene_names).\n", 1);
 				$xrefs_assigned{'nomatch'}++;
 				next GENE;
 			}
@@ -794,6 +884,7 @@ sub parse_hugo {
     );
 
 	#parse records, storing only data in those columns defined above
+ REC:
     while (my $l = <NOM>) {
         $stats{'total'}++;
         chomp $l;
@@ -807,6 +898,7 @@ sub parse_hugo {
 				if ($gene_name =~ /\w+~withdrawn/) {
 					$gene_name =~ s/(\w+)~withdrawn/$1/;
 					$xrefs->{$gene_name}->{'This symbol is withdrawn'} = 1;
+					next REC;
 				}
 			}
 			$accessions{$type} = $fields[$i] if ($fields[$i]);
@@ -850,15 +942,9 @@ sub parse_hugo {
 				foreach my $other (split ',', $accessions{$db}) {
 					$other =~ s/^\s+//;
 					$other =~ s/\s+$//;
-					push @{$xrefs->{$gene_name}->{'aliases'}}, $other;
 
-					#for checking
-					if ($db eq 'Aliases' ) {						
-						$xrefs->{$other}{'Is an alias for'} = $gene_name;
-					}
-					if ($db eq 'Previous_symbol' ) {						
-						$xrefs->{$other}{'Is a previous symbol for'} = $gene_name;
-					}	
+					#save the other symbols so they can be queried
+					push @{$xrefs->{$db}{$other}}, $gene_name;
 				}
 			}
 
@@ -871,10 +957,34 @@ sub parse_hugo {
 		#store lowercase name for matching
 		push @{ $lcmap->{lc($gene_name)} }, $gene_name;
 
+		}
+
+	#remove duplicated aliases and previous symbols
+	my ($tot_c, $dup_c);
+	foreach my $alias (keys %{$xrefs->{'Aliases'}}) {
+		$tot_c++;
+		if (scalar(@{$xrefs->{'Aliases'}{$alias}}) > 1) {
+			$dup_c++;
+#			warn "Alias $al ",Dumper($xrefs->{'Aliases'}{$al});
+			delete $xrefs->{'Aliases'}{$alias};
+		}
     }
+	$support->log("removed $dup_c aliases (out of $tot_c) from parsed HUGO file sine they are not unique\n");
+
+	($tot_c, $dup_c) = (0,0);
+	foreach my $prev (keys %{$xrefs->{'Previous_symbol'}}) {
+		$tot_c++;
+		if (scalar(@{$xrefs->{'Previous_symbol'}{$prev}}) > 1) {
+			$dup_c++;
+#			warn "Prev $prev ",Dumper($xrefs->{'Previous_symbol'}{$al});
+			delete $xrefs->{'Previous_symbol'}{$prev};
+		}
+    }
+	$support->log("removed $dup_c previous symbols (out of $tot_c) from parsed HUGO file sine they are not unique\n");
+
     close(NOM);
 
- #   $support->log_stamped("Done processing ".$stats{'total'}." entries.\n\n", 1);
+    $support->log_stamped("Done processing ".$stats{'total'}." entries.\n\n", 1);
 }
 
 =head2 parse_mgivega
