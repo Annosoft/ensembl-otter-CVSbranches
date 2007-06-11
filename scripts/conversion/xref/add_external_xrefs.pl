@@ -400,7 +400,7 @@ foreach my $chr (@chr_sorted) {
 				else {
 					$syn_name = $syn->value;
 				}
-				push @gene_names, "synonym:$gene_name:$syn_name";
+				push @gene_names, "synonym--$gene_name--$syn_name";
 				push @lc_names, lc($syn_name);
 			}
 		}
@@ -436,7 +436,7 @@ foreach my $chr (@chr_sorted) {
 		foreach my $name (@gene_names) {
 			my ($syn,$n);
 			if ($name =~ /^synonym/) {
-				($syn,$n) = $name =~ /synonym:(.+?):(.+)/;
+				($syn,$n) = $name =~ /synonym--(.+?)--(.+)/;
 			}
 			else {
 				$n = $name;
@@ -445,37 +445,27 @@ foreach my $chr (@chr_sorted) {
 				if (my $other_names = $source->[1]{'Aliases'}{$n}) {
 					foreach my $ali (@$other_names) {
 						if ($syn) {
-							push @downloaded_syns, "alias_to_syn:$syn:$ali";
+							push @downloaded_syns, "alias_to_syn--$syn--$ali";
 						}
 						else {
-							push @downloaded_syns, "alias:$n:$ali";
+							push @downloaded_syns, "alias--$n--$ali";
 						}
 					}
 				}
 				if (my $other_names = $source->[1]{'Previous_symbol'}{$n}) {
 					foreach my $prev (@$other_names) {
 						if ($syn) {
-							push @downloaded_syns, "previous_to_syn:$syn:$prev";
+							push @downloaded_syns, "previous_to_syn--$syn--$prev";
 						}
 						else {
-							push @downloaded_syns, "previous:$n:$prev";
+							push @downloaded_syns, "previous--$n--$prev";
 						}
 					}
 				}
 			}
 		}
-#		if (@downloaded_syns) {			
-#			warn Dumper(\@downloaded_syns);
-#			exit;
-#		}
-#		if ($gsi eq 'OTTHUMG00000040778') {
-#			warn Dumper(\@gene_names);
-#		}
+
 		push (@gene_names, @downloaded_syns);
-#		if ($gsi eq 'OTTHUMG00000040778') {
-			warn Dumper(\@gene_names);
-#			exit;
-#		}
 
 		my $xref_found = 0;
 	NAME:
@@ -488,25 +478,25 @@ foreach my $chr (@chr_sorted) {
 			#log if we are working with an alias, or a previous symbol, or a real name
 			my ($name,$original_name);
 			if ($g_name =~ /^alias_to_syn/) {
-				($original_name,$name) = $g_name =~ /^alias_to_syn:(.+?):(.*)/;
-				$support->log("Searching for aliased $name (aliases Vega name $original_name)\n",1);
+				($original_name,$name) = $g_name =~ /^alias_to_syn--(.+?)--(.*)/;
+				$support->log("Searching for aliased (to synonym) $name (aliases Vega name $original_name)\n",1);
 				$update_xref = 0;
 			}
 			elsif ($g_name =~ /^alias/) {
-				($original_name,$name) = $g_name =~ /^alias:(.+?):(.*)/;
+				($original_name,$name) = $g_name =~ /^alias--(.+?)--(.*)/;
 				$support->log("Searching for aliased $name (aliases Vega name $original_name)\n",1);
 			}
 			elsif ($g_name =~ /^previous_to_syn/) {
-				($original_name,$name) = $g_name =~ /^previous_to_syn:(.+?):(.+)/;
-				$support->log("Searching for previous $name (previous name for Vega name $original_name)\n",1);
+				($original_name,$name) = $g_name =~ /^previous_to_syn--(.+?)--(.+)/;
+				$support->log("Searching for previous (to synonym) $name (previous name for Vega name $original_name)\n",1);
 				$update_xref = 0;
 			}
 			elsif ($g_name =~ /^previous/) {
-				($original_name,$name) = $g_name =~ /^previous:(.+?):(.+)/;
+				($original_name,$name) = $g_name =~ /^previous--(.+?)--(.+)/;
 				$support->log("Searching for previous $name (previous name for Vega name $original_name)\n",1);
 			}
 			elsif ($g_name =~ /^synonym/) {
-				($original_name,$name) = $g_name =~ /^synonym:(.+?):(.+)/;
+				($original_name,$name) = $g_name =~ /^synonym--(.+?)--(.+)/;
 				$support->log("Searching for synonym $name (synonym for Vega name $original_name)\n",1);
 			}
 			else {
