@@ -207,18 +207,26 @@ if ( ($support->param('prune')) && ($support->param('xrefformat') eq 'mgi') ) {
 	}
 }
 
-# delete all external xrefs if --prune option is used; basically this resets xrefs to the state before running this script
-if ($support->param('prune') and $support->user_proceed('Would you really like to delete all *external* xrefs before running this script?')) {
+#decide what to delete
+my %refs_to_delete = (
+	hugo => qq(not in ('Vega_gene','Vega_transcript','Vega_translation','Interpro','CCDS','Havana_gene','ENST','IMGT','TCAG')),
+	tcag => qq(= 'TCAG'),
+	imgt => qq(= 'IMGT'),
+);
+
+
+# delete external xrefs if --prune option is used; removes only those added using this source (hugo, imgt etc)
+if ($support->param('prune') and $support->user_proceed('Would you really like to delete xrefs from previous runs of this script that have used these options?')) {
 	my $num;
 	# xrefs
 	$support->log("Deleting all external xrefs...\n");
+	my $cond = $refs_to_delete{$support->param('xrefformat')} 
+		|| qq(not in ('Vega_gene','Vega_transcript','Vega_translation','Interpro','CCDS'));
 	$num = $dba->dbc->do(qq(
            DELETE x
            FROM xref x, external_db ed
            WHERE x.external_db_id = ed.external_db_id
-           AND ed.db_name not in ('Vega_gene', 'Vega_transcript',
-                                  'Vega_translation', 'Interpro', 'CCDS', 'Havana_gene', 'ENST')
-        ));
+           AND ed.db_name $cond));
 	$support->log("Done deleting $num entries.\n");
 
 	# object_xrefs
@@ -400,7 +408,7 @@ foreach my $chr (@chr_sorted) {
 				else {
 					$syn_name = $syn->value;
 				}
-				push @gene_names, "synonym--$gene_name--$syn_name";
+				push @gene_names, "synonym--$stripped_name--$syn_name";
 				push @lc_names, lc($syn_name);
 			}
 		}
@@ -544,7 +552,8 @@ foreach my $chr (@chr_sorted) {
 
 								#use an existing xref if there is one...
 								my ($existing_xref,$dbID);
-								if ($existing_xref = $ea->fetch_by_db_accession($extdb,$pid)) {
+								$existing_xref = $ea->fetch_by_db_accession($extdb,$pid);
+								if ($existing_xref && $existing_xref->display_id eq $xid) {
 									$support->log("Using previous xref for gene $gid ($extdb display_id $xid, pid = $pid).\n", 1);
 									$gene->add_DBEntry($existing_xref);
 									$dbID = $ea->store($existing_xref, $gid, 'gene');
