@@ -213,10 +213,10 @@ foreach my $chr (@chr_sorted) {
 			$prefix = 0;
 		}
 
-        $support->log_verbose("Checking gene $gene_name ($gid, $gsi) using $stripped_name...\n");
+        $support->log_verbose("Checking gene $gene_name ($gid, $gsi) using $stripped_name...\n",1);
 		#store xref if there is one
 		if (my $pid = $havana_genes->{$stripped_name} ) {
-			$support->log_verbose("...matches Havana gene $stripped_name ($pid).\n");
+			$support->log("Gene $gene_name matches Havana gene $stripped_name ($pid).\n",1);
 			$found++;
 			#check if it's there already...
 			my ($existing_xref,$dbID);		
