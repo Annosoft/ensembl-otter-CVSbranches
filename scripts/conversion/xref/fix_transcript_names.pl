@@ -210,8 +210,8 @@ while (my ($gene_name, $gsi, $tsi, $trans_name) = $sth->fetchrow_array) {
 		my $t_dbID = $trans->dbID;
 		unless ($support->param('dry_run')) {
 			$aa->store_on_Transcript($t_dbID, $attrib);
-			$support->log("Stored transcript attrib for old name for transcript $tsi\n");
 		}
+		$support->log_verbose("Stored transcript attrib for old name for transcript $tsi\n");
         $support->log_verbose(sprintf("%-20s%-3s%-20s", $trans_name, "->", $new_name)."\n", 1);
 
         # update transcript_info.name
@@ -290,8 +290,8 @@ sub update_names {
 				];
 			unless ( $support->param('dry_run') ) {
 				$aa->store_on_Gene($g_dbID,$attrib);
-				$support->log("Added fragmented loci annotation remark for gene $gid\n");
-			}
+			}			
+			$support->log("Added fragmented loci annotation remark for gene $gid\n");
 		}
 		return;
 	}
