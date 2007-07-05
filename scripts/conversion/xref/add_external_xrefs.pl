@@ -48,10 +48,11 @@ Specific options:
 This script parses input files from various sources - HUGO, MGI, TCAG (human chr 7 annotation),
 IMGT (human major histocompatibility complex nomenclature), and an Ensembl
 database - and adds xrefs to the databases covered by the respective input source. If
-appropriate the display names of genes are set accordingly.
+appropriate the display names of genes are set accordingly. Data structures for the input files
+are stored to disc (so are only parsed once)
 
 It's worthwhile running the script first with -dry_run and -mismatch options to fix any
-case errors in the Vega Gene names. Then run it normally to add xrefs. Note that if any
+case errors in the Vega gene_names. Then run it normally to add xrefs. Note that if any
 gene_names are found to have case errors then the transcript names must also be updated
 using patch_transcript_names.pl.
 
@@ -182,8 +183,7 @@ if ($support->param('mismatch')) {
     $support->param('dry_run', 1);
 }
 
-# connect to database and get adaptors (caching features on one slice only)
-# get an ensembl database for better performance (no otter tables are needed)
+# connect to database and get adaptors
 my $dba = $support->get_database('ensembl');
 my $dbh = $dba->dbc->db_handle;
 my $sa = $dba->get_SliceAdaptor();
