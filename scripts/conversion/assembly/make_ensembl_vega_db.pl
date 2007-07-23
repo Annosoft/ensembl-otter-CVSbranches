@@ -347,7 +347,9 @@ $sql = qq(
    SELECT * from misc_feature_misc_set
    WHERE misc_set_id = $ms_id
 );
-$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run') || (! defined($ms_id)) );
+
 $support->log_stamped("Done transfering $c misc_feature_misc_sets entries.\n");
 $sql = qq(
    INSERT into $evega_db.misc_feature
@@ -356,7 +358,7 @@ $sql = qq(
    WHERE mf.misc_feature_id = mfms.misc_feature_id
    AND mfms.misc_set_id = $ms_id
 );
-$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run')  || (! defined($ms_id)));
 $support->log_stamped("Done transfering $c misc_feature entries.\n");
 $sql = qq(
    INSERT into $evega_db.misc_attrib
@@ -365,7 +367,7 @@ $sql = qq(
    WHERE ma.misc_feature_id = mfms.misc_feature_id
    AND mfms.misc_set_id = $ms_id
 );
-$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run'));
+$c = $dbh->{'ensembl'}->do($sql) unless ($support->param('dry_run')  || (! defined($ms_id)));
 $support->log_stamped("Done transfering $c misc_attrib entries.\n\n");
 
 # transfer assembly from Ensembl db
