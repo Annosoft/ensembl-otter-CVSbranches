@@ -107,7 +107,7 @@ foreach my $chr ($support->sort_chromosomes) {
 					$support->log_warning("No correctly formatted version found for otter transcript $stable_id, please investigate. Not setting\n") unless ($t_version);
 				}
 				else {
-					$support->log_verbose("WARNING: No correctly formatted version found for transcript $stable_id, not setting\n") unless ($t_version);
+					$support->log_verbose("WARNING: No correctly formatted version (" . $trans_dbentry->display_id . ") found for transcript $stable_id, not setting\n") unless ($t_version);
 				}
 				next TRANS;
 			}
