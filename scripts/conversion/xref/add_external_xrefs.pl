@@ -1054,6 +1054,7 @@ sub parse_mgi {
    while (<MGI>) {
 	   my @fields = split /\t/;
 
+
 	   # MGI record contains all sorts of entries as well as genes, eg markers.
        # There doesn't seem to be any way of distinguishing between them, but could
 	   # skip all apparent non-gene entries in the input file ?
@@ -1066,7 +1067,7 @@ sub parse_mgi {
 	   $xrefs->{$gene_name}->{'MarkerSymbol'} = [ $gene_name .'||'. $mgi_pid ];
 
 	   #add refseq dna entries
-	   my $refseqs = $fields[16];
+	   my $refseqs = $fields[21];
 	   my (@ids) = split ',',$refseqs; 
 	   foreach my $id (@ids) {
 		   if ($id =~ /^NM_|NR_/) {
@@ -1078,12 +1079,12 @@ sub parse_mgi {
 	   }
 
 	   #add swissprot entry
-	   my $swissptrots = $fields[17];
+	   my $swissptrots = $fields[22];
 	   my ($first_id) = split ',',$swissptrots; 
 	   $xrefs->{$gene_name}->{'Uniprot/SWISSPROT'} = [ $first_id .'||'.$first_id ];
 
 	   #add entrezgene entry
-	   my $entrezgenes = $fields[20];
+	   my $entrezgenes = $fields[25];
 	   ($first_id) = split ',',$entrezgenes; 
 	   $xrefs->{$gene_name}->{'EntrezGene'} = [ $first_id .'||'. $first_id ];
 
