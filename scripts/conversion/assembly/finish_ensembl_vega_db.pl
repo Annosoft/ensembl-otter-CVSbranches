@@ -73,6 +73,7 @@ Please see http://www.ensembl.org/code_licence.html for details
 
 =head1 AUTHOR
 
+Steve Trevanion <st3@sanger.ac.uk>
 Patrick Meidl <pm2@sanger.ac.uk>
 
 =head1 CONTACT
@@ -235,9 +236,8 @@ if ($support->user_proceed("Would you like to transfer the whole genome alignmen
     $support->log_stamped("Done.\n");
 }
 
-# store Vega chromosome seq_regions and Ensembl-Vega assembly in temporary
-# tables
-$support->log_stamped("Storing Vega chromosome seq_regions and Ensembl-Vega assembly in temporary...\n");
+# store Vega chromosome seq_regions and Ensembl-Vega assembly in temporary tables
+$support->log_stamped("Storing Vega chromosome seq_regions and Ensembl-Vega assembly in temporary tables...\n");
 $sql = qq(
     CREATE TABLE tmp_seq_region
     SELECT sr.*
@@ -368,8 +368,7 @@ $sql = qq(DELETE FROM repeat_feature);
 $c = $dbh->{'evega'}->do($sql);
 $support->log_stamped("Done deleting $c repeat_feature entries.\n\n");
 
-# transfer assembly, assembly_exception, seq_region, seq_region_attrib
-# from Ensembl db
+# transfer assembly, assembly_exception, seq_region, seq_region_attribs from Ensembl db
 $support->log_stamped("Transfering Ensembl assembly...\n");
 $sql = qq(
     INSERT INTO assembly
@@ -469,6 +468,9 @@ $sql = qq(
 $c = $dbh->{'evega'}->do($sql);
 $support->log_stamped("Done transfering $c translation_attrib entries.\n\n");
 
+# delete ccds transcript_attribs here if need be
+#.....
+
 # logic names and source
 if ($support->user_proceed("Would you like to ensure that all genes and transcripts have a logic_name of otter and a source of \'vega\'?")) {
 	$sql = qq(UPDATE gene set analysis_id = (SELECT analysis_id from analysis where logic_name = 'otter'));
@@ -487,12 +489,13 @@ if ($support->user_proceed("Would you like to delete orphan entries from object_
 	$c = $dbh->{'evega'}->do($sql);
 }
 
-if ($support->user_proceed("Would you like to drop the temporary tables tmp_assembl and tmp_seq_region?")) {
+#we never say no to this option!
+#if ($support->user_proceed("Would you like to drop the temporary tables tmp_assembl and tmp_seq_region?")) {
     $sql = qq(DROP TABLE tmp_assembly);
     $c = $dbh->{'evega'}->do($sql);
     $sql = qq(DROP TABLE tmp_seq_region);
     $c = $dbh->{'evega'}->do($sql);
-}
+#}
 
 # finish logfile
 $support->finish_log;

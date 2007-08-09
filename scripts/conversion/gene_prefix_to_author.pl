@@ -130,7 +130,7 @@ if (! $support->param('dry_run')) {
 	$dbh->do("delete from author_group");
 	$dbh->do("delete from author");
 	foreach my $k (keys %authors) {
-		next if ($k eq 'KO');
+		next if ($k eq 'KO'); #hack to avoid duplicates
 		my $a = $authors{$k};
 		$sql2->execute($a->[2],$a->[1],$a->[0],$a->[2]);
 		$sql3->execute($a->[2],$a->[1],$a->[0]);
