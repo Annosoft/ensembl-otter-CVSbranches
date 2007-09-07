@@ -65,6 +65,8 @@ Ensembl API's SeqEdit facilities.
 Genes transferred can be restricted to on logic_names using the --logic_names
 option.
 
+Script is currently hardcoded to ignore 'Sick_kids' genes
+
 =head1 RELATED SCRIPTS
 
 The whole Ensembl-vega database production process is done by these scripts:
@@ -190,6 +192,7 @@ if (! $support->param('logic_names')) {
 	while ( (my $ln) = $sth->fetchrow_array) {
 		push @lns,$ln;
 	}	
+		
 	$support->param('logic_names',\@lns);
 }
 
@@ -270,11 +273,21 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
 		}
         $support->log("Gene $gsi/$name (logic_name $ln)\n", 2);
 
+        # is this gene annotated by 'Sick_kids' ? If so, we don't want it
+        my @gene_attribs= @{$gene->get_all_Attributes('author')};
+        foreach my $attrib(@gene_attribs){            
+            if($attrib->value eq 'Sick_Kids'){
+                $support->log("skipping gene $gsi as it has a Sick_Kids attribute\n");
+                next GENE;
+            }
+        }
+
         my $transcripts = $gene->get_all_Transcripts;
         my (@finished, %all_protein_features);
 		my $c = 0;
         foreach my $transcript (@{ $transcripts }) {
 			$c++;
+												
             my $interim_transcript = transfer_transcript($transcript, $mapper,
                 $V_cs, $V_pfa, $E_slice);
             my ($finished_transcripts, $protein_features) =
