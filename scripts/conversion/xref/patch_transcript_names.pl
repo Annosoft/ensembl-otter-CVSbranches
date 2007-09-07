@@ -96,18 +96,25 @@ foreach my $chr ($support->sort_chromosomes) {
 	my $slice = $sa->fetch_by_region('toplevel', $chr);
 	foreach my $gene (@{$slice->get_all_Genes()}) {
 		my $g_name = $gene->display_xref->display_id;
+		my $gsi = $gene->stable_id;
+		my $ln = $gene->analysis->logic_name;
 		TRANS: foreach my $trans (@{$gene->get_all_Transcripts()}) {
 			my $trans_dbentry = $trans->display_xref;
 			my $stable_id =  $trans->stable_id;
 			my ($t_name,$t_version) = $trans_dbentry->display_id =~ /(.*)-(\d+)$/;
-			unless ($t_version) {
-				$support->log_warning("No correctly formatted version found for transcript $stable_id, not setting\n") unless ($t_version);
+			if (! $t_version) {
+				if ($ln eq 'otter') {
+					$support->log_warning("No correctly formatted version found for otter transcript $stable_id, please investigate. Not setting\n") unless ($t_version);
+				}
+				else {
+					$support->log_verbose("WARNING: No correctly formatted version (" . $trans_dbentry->display_id . ") found for transcript $stable_id, not setting\n") unless ($t_version);
+				}
 				next TRANS;
 			}
-			unless ($t_name eq $g_name) {
+			if ($t_name ne $g_name) {
 				$c++;
 				my $new_name = $g_name.'-'.$t_version;
-				$support->log("$c. Changing transcript name from ${t_name}-$t_version to $new_name\n");
+				$support->log("$c. ($gsi) - Changing transcript name from ${t_name}-$t_version to $new_name\n");
 				my $xref_id = $trans_dbentry->dbID;
 				my $num = $sth->execute($new_name, $xref_id) unless ($support->param('dry_run'));
 			}
