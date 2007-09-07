@@ -6,11 +6,8 @@ package Bio::Otter::TranscriptInfo;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Root;
 
-
-@ISA = qw(Bio::EnsEMBL::Root);
-
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 sub new {
   my($class,@args) = @_;
@@ -18,7 +15,7 @@ sub new {
   my $self = bless {}, $class;
 
   my ($dbid,$stable_id,$name,$tclass,$start_nf,$end_nf,$mrna_start,$mrna_end,$author,$timestamp,$remark,$evidence) =
-      $self->_rearrange([qw(DBID STABLE_ID NAME CLASS CDS_START_NOT_FOUND CDS_END_NOT_FOUND 
+      rearrange([qw(DBID STABLE_ID NAME CLASS CDS_START_NOT_FOUND CDS_END_NOT_FOUND 
 			    MRNA_START_NOT_FOUND MRNA_END_NOT_FOUND AUTHOR TIMESTAMP REMARK EVIDENCE)],@args);
 
   $self->dbID($dbid);

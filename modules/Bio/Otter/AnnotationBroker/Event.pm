@@ -1,10 +1,9 @@
-
 package Bio::Otter::AnnotationBroker::Event;
-
 
 use vars qw(@ISA);
 use strict;
 use Bio::EnsEMBL::Root;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 @ISA = qw(Bio::EnsEMBL::Root);
 
@@ -23,11 +22,11 @@ sub new {
 
   my ($type,$old_gene,$new_gene) =
 
-      $self->_rearrange([qw(
-			    TYPE
-			    OLD
-			    NEW
-                            )],@args);
+      rearrange([qw(
+                    TYPE
+                    OLD
+                    NEW
+                    )],@args);
 
   $type || $self->throw("Events must be made with a type");
   $self->type($type);

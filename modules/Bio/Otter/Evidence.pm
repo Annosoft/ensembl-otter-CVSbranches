@@ -2,18 +2,17 @@ package Bio::Otter::Evidence;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Root;
 
-@ISA = qw(Bio::EnsEMBL::Root);
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
 sub new {
   my($class,@args) = @_;
 
   my $self = bless {}, $class;
 
-  my ($dbid,$name,$transcript_info_id,$type)  = $self->_rearrange([qw(
+  my ($dbid,$name,$transcript_info_id,$type)  = rearrange([qw(
 							  DBID
-                                                          NAME
+                              NAME
 							  TRANSCRIPT_INFO_ID
 							  TYPE
 							  )],@args);

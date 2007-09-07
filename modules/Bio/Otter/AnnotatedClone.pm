@@ -2,18 +2,17 @@ package Bio::Otter::AnnotatedClone;
 
 use vars qw(@ISA);
 use strict;
-use Bio::EnsEMBL::Clone;
+use Bio::EnsEMBL::Slice;
+use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 
-@ISA = qw(Bio::EnsEMBL::Clone);
+@ISA = qw(Bio::EnsEMBL::Slice);
 
 sub new {
   my($class,@args) = @_;
 
   my $self = $class->SUPER::new(@args);
   
-  my ($clone_info)  = $self->_rearrange([qw(
-					   CLONE_INFO
-					   )],@args);
+  my ($clone_info)  = rearrange([qw(CLONE_INFO)], @args);
   
   $self->clone_info($clone_info);
 
