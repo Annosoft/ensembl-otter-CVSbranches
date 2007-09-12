@@ -26,6 +26,8 @@ General options:
     -h, --help, -?                      print help (this message)
 
 Specific options:
+
+    --external_db=NAME                  use external_db NAME for xrefs (default is OTTT)
     --chromosomes, --chr=LIST           only process LIST chromosomes
     --gene_stable_id, --gsi=LIST|FILE   only process LIST gene_stable_ids
                                         (or read list from FILE)
@@ -38,7 +40,8 @@ Specific options:
 =head1 DESCRIPTION
 
 This script parses a tab separated input file containing mappings between ensembl
-and vega transcript IDs and adds the Ensembl IDs as xrefs
+and vega transcript IDs and adds the Ensembl IDs as xrefs. The external DB name can be specified
+allowing the script to be used to add different types of xrefs.
 
 [probably want to add the ability to query a database directly]
 
@@ -86,6 +89,7 @@ $support->parse_extra_options(
     'chromosomes|chr=s@',
     'gene_stable_id|gsi=s@',
 	'id_file=s',
+	'external_db=s',
  #   'ensemblhost=s',
  #   'ensemblport=s',
  #   'ensembluser=s',
@@ -98,6 +102,7 @@ $support->allowed_params(
     'chromosomes',
     'gene_stable_id',
     'id_file',
+	'external_db',
 #    'ensemblhost',
 #    'ensemblport',
 #    'ensembluser',
@@ -142,7 +147,7 @@ if (!$support->param('dry_run')) {
            DELETE x
            FROM xref x, external_db ed
            WHERE x.external_db_id = ed.external_db_id
-           AND ed.db_name = 'ENST'
+           AND ed.db_name like 'ENST%'
 		));
 		$support->log("Done deleting $num entries.\n");
 
@@ -174,7 +179,13 @@ while (<ID> ) {
 	next if (/stable_id/);
 	my ($e_id,$v_id) = split /\t/;
 	($e_id,$v_id) = split / / unless ($e_id && $v_id);
+	if ($e_id =~ /^OTT/) {
+		my $t = $e_id;
+		$e_id = $v_id;
+		$v_id = $t;
+	}
 	chomp $v_id;
+	chomp $e_id;
 	if ( exists($ens_ids->{$v_id}) && ($e_id ne $ens_ids->{$v_id}) ) {
 		my $prev_id = $ens_ids->{$v_id};
 		eval {
@@ -187,6 +198,15 @@ while (<ID> ) {
 		$support->log_warning("problem retrieving transcript $v_id - $@") if $@;
 	}
 	$ens_ids->{$v_id} = $e_id;
+}
+
+#check (user defined) external dbname
+my $external_db = $support->param('external_db') || 'ENST';
+my $sth = $dbh->prepare(qq(select * from external_db where db_name = ?));
+$sth->execute($external_db);
+unless (my @r = $sth->fetchrow_array) {
+	$support->log_warning("External db name provided is not in the database, please check and add if neccesary\n");
+	exit;
 }
 
 #retrieve transcripts and add xrefs
@@ -202,11 +222,11 @@ foreach my $v_id (keys %$ens_ids) {
 					  -display_id => $e_id,
                       -version    => 1,
                       -release    => 1,
-                      -dbname     => 'ENST',
+                      -dbname     => $external_db,
 					);
 	$transcript->add_DBEntry($dbentry);
 	if ($support->param('dry_run')) {
-		$support->log("Would store ENST xref $e_id for transcript $v_id.\n", 1);
+		$support->log("Would store $external_db xref $e_id for transcript $v_id.\n", 1);
 	} else {
 		my $dbID = $ea->store($dbentry, $transcript->dbID, 'transcript');
 		
@@ -218,15 +238,15 @@ foreach my $v_id (keys %$ens_ids) {
                          FROM xref x, external_db ed
                          WHERE x.external_db_id = ed.external_db_id
                          AND x.dbprimary_acc = '$e_id'
-                         AND ed.db_name = 'ENST'
+                         AND ed.db_name = '$external_db'
                          );
 			($dbID) = @{ $dbh->selectall_arrayref($sql) || [] };
 		}
 
 		if ($dbID) {
-			$support->log("Stored ENST xref $e_id for transcript $v_id.\n", 1);
+			$support->log("Stored $external_db xref $e_id for transcript $v_id.\n", 1);
 		} else {
-			$support->log_warning("No dbID for ENST xref ($e_id) transcript $v_id\n", 1);
+			$support->log_warning("No dbID for $external_db xref ($e_id) transcript $v_id\n", 1);
 		}
 	}
 }
