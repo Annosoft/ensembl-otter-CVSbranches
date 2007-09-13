@@ -108,7 +108,11 @@ if ($support->param('dbfile')) {
 		chomp;
 		next if /^\s*$/;
 		next if /^#/;
-		push @$tables, [$_];
+		my $dbname;
+		if(/^(\S+)\s*$/){
+			$dbname= $1;
+		}
+		push @$tables, [$dbname];
 	}
 }
 else {
@@ -130,7 +134,10 @@ foreach my $r (@$tables) {
 	my $filename = $db . '.sql.gz';
 	my $r = `mysqldump --opt -u $user -p$pass -h $host -P $port $db | gzip > $filename`;
 	$support->log("mysqldump: $r\n",1);
-	$r = `scp $filename $backup_location`;
+	
+	my $private_key_file='/nfs/WWW/.ssh/id_dsa';
+	
+	$r = `scp -i $private_key_file $filename $backup_location`;
 	$support->log("scp: $r\n",1);
 	$r = `rm $filename`;
 }
