@@ -226,10 +226,11 @@ if ($support->user_proceed("Would you like to transfer the whole genome alignmen
     $support->log_stamped("Meta assembly.mapping...\n", 1);
     my $mappingstring = 'chromosome:'.$support->param('assembly').'#chromosome:'.$support->param('ensemblassembly');
     $sql = qq(
-        INSERT INTO $vega_db.meta
-        SELECT * from meta
-        WHERE meta_key = 'assembly.mapping'
-        AND meta_value = '$mappingstring'
+        INSERT INTO $vega_db.meta (meta_key, meta_value)
+        ( SELECT meta_key, meta_value
+          FROM meta
+          WHERE meta_key = 'assembly.mapping'
+          AND meta_value = '$mappingstring')
     );
     $c = $dbh->{'evega'}->do($sql);
     $support->log_stamped("Done storing $c meta entries.\n", 1);
