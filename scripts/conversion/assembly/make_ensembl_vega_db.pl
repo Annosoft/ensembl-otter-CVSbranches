@@ -27,6 +27,7 @@ General options:
     -h, --help, -?                      print help (this message)
 
 Specific options:
+
     --ensembldbname=NAME                use Ensembl (source) database NAME
     --ensemblhost=HOST                  use Ensembl (source) database host HOST
     --ensemblport=PORT                  use Ensembl (source) database port PORT
@@ -57,6 +58,7 @@ whole process.
 It prepares the initial Ensembl schema database to hold Vega annotation on the
 Ensembl assembly. Major steps are:
 
+    - optionally remove preexisting assembly mappings
     - create a db with current Ensembl schema
     - transfer Vega chromosomes (with same seq_region_id and name as in
       source db)
@@ -231,8 +233,11 @@ if ( (! $support->param('dry_run'))
 	};
 }
 
-# delete any preexisting mappings in the Ensembl db
-delete_mappings($dbh->{'ensembl'}) unless ($support->param('dry_run'));
+# delete any preexisting mappings
+if (! $support->param('dry_run')) {
+	delete_mappings('ensembl',$dbh->{'ensembl'});
+	delete_mappings('vega',$dbh->{'vega'});
+}
 
 # create new ensembl-vega (target) database
 my $evega_db = $support->param('evegadbname');
@@ -544,26 +549,25 @@ if (! $support->param('dry_run') ) {
 # finish logfile
 $support->finish_log;
 
+# delete all unwanted mappings e.g. references to NCBI35 in a NCBI36 db
 sub delete_mappings{
-	# delete all mappings in the ensembl core db to an old version  e.g. references to NCBI35 in a NCBI36 db
-	my($dbh)= @_;
+	my ($db_type,$dbh) = @_;
 	my @db_types=();
 	my @row=();
-	$support->log("Removing extra assembly mappings from ensembl database\n");
-	my $sth = $dbh->prepare("select coord_system_id, name, version from coord_system where name='chromosome'") or $support->log_error("Couldn't prepare statement: " . $dbh->errstr);
+	my $sth = $dbh->prepare("select coord_system_id, name, version from coord_system where name='chromosome'") 
+		or $support->log_error("Couldn't prepare statement: " . $dbh->errstr);
 	$sth->execute() or $support->log_error("Couldn't execute statement: " . $sth->errstr);
 	while (@row = $sth->fetchrow_array()) {
 		push @db_types, {coord_system_id => $row[0], name => $row[1], version => $row[2]};    
-    }
-
-    # we expect 1 or 2 assembly mappings: check
-    my $num_rows = @db_types;
-    if($num_rows > 2){
-    	$support->log_error("There are $num_rows assembly_mappings in the ensembl database and I can only work with 1 or 2, please investigate\n");
-    }
+	}
+	
+	# we expect 1 or 2 assembly mappings: check
+	my $num_rows = @db_types;
+	if($num_rows > 2){
+		$support->log_error("There are $num_rows assembly_mappings in the $db_type database and I can only work with 1 or 2, please investigate\n");
+	}
 	if($num_rows == 1){
-		$support->log("Only $num_rows assembly_mappings in the ensembl database, nothing to remove \n");
-		return;
+		$support->log("Only $num_rows assembly_mappings in the $db_type database, nothing to remove \n");
 	}
 
 	#go ahead and remove
@@ -587,22 +591,26 @@ sub delete_mappings{
 			# identical: database error
 			$support->log_error("When trying to remove mappings, got identical dbs; they must be different\n");
 		}
-		$support->log("removing mappings to old version: $version_to_delete\n");
+
+		if ($support->user_proceed("Remove $version_to_delete assembly mappings from $db_type database?")) {
+			$support->log("Removing $version_to_delete assembly mappings from $db_type database\n");
+			
+			# delete old seq_regions and assemblies that contain them
+			my $query= "delete a, sr from seq_region sr left join assembly a on sr.seq_region_id = a.cmp_seq_region_id where sr.coord_system_id = $id_to_delete";
+			$dbh->do($query) or $support->log_error("Query failed to delete old seq regions and assembies");
+			$support->log("Deleted $version_to_delete assemblies and seq_regions\n");
+			
 		
-		# set up sql query to delete old seq_regions and assemblies that contain them
-		my $query= "delete a, sr from assembly a, seq_region sr where sr.seq_region_id = a.cmp_seq_region_id and sr.coord_system_id = $id_to_delete";
-		$dbh->do($query) or $support->log_error("Query failed to delete old seq regions and assembies");
-		$support->log("deleted old assemblies and seq_regions\n");
+			# delete the old coord_system from the coord_system table
+			$query= "delete from coord_system where coord_system_id = $id_to_delete";
+			$dbh->do($query) or $support->log_error("Query failed to delete old coord_system");
+			$support->log("Deleted $version_to_delete coord_system\n");
 		
-		# delete the old coord_system from the coord_system table
-		$query= "delete from coord_system where coord_system_id = $id_to_delete";
-		$dbh->do($query) or $support->log_error("Query failed to delete old coord_system");
-		$support->log("Deleted old coord_system\n");
-		
-		#delete from the meta table
-		$query= "delete from meta where meta_value like '%:$version_to_delete%'";
-		$dbh->do($query) or $support->log_error("Query failed to delete old meta entries");
-		$support->log("Deleted old meta table entries\n");
-		return;
+			# delete from the meta table
+			$query= "delete from meta where meta_value like '%:$version_to_delete%'";
+			$dbh->do($query) or $support->log_error("Query failed to delete old meta entries");
+			$support->log("Deleted $version_to_delete meta table entries\n");
+		}
 	}
+	return;
 }
