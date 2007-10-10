@@ -153,7 +153,7 @@ if ($support->param('keep')) {
     $action = 'delete';
     $condition = "IN";
 } else {
-    $support->log_error("You must supply either a list of gene_stable_ids to delete or to keep.");
+    $support->log_error("You must choose to either delete or keep genes by their stable_ids.\n");
 }
 
 # make sure user knows what he's doing
@@ -263,6 +263,7 @@ sub check_missing {
     my ($gene_stable_ids, $trans_stable_ids) = @_;
 
     $support->log("Checking for missing genes and/or transcripts...\n");
+
 
     # genes
     my $gsi_string = join("', '", @{ $gene_stable_ids });
