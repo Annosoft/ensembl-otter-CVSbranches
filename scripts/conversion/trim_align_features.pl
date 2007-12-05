@@ -149,10 +149,16 @@ $support->log_stamped("Done deleting $num entries.\n\n");
 
 # optimize tables
 $support->log_stamped("Optimizing tables...\n");
-$support->log_stamped("dna_align_feature...\n", 1);
-$dbh->do(qq(OPTIMIZE TABLE dna_align_feature));
-$support->log_stamped("protein_align_feature...\n", 1);
-$dbh->do(qq(OPTIMIZE TABLE protein_align_feature));
+    $support->log_stamped("dna_align_feature...\n", 1);
+    $num = $dbh->do(qq(OPTIMIZE TABLE dna_align_feature));
+    $support->log_stamped("protein_align_feature...\n", 1);
+    $num = $dbh->do(qq(OPTIMIZE TABLE protein_align_feature));
+    $support->log_stamped("repeat_feature...\n", 1);
+    $num = $dbh->do(qq(OPTIMIZE TABLE repeat_feature));
+    $support->log_stamped("repeat_consensus...\n", 1);
+    $num = $dbh->do(qq(OPTIMIZE TABLE repeat_consensus));
+    $support->log_stamped("dna...\n", 1);
+    $num = $dbh->do(qq(OPTIMIZE TABLE dna));
 $support->log_stamped("Done.\n\n");
 
 # copy daf_tmp/paf_tmp back into daf/paf
