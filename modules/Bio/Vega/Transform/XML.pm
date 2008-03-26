@@ -1,8 +1,7 @@
 package Bio::Vega::Transform::XML;
 
 use strict;
-use Bio::Vega::Utils::XmlEscape qw (xml_escape);
-use Bio::EnsEMBL::Utils::Exception qw ( throw);
+use Bio::EnsEMBL::Utils::Exception qw (throw);
 use base 'Bio::Vega::Writer';
 use Bio::Vega::Utils::GeneTranscriptBiotypeStatus 'biotype_status2method';
 
@@ -16,6 +15,7 @@ sub get_geneXML{
 
 sub generate_OtterXML{
   my ($self,$slices,$odb,$indent,$genes,$sf)=@_;
+
   my $ot=$self->prettyprint('otter');
   $ot->indent($indent);
   foreach my $slice (@$slices){
@@ -26,19 +26,31 @@ sub generate_OtterXML{
 
 sub generate_SequenceSet{
   my ($self,$slice,$odb,$genes,$features)=@_;
+
   my $ss=$self->prettyprint('sequence_set');
   $ss->attribvals($self->generate_AssemblyType($slice));
+
   my $slice_projection = $slice->project('contig');
   foreach my $contig_seg (@$slice_projection) {
 	 $ss->attribobjs($self->generate_SequenceFragment($contig_seg,$slice,$odb));
   }
-  unless ($features) {
-	 $features = $slice->get_all_SimpleFeatures;
-  }
+
+  $features ||= $slice->get_all_SimpleFeatures;
+
+  # Now it is very important that we discard features that intersect the slice boundaries:
+
+    for (my $i = 0; $i < @$features; ) {
+        my $sf = $features->[$i];
+        if( ($sf->start()<1) || ($sf->end()>$slice->length()) ) {
+            splice(@$features, $i, 1);
+        } else {
+            $i++;
+        }
+    }
+  
   $ss->attribobjs($self->generate_FeatureSet($features,$slice));
-  unless ($genes){
-      $genes=$slice->get_all_Genes;
-  }
+
+  $genes ||= $slice->get_all_Genes;
   foreach my $gene(@$genes){
 	 $ss->attribobjs($self->generate_Locus($gene));
   }
@@ -128,7 +140,6 @@ sub generate_SequenceFragment{
 		if ($cia->code eq 'description') {
 		  $cia->value("EMBL_dump_info.DE_line- ".$cia->value);
 		}
-		xml_escape($cia->value);
 		$sf->attribvals($self->prettyprint('remark',$cia->value));
 	 }
   }
@@ -164,12 +175,13 @@ sub generate_Locus {
   if (defined $indent) {
 	 $g->indent($indent);
   }
-  $g->attribvals($self->prettyprint('stable_id',$gene->stable_id));
+  if($gene->stable_id) {
+      $g->attribvals($self->prettyprint('stable_id',$gene->stable_id));
+  }
   my $gene_description='';
   if ($gene->description){
 	 $gene_description=$gene->description;
   }
-  xml_escape($gene_description);
   $g->attribvals($self->prettyprint('description',$gene_description));
   my $gene_name_att = $gene->get_all_Attributes('name') ;
   my $gene_name='';
@@ -193,18 +205,18 @@ sub generate_Locus {
 		$g->attribvals($self->prettyprint('synonym',$syn->value));
 	 }
   }
-  if (my $remarks = $gene->get_all_Attributes('remark')){
+
+  if(my $remarks = $gene->get_all_Attributes('remark')) {
 	 foreach my $rem (@$remarks){
-		xml_escape($rem->value);
 		$g->attribvals($self->prettyprint('remark',$rem->value));
 	 }
   }
-  if (my $remarks = $gene->get_all_Attributes('hidden_remark')){
+  if(my $remarks = $gene->get_all_Attributes('hidden_remark')) {
 	 foreach my $rem (@$remarks){
-		xml_escape($rem->value);
-		$g->attribvals($self->prettyprint('remark',0,$rem->value));
+		$g->attribvals($self->prettyprint('remark','Annotation_remark- '.$rem->value));
 	 }
   }
+
   my $gene_author=$gene->gene_author;
   my $author_name='';
   my $author_email='';
@@ -232,11 +244,9 @@ sub generate_Transcript{
 
   my ($self,$tran,$coord_offset)=@_;
   my $t=$self->prettyprint('transcript');
-  my $tran_stable_id='';
   if ($tran->stable_id) {
-	 $tran_stable_id=$tran->stable_id;
+     $t->attribvals($self->prettyprint('stable_id',$tran->stable_id));
   }
-  $t->attribvals($self->prettyprint('stable_id',$tran_stable_id));
   my $tran_author=$tran->transcript_author;
   my $author_name='';
   my $author_email='';
@@ -246,11 +256,18 @@ sub generate_Transcript{
   }
   $t->attribvals($self->prettyprint('author',$author_name));
   $t->attribvals($self->prettyprint('author_email',$author_email));
-  my $tran_remark_att = $tran->get_all_Attributes('remark') ;
-  foreach my $r (@$tran_remark_att){
-	 xml_escape($r->value);
-	 $t->attribvals($self->prettyprint('remark',$r->value));
+
+  if(my $remarks = $tran->get_all_Attributes('remark')){
+     foreach my $rem (@$remarks){
+        $t->attribvals($self->prettyprint('remark',$rem->value));
+     }
   }
+  if(my $remarks = $tran->get_all_Attributes('hidden_remark')){
+	 foreach my $rem (@$remarks){
+		$t->attribvals($self->prettyprint('remark','Annotation_remark- '.$rem->value));
+	 }
+  }
+
   my $mRNA_start_NF = $tran->get_all_Attributes('mRNA_start_NF') ;
   my $mRNA_end_NF = $tran->get_all_Attributes('mRNA_end_NF') ;
   my $cds_start_NF = $tran->get_all_Attributes('cds_start_NF') ;
@@ -320,7 +337,9 @@ sub generate_ExonSet{
   my $exs=$self->prettyprint('exon_set');
   foreach my $exon (@$exon_set){
 	 my $e=$self->prettyprint('exon');
-	 $e->attribvals($self->prettyprint('stable_id',$exon->stable_id));
+     if($exon->stable_id) {
+         $e->attribvals($self->prettyprint('stable_id',$exon->stable_id));
+     }
 	 $e->attribvals($self->prettyprint('start',$exon->start + $coord_offset));
 	 $e->attribvals($self->prettyprint('end',$exon->end  + $coord_offset));
 	 $e->attribvals($self->prettyprint('strand',$exon->strand));
@@ -361,32 +380,33 @@ sub generate_FeatureSet {
   my $offset=$slice->start-1;
   my $fs=$self->prettyprint('feature_set');
   foreach my $feature(@$features){
+
 	 my $f = $self->prettyprint('feature');
 	 if ($feature->analysis){
 		my $a=$feature->analysis;
 		$f->attribvals($self->prettyprint('type',$a->logic_name));
+	 } else {
+		throw "Cannot create Otter XML, feature type is absent: $feature";
 	 }
-	 else {
-		throw "Cannot create Otter XML, feature type is absent:$feature";
-	 }
+
 	 if ($feature->start){
 		$f->attribvals($self->prettyprint('start',$feature->start+$offset));
+	 } else {
+		throw "Cannot create Otter XML, feature start is absent: $feature";
 	 }
-	 else {
-		throw "Cannot create Otter XML, feature type is absent:$feature";
-	 }
+
 	 if ($feature->end){
 		$f->attribvals($self->prettyprint('end',$feature->end+$offset));
+	 } else {
+		throw "Cannot create Otter XML, feature end is absent: $feature";
 	 }
-	 else {
-		throw "Cannot create Otter XML, feature type is absent:$feature";
-	 }
+
 	 if ($feature->strand){
 		$f->attribvals($self->prettyprint('strand',$feature->strand));
+	 } else {
+		throw "Cannot create Otter XML, feature strand is absent: $feature";
 	 }
-	 else {
-		throw "Cannot create Otter XML, feature type is absent:$feature";
-	 }
+
 	 if ($feature->score){
 		$f->attribvals($self->prettyprint('score',$feature->score));
 	 }

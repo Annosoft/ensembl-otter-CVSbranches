@@ -258,7 +258,7 @@ if ($odba->isa('Bio::Otter::DBSQL::DBAdaptor')) {
     my %xmlfrag = ();
     eval {
         my $cs           = 'chromosome';
-        my $segment_name = $parser->get_AssemblyType;
+        my $segment_name = $parser->get_AssemblyType->{'assembly_type'};
         my $chr_slice    = $parser->get_ChromosomeSlice;
         my $start        = $chr_slice->start;
         my $end          = $chr_slice->end;
@@ -334,8 +334,6 @@ if ($odba->isa('Bio::Otter::DBSQL::DBAdaptor')) {
         my $gene_adaptor = $odba->get_GeneAdaptor;
         $server->log("Attaching gene to slice ");
 
-        my $time_now = time(); # one common timestamp for the whole writing session
-
         foreach my $gene (@$xml_genes) {
             ##attach gene and its components to the right slice
             $gene->slice($slice);
@@ -351,7 +349,7 @@ if ($odba->isa('Bio::Otter::DBSQL::DBAdaptor')) {
             }
             ##update all gene and its components in db (new/mod)
             $gene->is_current(1);
-            $gene_adaptor->store($gene, $time_now);
+            $gene_adaptor->store($gene);
         }
         $server->log("Updated " . scalar(@$xml_genes) . " genes");
         
@@ -377,7 +375,7 @@ if ($odba->isa('Bio::Otter::DBSQL::DBAdaptor')) {
             
             # Setting is_current to 0 will cause the store method to delete it.
             $dbgene->is_current(0);
-            $gene_adaptor->store($dbgene, $time_now);
+            $gene_adaptor->store($dbgene);
             $del_count++;
             $server->log("Deleted gene " . $dbgene->stable_id);
         }

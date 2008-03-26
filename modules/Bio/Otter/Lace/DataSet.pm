@@ -6,7 +6,7 @@ package Bio::Otter::Lace::DataSet;
 use strict;
 use Carp;
 use Bio::Otter::DBSQL::DBAdaptor;
-#use Bio::Vega::DBSQL::DBAdaptor;
+use Bio::Vega::DBSQL::DBAdaptor;
 use Bio::Otter::Lace::CloneSequence;
 #use Bio::Otter::CloneLock;
 use Bio::Otter::Author;
@@ -521,12 +521,7 @@ sub make_Vega_DBAdaptor {
 sub _make_DBAdptor_with_class {
     my( $self, $class ) = @_;
     
-    my(@args) = (
-        # Extra arguments to stop Bio::EnsEMBL::Registry issuing warnings
-        -GROUP      => 'otter',
-        -SPECIES    => $self->name,
-        );
-
+    my(@args);
     foreach my $prop ($self->list_all_db_properties) {
         if (my $val = $self->$prop()) {
             #print STDERR "-$prop  $val\n";
@@ -542,12 +537,11 @@ sub _attach_DNA_DBAdaptor{
     return unless $dba;
 
     my(@ott_args, @dna_args);
-    foreach my $this ($self->list_all_db_properties) {
-        if (my ($prop) = $this =~ /^DNA_(\w+)/) {
-            if (my $val = $self->$this()) {
-                push(@dna_args, "-$prop", $val);
-                push(@ott_args, "-$prop", $self->$prop());
-            }
+    foreach my $prop (grep /^DNA/, $self->list_all_db_properties) {
+	$prop =~ /DNA_(\w+)/;
+        if (my $val = $self->$prop()) {
+            push(@dna_args, "-$1", $val);
+            push(@ott_args, "-$1", $self->$1);
         }
     }
 
@@ -555,12 +549,7 @@ sub _attach_DNA_DBAdaptor{
         #warn "They are the same the DBAdaptor will just return itself\n";
     }elsif(@dna_args){
         # warn "dna_args: @dna_args\n";
-        my $dnadb = Bio::EnsEMBL::DBSQL::DBAdaptor->new(
-            @dna_args,
-            # Extra arguments to stop Bio::EnsEMBL::Registry issuing warnings
-            -GROUP      => 'dnadb',
-            -SPECIES    => $self->name,
-            );
+        my $dnadb = Bio::EnsEMBL::DBSQL::DBAdaptor->new(@dna_args);
         $dba->dnadb($dnadb);
     }else{
         warn "No DNA_* options found. *** CHECK species.dat ***\n";

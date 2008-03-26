@@ -1,9 +1,3 @@
-drop index stable_id on translation_stable_id;
-create index stable_id on translation_stable_id (stable_id,version);
-insert into meta (meta_key,meta_value) values('last_gene_old_dbid',0);
-insert into meta (meta_key,meta_value) values ('last_contig_info_old_dbid',0);
-
-#################################################################################
 #
 # Table structure for table 'gene_stable_id_pool'
 # otter table
@@ -60,7 +54,6 @@ CREATE TABLE transcript_author (
    transcript_id	     INT UNSIGNED NOT NULL REFERENCES transcript(transcript_id),
    author_id		     INT(10) UNSIGNED NOT NULL REFERENCES author(author_id),
    
-   PRIMARY KEY (transcript_id),
    KEY (author_id)
 
 ) TYPE=InnoDB;
@@ -224,7 +217,7 @@ CREATE TABLE assembly_tag (
   tag_info		  TEXT,
 
   PRIMARY KEY  ( tag_id ),
-  UNIQUE ( seq_region_id, seq_region_start, seq_region_end, seq_region_strand, tag_type )
+  UNIQUE ( seq_region_id,tag_type )
 
 ) TYPE=InnoDB ;
 
@@ -233,12 +226,12 @@ CREATE TABLE assembly_tag (
 # otter table
 #
 
-CREATE TABLE assembly_tagged_contig (
+CREATE TABLE assembly_tagged_clone (
 
-  seq_region_id int(10) unsigned NOT NULL default '0',
+  clone_id int(10) unsigned NOT NULL default '0',
   transferred enum('yes','no') NOT NULL default 'no',
 
-  UNIQUE KEY seq_region_id (seq_region_id)
+  UNIQUE KEY clone_id (clone_id)
 
 ) TYPE=InnoDB ;
 

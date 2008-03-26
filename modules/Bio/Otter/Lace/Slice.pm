@@ -173,7 +173,8 @@ sub get_tiling_path_and_sequence {
 
     my $ds_headcode = $self->Client()->get_DataSet_by_name($self->dsname())->HEADCODE();
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_tiling_and_seq',
         {
@@ -186,6 +187,7 @@ sub get_tiling_path_and_sequence {
             # omit 'metakey' and set 'pipehead' from the value in otter_config
             #
         },
+        1,
     );
     foreach my $respline ( split(/\n/,$response) ) {
         my ($embl_accession, $embl_version, $intl_clone_name, $contig_name,
@@ -242,7 +244,8 @@ sub get_all_SimpleFeatures { # get simple features from otter/pipeline/ensembl d
 
     my %analyses = (); # keep cached analysis objects here
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_simple_features',
         {
@@ -251,6 +254,7 @@ sub get_all_SimpleFeatures { # get simple features from otter/pipeline/ensembl d
             'pipehead' => $pipehead ? 1 : 0,
             $metakey ? ('metakey' => $metakey) : (),
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -297,7 +301,8 @@ sub get_all_DAS_SimpleFeatures { # get simple features from DAS source (via mapp
         # cached values:
     my $analysis = Bio::EnsEMBL::Analysis->new( -logic_name => $analysis_name );
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_das_simple_features',
         {
@@ -308,6 +313,7 @@ sub get_all_DAS_SimpleFeatures { # get simple features from DAS source (via mapp
             'source'   => $source,
             'dsn'      => $dsn,
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -347,7 +353,8 @@ sub get_all_Cons_SimpleFeatures { # get simple features from Compara 'GERP_CONSE
         # cached values:
     my $analysis = Bio::EnsEMBL::Analysis->new( -logic_name => $analysis_name );
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_cons_simple_features',
         {
@@ -356,6 +363,7 @@ sub get_all_Cons_SimpleFeatures { # get simple features from Compara 'GERP_CONSE
             'pipehead' => $pipehead ? 1 : 0,
             $metakey   ? ('metakey' => $metakey) : (), # if you forget it, it will be 'Otter' by default!
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -407,7 +415,8 @@ sub get_all_AlignFeatures { # get align features from otter/pipeline/ensembl db
         'pafs' => [ qw(Bio::EnsEMBL::DnaPepAlignFeature Bio::Otter::DnaPepAlignFeature) ],
     }->{$kind} };
     
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_align_features',
         {
@@ -417,6 +426,7 @@ sub get_all_AlignFeatures { # get align features from otter/pipeline/ensembl db
             'pipehead' => $pipehead ? 1 : 0,
             $metakey ? ('metakey' => $metakey) : (),
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -488,7 +498,8 @@ sub get_all_RepeatFeatures { # get repeat features from otter/pipeline/ensembl d
 
     my %analyses = (); # keep cached analysis objects here
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_repeat_features',
         {
@@ -497,6 +508,7 @@ sub get_all_RepeatFeatures { # get repeat features from otter/pipeline/ensembl d
             'pipehead' => $pipehead ? 1 : 0,
             $metakey ? ('metakey' => $metakey) : (),
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -559,7 +571,8 @@ sub get_all_MarkerFeatures { # get marker features from otter/pipeline/ensembl d
 
     my %analyses = (); # keep cached analysis objects here
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_marker_features',
         {
@@ -568,6 +581,7 @@ sub get_all_MarkerFeatures { # get marker features from otter/pipeline/ensembl d
             'pipehead' => $pipehead ? 1 : 0,
             $metakey ? ('metakey' => $metakey) : (),
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -647,7 +661,8 @@ sub get_all_DitagFeatureGroups { # get ditag features from otter/pipeline/ensemb
 
     my %analyses = (); # keep cached analysis objects here
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_ditag_features',
         {
@@ -657,6 +672,7 @@ sub get_all_DitagFeatureGroups { # get ditag features from otter/pipeline/ensemb
             $metakey ? ('metakey' => $metakey) : (),
             $ditypes ? ('ditypes' => $ditypes) : (),
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -713,7 +729,8 @@ sub get_all_PredictionTranscripts { # get prediction transcripts from otter/pipe
 
     my %analyses = (); # keep cached analysis objects here
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_prediction_transcripts',
         {
@@ -722,6 +739,7 @@ sub get_all_PredictionTranscripts { # get prediction transcripts from otter/pipe
             'pipehead' => $pipehead ? 1 : 0,
             $metakey ? ('metakey' => $metakey) : (),
         },
+        1,
     );
 
     my @resplines = split(/\n/,$response);
@@ -790,7 +808,8 @@ sub get_all_PipelineGenes { # get genes from otter/pipeline/ensembl db
         die "Analysis name must be specified!";
     }
 
-    my $response = $self->Client()->otter_response_content(
+    my $response = $self->Client()->general_http_dialog(
+        0,
         'GET',
         'get_genes',
         {
@@ -801,6 +820,7 @@ sub get_all_PipelineGenes { # get genes from otter/pipeline/ensembl db
             $transcript_analyses ? ('transcript_analyses' => $transcript_analyses) : (),
             $translation_xref_dbs ? ('translation_xref_dbs' => $translation_xref_dbs) : (),
         },
+        1,
     );
     my $slice = $self->create_detached_slice();
 

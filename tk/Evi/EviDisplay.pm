@@ -22,16 +22,16 @@ my @alternating_colors = ('white','#eeeeee');
 my $color_scheme = {      #  OUTLINE,       FILL
     'transcript'       => [ 'orange',       'red'       ],
 
-    # 'translation'      => [ 'DarkGreen',  'green'     ],
+    # 'translation'      => [ 'darkgreen',  'green'     ],
 
     'Est2genome_human' => [ 'blue',         'violet'    ],
     'Est2genome_mouse' => [ 'blue',         'violet'    ],
     'Est2genome_other' => [ 'blue',         'violet'    ],
     'vertrna'          => [ 'black',        '#a05000'   ],
 
-    # 'Uniprot'        => [ 'DarkGreen',    'green'     ],
+    # 'Uniprot'        => [ 'darkgreen',    'green'     ],
 
-    'frame_0'          => ['DarkGreen',     '#3cb371' ], # #32cd32
+    'frame_0'          => ['darkgreen',     '#3cb371' ], # #32cd32
     'frame_1'          => ['darkblue',      '#00ced1' ],
     'frame_2'          => ['darkblue',      '#8470ff' ],
 };

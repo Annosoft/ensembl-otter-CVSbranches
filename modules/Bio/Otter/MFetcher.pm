@@ -1,194 +1,56 @@
-package Bio::Otter::ServerScriptSupport;
+package Bio::Otter::MFetcher;
+
+# Previously a part of ServerScriptSupport,
+# this module only deals with data layer:
+# interprets the metakeys to create and manage DBAdaptors
+# and performs mapping between assemblies.
+#
+# Author: lg4
 
 use strict;
 
-use OtterDefs;
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
 use Bio::Otter::DBSQL::DBAdaptor;
 use Bio::Vega::DBSQL::DBAdaptor;
-use Bio::Otter::Author;
-use Bio::Vega::Author;
-use Bio::Otter::Version;
-use Bio::Otter::Lace::TempFile;
 
-use base 'Bio::Otter::ServerQuery';
+use base ('Bio::Otter::Compatibility', 'Bio::Otter::SpeciesDat');
 
-sub new {
-    my $pack = shift @_;
+sub new { # just to make it possible to instantiate an object
+    my $pkg = shift @_;
 
-    $|=1; # autoflush
-
-    my $self = $pack->SUPER::new(@_);                       # ServerQuery is incorporated
-
-    if( defined($ENV{SERVER_SOFTWARE})
-    && ( $ENV{SERVER_SOFTWARE} =~ /libwww-perl-daemon/)) {
-        $self->nph(1);
-    }
+    my $self = bless {}, $pkg;
 
     return $self;
 }
 
-############## getters: ###########################
-
-sub running_headcode {
-    my $self = shift @_;
-
-    return $ENV{PIPEHEAD};    # the actual running code (0=>rel.19, 1=>rel.20+)
+    # to be overloaded by ServerScriptSupport
+sub dataset_name {
+    my( $self, $dataset_name ) = @_;
+    
+    if($dataset_name) {
+        $self->{'_dataset_name'} = $dataset_name;
+    }
+    return $self->{'_dataset_name'};
 }
 
-sub csn {   # needed by logging mechanism
-    my $self = shift @_;
+sub current_dataset_param {
+    my ($self, $param_name) = @_;
 
-    my @syll = split(/\//, $ENV{CURRENT_SCRIPT_NAME} || $0);
-    return pop(@syll);
-}
-
-sub species_hash {      # could move out into a separate class, living on top of species.dat
-    my $self = shift @_;
-
-    return $OTTER_SPECIES; # inherited from OtterDefs (ultimately from species.dat)
-}
-
-sub dataset_param {     # could move out into a separate class, living on top of species.dat
-    my ($self, $param) = @_;
-
-        # Check the dataset has been entered:
-    my $dataset = $self->require_argument('dataset');
-
-        # get the overriding dataset options from species.dat 
-    my $dbinfo   = $self->species_hash()->{$dataset} || $self->error_exit("Unknown data set $dataset");
-
-        # get the defaults from species.dat
-    my $defaults = $self->species_hash()->{'defaults'};
-
-    return $dbinfo->{$param} || $defaults->{$param};
+    return $self->get_dataset_param( $self->dataset_name() , $param_name);
 }
 
 sub dataset_headcode {
     my $self = shift @_;
 
-    return $self->dataset_param('HEADCODE');
+    return $self->current_dataset_param('HEADCODE');
 }
 
-############## I/O: ################################
-
-sub log {
-    my ($self, $line) = @_;
-
-    print STDERR '['.$self->csn()."] $line\n";
-}
-    
-sub send_response{
-    my ($self, $response, $wrap) = @_;
-
-    $self->log('Sending the response =====================');
-    print $self->header('text/plain');
-
-    if($wrap) {
-        print qq`<?xml version="1.0" encoding="UTF-8"?>\n`;
-        print qq`<otter schemaVersion="$SCHEMA_VERSION" xmlVersion="$XML_VERSION">\n`;
-        print $response;
-        print "</otter>\n";
-    } else {
-        print $response;
-    }
-}
-
-sub error_exit {
-    my ($self, $reason) = @_;
-
-    chomp($reason);
-
-    $self->send_response(" <response>\n    ERROR:\n$reason\n </response>", 1);
-    $self->log("ERROR: $reason\n");
-
-    exit(1);
-}
-
-sub require_argument {
-    my ($self, $argname) = @_;
-
-    my $value = $self->getarg($argname);
-    
-    if(!defined($value)) {
-        $self->error_exit("No '$argname' argument defined");
-    } else {
-        return $value;
-    }
-}
-
-sub return_emptyhanded {
-    my $self = shift @_;
-
-    $self->send_response('', 1);
-    exit(0); # <--- this forces all the scripts to exit normally
-}
-
-sub tempfile_from_argument {
-    my $self      = shift @_;
-    my $argname   = shift @_;
-
-    my $file_name = shift @_ || $self->csn().'_'.$self->require_argument('author').'.xml';
-
-    my $tmp_file = Bio::Otter::Lace::TempFile->new;
-    $tmp_file->root('/tmp');
-    $tmp_file->name($file_name);
-    my $full_name = $tmp_file->full_name();
-
-    $self->log("Dumping the data to the temporary file '$full_name'");
-
-    my $write_fh = eval{
-        $tmp_file->write_file_handle();
-    } || $self->error_exit("Can't write to '$full_name' : $!");
-    print $write_fh $self->require_argument($argname);
-
-    return $tmp_file;
-}
-
-############# Creation of an Author object from arguments #######
-
-sub make_Author_obj {
-    my $self = shift @_;
-
-    my $author_name  = $self->require_argument('author');
-    my $author_email = $self->require_argument('email');
-    my $class        = $self->running_headcode() ? 'Bio::Vega::Author' : 'Bio::Otter::Author';
-
-    return $class->new(-name => $author_name, -email => $author_email);
-}
-
-sub fetch_Author_obj {
-    my $self = shift @_;
-
-    if($self->running_headcode() != $self->dataset_headcode()) {
-        $self->error_exit("RunningHeadcode != DatasetHeadcode, cannot fetch Author");
-    }
-
-    my $author_name    = $self->require_argument('author');
-    my $author_adaptor = $self->otter_dba()->get_AuthorAdaptor();
-
-    my $author_obj;
-    eval{
-        $author_obj = $author_adaptor->fetch_by_name($author_name);
-    };
-    if($@){
-        eval{
-            $author_obj = $author_adaptor->fetch_by_name($OTTER_GLOBAL_ACCESS_USER);
-        };
-        if($@){
-            $self->error_exit("Failed to get an author.\n$@") unless $author_obj;
-        }
-    }
-    return $author_obj;
-}
-
-############## DB connections and slices: #######################
 
 sub otter_dba {
     my $self = shift @_;
 
-    if($self->{_odba}) {            # cached value
-        return $self->{_odba};
+    if($self->{'_odba'} && !scalar(@_)) {   # cached value and no override
+        return $self->{'_odba'};
     }
 
     ########## CODEBASE tricks ########################################
@@ -206,17 +68,29 @@ sub otter_dba {
                 : 'Bio::Otter::DBSQL::DBAdaptor'    # oldcode anyway, get the best adaptor
         );
 
+    if(@_) { # let's check that the class is ok
+        my $odba = shift @_;
+        if(UNIVERSAL::isa($odba, $adaptor_class)) {
+            return $self->{'_odba'} = $odba;
+        } else {
+            die "The object you assign to otter_dba must be a '$adaptor_class'";
+        }
+    }
+
     ########## AND DB CONNECTION #######################################
 
     my( $odba, $dnadb );
 
-    if(my $dbname = $self->dataset_param('DBNAME')) {
+    if(my $dbname = $self->current_dataset_param('DBNAME')) {
         eval {
-           $odba = $adaptor_class->new( -host   => $self->dataset_param('HOST'),
-                                        -port   => $self->dataset_param('PORT'),
-                                        -user   => $self->dataset_param('USER'),
-                                        -pass   => $self->dataset_param('PASS'),
-                                        -dbname => $dbname);
+           $odba = $adaptor_class->new( -host       => $self->current_dataset_param('HOST'),
+                                        -port       => $self->current_dataset_param('PORT'),
+                                        -user       => $self->current_dataset_param('USER'),
+                                        -pass       => $self->current_dataset_param('PASS'),
+                                        -dbname     => $dbname,
+                                        -group      => 'otter',
+                                        -species    => $self->dataset_name,
+                                        );
         };
         $self->error_exit("Failed opening otter database [$@]") if $@;
 
@@ -225,13 +99,16 @@ sub otter_dba {
 		$self->error_exit("Failed opening otter database [No database name]");
     }
 
-    if(my $dna_dbname = $self->dataset_param('DNA_DBNAME')) {
+    if(my $dna_dbname = $self->current_dataset_param('DNA_DBNAME')) {
         eval {
-            $dnadb = new Bio::EnsEMBL::DBSQL::DBAdaptor(-host   => $self->dataset_param('DNA_HOST'),
-                                                        -port   => $self->dataset_param('DNA_PORT'),
-                                                        -user   => $self->dataset_param('DNA_USER'),
-                                                        -pass   => $self->dataset_param('DNA_PASS'),
-                                                        -dbname => $dna_dbname);
+            $dnadb = new Bio::EnsEMBL::DBSQL::DBAdaptor( -host      => $self->current_dataset_param('DNA_HOST'),
+                                                         -port      => $self->current_dataset_param('DNA_PORT'),
+                                                         -user      => $self->current_dataset_param('DNA_USER'),
+                                                         -pass      => $self->current_dataset_param('DNA_PASS'),
+                                                         -dbname    => $dna_dbname,
+                                                         -group     => 'dnadb',
+                                                         -species   => $self->dataset_name,
+                                                         );
         };
         $self->error_exit("Failed opening dna database [$@]") if $@;
         $odba->dnadb($dnadb);
@@ -239,13 +116,7 @@ sub otter_dba {
         $self->log("Connected to dna database");
     }
 
-    if(!$running_headcode && !$dataset_headcode) {
-        if(my $type = $self->getarg('type') || $self->dataset_param('TYPE')) {
-            $self->log("Assembly_type='" . $odba->assembly_type($type)."'");
-        }
-    }
-
-    return $self->{_odba} = $odba;
+    return $self->{'_odba'} = $odba;
 }
 
 sub satellite_dba {
@@ -304,7 +175,11 @@ sub satellite_dba {
         return $self->satellite_dba($1, $satehead);
     }
 
-    my %anycase_options = (eval $opt_str);
+    my %anycase_options = (
+         -group     => $metakey,
+         -species   => $self->dataset_name,
+        eval $opt_str,
+    );
     if ($@) {
         $self->error_exit("Error evaluating '$opt_str' : $@");
     }
@@ -329,7 +204,7 @@ sub satellite_dba {
 }
 
 sub get_slice { # codebase-independent version for scripts
-    my ($self, $dba, $cs, $name, $type, $start, $end, $strand, $csver) = @_;
+    my ($self, $dba, $cs, $name, $type, $start, $end, $csver) = @_;
 
     my $slice;
 
@@ -337,7 +212,6 @@ sub get_slice { # codebase-independent version for scripts
 
     if($self->running_headcode()) {
 
-        $strand ||= 1;
         if(!$csver && ($cs eq 'chromosome')) {
             $csver = 'Otter';
         }
@@ -358,7 +232,7 @@ sub get_slice { # codebase-independent version for scripts
 	        $segment_name,
             $start,
             $end,
-            $strand,
+            1,      # somehow strand parameter is needed
             $csver,
         );
 
@@ -413,6 +287,15 @@ sub get_slice { # codebase-independent version for scripts
     return $slice;
 }
 
+sub return_emptyhanded { # we probably only want to know about it only if using MFetcher directly,
+                         # otherwise it gets overloaded by ServerScriptSupport
+    my ($self) = @_;
+
+    $self->log("Slice could not have been created");
+    exit(0);
+}
+
+
 sub cached_csver { # with optional override
 
     my ($self, $metakey, $cs, $override) = @_; # metakey can even be '.' or ''
@@ -435,83 +318,76 @@ sub get_mapper_dba {
 
     if(!$metakey) {
         $self->log("Working with pipeline_db directly, no remapping is needed.");
-        return;
+        return (undef, $csver_orig);
     } elsif($metakey eq '.') {
         $self->log("Working with otter_db directly, no remapping is needed.");
-        return;
+        return (undef, $csver_orig);
     }
 
-    my $csver = $self->cached_csver($metakey, $cs, $csver_remote);
+    $csver_remote = $self->cached_csver($metakey, $cs, $csver_remote);
     if($cs eq 'chromosome') {
-        if($csver =~/^otter$/i) {
+        if($csver_remote =~/^otter$/i) {
             $self->log("Working with another Otter database, no remapping is needed.");
-            return;
-        } elsif($csver eq 'UNKNOWN') {
-            $self->log("The database's default assembly is not set correctly");
-            $self->return_emptyhanded();
+            return (undef, $csver_remote);
+        } elsif($csver_remote eq 'UNKNOWN') {
+            $self->log("The database's default assembly is not set correctly, but you can override it manually");
+            return (undef, undef);
         }
     }
 
     if(!$self->running_headcode()) {
         $self->log("Working with unknown OLD API database, please do the remapping on client side.");
-        return;
+        return (undef, $csver_remote);
     }
 
     ## What remains is head version of a non-otter satellite_db
 
-        # Currently we keep assembly equivalency information in the pipeline_db_head seq_region_attrib.
-        # Once otter_db is converted into new schema, we can keep this information there.
-    my $pdba = $self->satellite_dba( '' ); # it will be NEW pipeline by exclusion
+    my $edba = $self->satellite_dba( 'equiv_asm_db' ); # the value is either '=otter' (for new schema)
+                                                       # or '=pipeline' (for old schema DB with new schema pipeline)
 
         # this slice does not have to be completely defined (no start/end/strand),
         # as we only need it to get the attributes
-    my $pipe_slice = $self->get_slice($pdba, $cs, $name, $type, undef, undef, undef, $csver_orig);
+    my $equiv_slice = $self->get_slice($edba, $cs, $name, $type, undef, undef, undef, $csver_orig);
 
-    my %asm_is_equiv = map { ($_->value() => 1) } @{ $pipe_slice->get_all_Attributes('equiv_asm') };
+    my %asm_is_equiv = map { ($_->value() => 1) } @{ $equiv_slice->get_all_Attributes('equiv_asm') };
 
-    if($asm_is_equiv{$csver}) { # we can simply rename instead of mapping
+    if($asm_is_equiv{$csver_remote}) { # we can simply rename instead of mapping
 
-        $self->log("This $cs is equivalent to '$name' in our reference '$csver' assembly");
-        return (undef, $csver);
+        $self->log("This $cs is equivalent to '$name' in our reference '$csver_remote' assembly");
+        return (undef, $csver_remote);
 
     } else { # assemblies are guaranteed to differ!
 
-        my $mapper_metakey = "mapper_db.${csver}";
+        my $mapper_metakey = "mapper_db.${csver_remote}";
 
         if( my $mdba = $self->satellite_dba($mapper_metakey) ) {
-            return ($mdba, $csver);
+            return ($mdba, $csver_remote);
         } else {
             $self->log("No '$mapper_metakey' defined in meta table => cannot map between assemblies => exiting");
-            $self->return_emptyhanded();
+            return (undef, undef);
         }
     }
 }
 
 sub fetch_mapped_features {
-    my ($self, $feature_name, $call_parms) = @_;
+    my ($self, $feature_name, $fetching_method, $call_parms,
+        $cs, $name, $type, $start, $end, $metakey, $csver_orig, $csver_remote,
+    ) = @_;
 
-    my $fetching_method = shift @$call_parms;
-
-    my $cs           = $self->getarg('cs')           || 'chromosome';
-    my $csver_orig   = $self->getarg('csver')        || undef;
-    my $csver_remote = $self->getarg('csver_remote') || undef;
-    my $metakey      = $self->getarg('metakey')      || ''; # defaults to pipeline
-    my $name         = $self->getarg('name');
-    my $type         = $self->getarg('type');
-    my $start        = $self->getarg('start');
-    my $end          = $self->getarg('end');
-    my $strand       = $self->getarg('strand');
+    $metakey      ||= '';    # defaults to pipeline
+    $csver_orig   ||= undef; # defaults to NULL in the DB
+    $csver_remote ||= undef; # defaults to NULL in the DB
 
     my $sdba = $self->satellite_dba( $metakey );
-    my ($mdba, $csver) = $self->get_mapper_dba( $metakey, $cs, $csver_orig, $csver_remote, $name, $type);
+    my ($mdba, $csver_target) = $self->get_mapper_dba( $metakey, $cs, $csver_orig, $csver_remote, $name, $type);
 
     my $features = [];
 
     if($mdba) {
         $self->log("Proceeding with mapping code");
 
-        my $original_slice_on_mapper = $self->get_slice($mdba, $cs, $name, $type, $start, $end, $strand, $csver_orig);
-        my $proj_segments_on_mapper = $original_slice_on_mapper->project( $cs, $csver );
+        my $original_slice_on_mapper = $self->get_slice($mdba, $cs, $name, $type, $start, $end, $csver_orig);
+        my $proj_segments_on_mapper = $original_slice_on_mapper->project( $cs, $csver_target );
 
         my $sa_on_target = $sdba->get_SliceAdaptor();
 
@@ -533,7 +409,10 @@ sub fetch_mapped_features {
 
             $self->log('***** : '.scalar(@$target_fs_on_target_segment)." ${feature_name}s found on the slice");
 
-            foreach my $target_feature (@$target_fs_on_target_segment) {
+            # foreach my $target_feature (@$target_fs_on_target_segment) {
+            ## this is supposed to be faster:
+            #
+            while (my $target_feature = shift @$target_fs_on_target_segment) {
 
                 if($target_feature->can('propagate_slice')) {
                     $target_feature->propagate_slice($projected_slice_on_mapper);
@@ -553,13 +432,16 @@ sub fetch_mapped_features {
             }
         }
 
-    } else {
-        $self->log("No mapping is needed, just fetching");
+    } elsif(($cs ne 'chromosome') || defined($csver_target)) {
+        $self->log("Assuming the mappings to be identical, just cross-fetching");
 
-        my $original_slice = $self->get_slice($sdba, $cs, $name, $type, $start, $end, $strand, $csver);
+        my $original_slice = $self->get_slice($sdba, $cs, $name, $type, $start, $end, $csver_target);
 
         $features = $original_slice->$fetching_method(@$call_parms)
             || $self->error_exit("Could not fetch anything - analysis may be missing from the DB");
+    } else {
+            # some not-so-critical mapping error,
+            # $features == []
     }
 
     $self->log("Total of ".scalar(@$features).' '.join('/', grep { defined($_) && !ref($_) } @$call_parms)

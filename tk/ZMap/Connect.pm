@@ -129,14 +129,12 @@ remote window.
 
 sub connect_request{
     my ($self) = @_;
-
-    my $fmt = q!<zmap action="%s">
-  <client xwid="%s" request_atom="%s" response_atom="%s"/>
-</zmap>!;
-
+    my $id  = $self->server_window_id();
+    my $xr  = $self->xremote();
+    my $fmt = "%s id = %s ; request = %s ; response = %s ;";
     return sprintf($fmt, 
                    "register_client", 
-                   $self->server_window_id, 
+                   $id, 
                    $self->request_name,
                    $self->response_name
                    );
@@ -206,7 +204,7 @@ sub handled_response {
                 handled => $value ? 1 : 0,
             }
         };
-#    $self->protocol_add_request($hash);
+    $self->protocol_add_request($hash);
     $self->protocol_add_meta($hash);
     return make_xml($hash);
 }

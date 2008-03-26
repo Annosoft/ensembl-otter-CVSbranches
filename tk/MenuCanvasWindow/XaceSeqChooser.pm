@@ -1,4 +1,5 @@
 
+### MenuCanvasWindow::XaceSeqChooser
 
 package MenuCanvasWindow::XaceSeqChooser;
 
@@ -6,6 +7,7 @@ use strict;
 use 5.006_001;  # For qr support
 use Carp qw{ cluck confess };
 use Tk::Dialog;
+use Tk qw{ exit };
 use Symbol 'gensym';
 use Scalar::Util 'weaken';
 
@@ -17,7 +19,6 @@ use Hum::Ace::Assembly;
 use Hum::Ace::AceText;
 use Hum::Ace;
 use Hum::Analysis::Factory::ExonLocator;
-use Hum::Conf qw{ PFETCH_SERVER_LIST };
 use EditWindow::Dotter;
 use EditWindow::Clone;
 use MenuCanvasWindow::ExonCanvas;
@@ -37,7 +38,7 @@ my $ZMAP_DEBUG = 1;
     };
 
     if ($@) {
-        #warn "ZMap not available\n$@";
+        warn "ZMap not available\n$@";
         $show = 0;
     }
 
@@ -60,8 +61,6 @@ sub new {
     $self->make_search_panel;
     $self->bind_events;
     $self->minimum_scroll_bbox(0,0, 380,200);
-    $self->set_clipboard_on_highlight(1);
-
     return $self;
 }
 
@@ -359,9 +358,7 @@ sub launch_xace {
             $self->get_xwindow_id_from_readlock;
         }
         elsif (defined($pid)) {
-            no warnings;
             exec('xace', '-fmapcutcoords', $path);
-            exit(1);
         }
         else {
             confess "Error: can't fork : $!";
@@ -391,7 +388,7 @@ sub get_xwindow_id_from_readlock {
     # Find the readlock file for the process we just launched
     my $lock_dir = "$path/database/readlocks";
     my( $lock_file );
-    my $wait_seconds = 120;
+    my $wait_seconds = 40;
     for (my $i = 0; $i < $wait_seconds; $i++, sleep 1) {
         opendir LOCK_DIR, $lock_dir or confess "Can't opendir '$lock_dir' : $!";
         ($lock_file) = grep /\.$pid$/, readdir LOCK_DIR;
@@ -630,14 +627,6 @@ sub populate_menus {
                    );
         $top->bind('<Control-z>', $zmap_launch_command);
         $top->bind('<Control-Z>', $zmap_launch_command);
-
-        $zmap_launch_command = sub { $self->zMapLaunchInAZmap };
-        $tools_menu->add('command',
-                   -label          => 'Launch In A ZMap',
-                   -command        => $zmap_launch_command,
-                   -underline      => 7,
-                   );
-
         $showing_zmap = 1;
     }
 
@@ -673,11 +662,23 @@ sub populate_menus {
     );
     $top->bind('<Control-g>', $gf_command);
     $top->bind('<Control-G>', $gf_command);    
+ 
+    # Clone properties editing
+    my $ce_command = sub { $self->launch_CloneEditor };
+    $tools_menu->add('command' ,
+        -label          => 'Clone editor',    
+        -command        => $ce_command,
+        -accelerator    => 'Ctrl+O',
+        -underline      => 2,
+    );
+    $top->bind('<Control-g>', $ce_command);
+    $top->bind('<Control-G>', $ce_command);    
    
     ## Spawn dotter Ctrl .
     my $run_dotter_command = sub { $self->run_dotter };
     $tools_menu->add('command',
         -label          => 'Dotter fMap' . ($showing_zmap ? '/ZMap' : '').' hit',
+        -hidemargin     => 1,
         -command        => $run_dotter_command,
         -accelerator    => 'Ctrl+.',
         -underline      => 0,
@@ -685,15 +686,6 @@ sub populate_menus {
     $top->bind('<Control-period>',  $run_dotter_command);
     $top->bind('<Control-greater>', $run_dotter_command);
 
-    # (Re)start local pfetch server
-    if ($PFETCH_SERVER_LIST->[0][0] eq 'localhost') {
-        $tools_menu->add('command',
-            -label          => 'Restart local pfetch server',
-            -command        => sub{ $self->AceDatabase->Client->fork_local_pfetch_server },
-            #-accelerator    => 'Ctrl+P',
-            -underline      => 0,
-            );
-    }
 
     $subseq->bind('<Destroy>', sub{
         $self = undef;
@@ -751,29 +743,15 @@ sub bind_events {
         });
 }
 
-sub set_clipboard_on_highlight{
-    my ($self, $sets) = @_;
-    $self->{'_include_clipboard'} = ( $sets ? 0 : 1 );
-    return $sets;
-}
-
-sub highlight_sets_clipboard{
-    my ($self) = @_;
-    return ($self->{'_include_clipboard'} ? 0 : 1);
-}
-
 sub highlight {
     my $self = shift;
     
     $self->SUPER::highlight(@_);
-    
-    if($self->highlight_sets_clipboard()){
-        my $canvas = $self->canvas;
-        $canvas->SelectionOwn(
-                              -command    => sub{ $self->deselect_all; },
-                              );
-        weaken $self;
-    }
+    my $canvas = $self->canvas;
+    $canvas->SelectionOwn(
+        -command    => sub{ $self->deselect_all; },
+        );
+    weaken $self;
 }
 
 sub GenomicFeatures {
@@ -1160,7 +1138,7 @@ sub resync_with_db {
         );
 
     if ($self->show_zmap) {
-        $self->zMapKillZmap(1);
+        $self->zMapKillZmap;
     }
     eval {
         $self->AceDatabase->ace_server->restart_server;
@@ -1213,14 +1191,11 @@ sub edit_subsequences {
         next if $self->raise_subseq_edit_window($sub_name);
         
         # Get a copy of the subseq
-        if(my $sub = $self->get_SubSeq($sub_name)){
-            my $edit = $sub->clone;
-            $edit->is_archival($sub->is_archival);
+        my $sub = $self->get_SubSeq($sub_name);
+        my $edit = $sub->clone;
+        $edit->is_archival($sub->is_archival);
         
-            $self->make_exoncanvas_edit_window($edit);
-        }else{
-            warn "Failed to get_SubSeq($sub_name)";
-        }
+        $self->make_exoncanvas_edit_window($edit);
     }
 }
 
@@ -1428,14 +1403,8 @@ sub delete_subsequences {
     
     # Delete from ZMap
     if ($self->show_zmap) {
-        my @xml;
-        foreach my $sub (@to_die) {
-            # Only attempt to delete sequences from Zmap
-            # which have actually been saved!
-            if ($sub->is_archival) {
-                push @xml, $sub->zmap_delete_xml_string;
-            }
-        }
+        my $xml = '';
+        my @xml = map $_->zmap_delete_xml_string, @to_die;
         $self->send_zmap_commands(@xml);
     }
     
@@ -1997,7 +1966,7 @@ sub run_dotter {
 sub send_zmap_commands {
     my ($self, @xml) = @_;
 
-    my $xr = $self->zMapGetXRemoteClientForView();
+    my $xr = $self->zMapCurrentXclient;
     unless ($xr) {
         warn "No current window.";
         return ;
@@ -2013,7 +1982,6 @@ sub send_zmap_commands {
         } else {
             my $error = $xmlHash->{'error'}{'message'};
             print STDERR "ERROR: $a[$i]\n$error\n";
-            $self->xremote_cache->remove_clients_to_bad_windows();
             die $error;
         }
     }    

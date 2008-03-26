@@ -319,7 +319,7 @@ sub fetch_all_by_Slice  {
 			 my $gene_att=$gene->get_all_Attributes;
 			 push @$gene_att, $remark_att ;
 			 $gene->truncated_flag(1);
-			 print STDERR "Found a truncated gene";
+			 print STDERR "Found a truncated gene\n";
 		  }
 		}
 		# Remove any genes that don't have transcripts left.
@@ -335,7 +335,7 @@ sub fetch_by_stable_id_version  {
   unless ($stable_id || $version) {
 	 throw("Must enter a gene stable id:$stable_id and version:$version to fetch a Gene");
   }
-  my $constraint = "gsi.stable_id = '$stable_id' AND gsi.version = '$version'";
+  my $constraint = "gsi.stable_id = '$stable_id' AND gsi.version = '$version' ORDER BY gsi.modified_date DESC, gsi.gene_id DESC LIMIT 1";
   my ($gene) = @{ $self->generic_fetch($constraint) };
   if($gene) {
       $self->reincarnate_gene($gene);
@@ -400,7 +400,7 @@ sub get_current_Gene_by_slice {
 sub fetch_latest_by_stable_id {
     my ($self, $stable_id) = @_;
 
-    my $constraint = "gsi.stable_id = '$stable_id' ORDER BY gsi.modified_date DESC LIMIT 1";
+    my $constraint = "gsi.stable_id = '$stable_id' ORDER BY gsi.modified_date DESC, gsi.gene_id DESC LIMIT 1";
     my ($gene) = @{ $self->generic_fetch($constraint) };
     if($gene) {
         $self->reincarnate_gene($gene);
@@ -576,16 +576,8 @@ sub store {
     }
     $gene->modified_date($time_now);
 
-        # Here we assume that the parent method will update all is_current() fields,
-        # trusting the values that we have just set.
-    $self->SUPER::store($gene);
-
-        ## Now store the gene author
-        # (transcripts' authors and evidence has already been stored by TranscriptAdaptor::store )
-    my $author_adaptor = $self->db->get_AuthorAdaptor;
-    my $gene_author=$gene->gene_author;
-    $author_adaptor->store($gene_author);
-    $author_adaptor->store_gene_author($gene->dbID, $gene_author->dbID);
+    # Actually save the gene to the database
+    $self->store_only($gene);
 
     if($gene_state == CHANGED) {
         print STDERR "CHANGED gene:".$gene->stable_id.".".$gene->version."\n-------------------------------------------\n\n";
@@ -598,6 +590,21 @@ sub store {
     }
 
     return 1;
+}
+
+sub store_only {
+    my ($self, $gene) = @_;
+    
+    # Here we assume that the parent method will update all is_current() fields,
+    # trusting the values that we have just set.
+    $self->SUPER::store($gene);
+
+    ## Now store the gene author
+    # (transcripts' authors and evidence has already been stored by TranscriptAdaptor::store )
+    my $author_adaptor = $self->db->get_AuthorAdaptor;
+    my $gene_author = $gene->gene_author;
+    $author_adaptor->store($gene_author);
+    $author_adaptor->store_gene_author($gene->dbID, $gene_author->dbID);
 }
 
 sub remove {
