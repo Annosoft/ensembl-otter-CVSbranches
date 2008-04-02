@@ -1,5 +1,0 @@
-#!/bin/sh
-
-pid_file=otter_srv.pid
-kill `cat $pid_file`
-rm $pid_file
