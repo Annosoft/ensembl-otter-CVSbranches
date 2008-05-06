@@ -1,20 +1,16 @@
 #!/usr/local/bin/perl -w
 
+### show_locks
+
 BEGIN {
-    #
-    # This bit is only needed to ensure we are running EnsEMBL head code,
-    # not from the pre-release20 codebase.
-    #
-    foreach (@INC) {
-        s{ensembl/modules}{ensembl_head/modules}g;
+    foreach my $path (@INC) {
+        unless( $path=~s{ensembl/modules}{ensembl_head/modules}g ) {
+            $path=~s{ensembl_head/modules}{ensembl/modules}g;
+        };
     }
 }
 
-### show_locks
-
 use strict;
-
-
 
 use Getopt::Long 'GetOptions';
 use Bio::Otter::Lace::Defaults;

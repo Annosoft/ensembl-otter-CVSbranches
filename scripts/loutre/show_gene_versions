@@ -1,6 +1,4 @@
-#!/usr/local/bin/perl -w
-
-### show_gene_versions
+#!/usr/bin/env perl -w
 
 use strict;
 

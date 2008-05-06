@@ -61,7 +61,7 @@ sub find_containing_chromosomes {
         # now map those contig_ids back onto a chromosome
     my $sql = qq{
         SELECT  chr.name,
-                count(*) as cmp_cnt
+                group_concat(distinct a.cmp_seq_region_id) as joined_cmps
         FROM    assembly a,
                 seq_region chr,
                 coord_system cs
@@ -79,8 +79,11 @@ sub find_containing_chromosomes {
     $sth->execute();
 
     my @chr_slices = ();
-    while( my ($atype, $cmp_cnt) = $sth->fetchrow() ) {
-        if($cmp_cnt == scalar(@$seq_level_slice_ids)) {
+    while( my ($atype, $joined_cmps) = $sth->fetchrow() ) {
+
+        my @cmps = split(/,/, $joined_cmps);
+
+        if(scalar(@cmps) == scalar(@$seq_level_slice_ids)) {
             my $chr_slice = $sa->fetch_by_region('chromosome', $atype, undef, undef, undef, 'Otter');
             push @chr_slices, $chr_slice;
         }
@@ -91,6 +94,7 @@ sub find_containing_chromosomes {
 
 sub register_feature {
     my ($self, $qname, $qtype, $feature) = @_;
+
 
     my $unhide = $self->{_unhide};
 
@@ -169,7 +173,7 @@ sub find_by_stable_ids {
             if($@) {
                 # warn "'$qname' looks like a stable id, but wasn't found.";
                 # warn ($@) if $DEBUG;
-            } else {
+            } elsif($feature) { # however watch out, sometimes we just silently get nothing!
                 $self->register_feature($qname, $qtype, $feature);
             }
         }
@@ -177,35 +181,33 @@ sub find_by_stable_ids {
 }
 
 sub find_by_feature_attributes {
-    my ($self, $quoted_qnames, $table, $id_field, $code_hash, $adaptor_call) = @_;
+    my ($self, $condition, $qtype, $table, $id_field, $code, $adaptor_call) = @_;
+
+    my $sql = qq{
+        SELECT $id_field, value
+        FROM $table
+        WHERE attrib_type_id = (SELECT attrib_type_id from attrib_type where code='$code')
+          AND value $condition
+    };
 
     my $dbc      = $self->dbc();
+    my $sth = $dbc->prepare($sql);
+    $sth->execute();
+
     my $adaptor;
+    while( my ($feature_id, $qname) = $sth->fetchrow() ) {
+        $adaptor ||= $self->dba()->$adaptor_call; # only do it if we found something
 
-    while( my ($code,$qtype) = each %$code_hash ) {
-        my $sql = qq{
-            SELECT $id_field, value
-            FROM $table
-            WHERE attrib_type_id = (SELECT attrib_type_id from attrib_type where code='$code')
-              AND value in ($quoted_qnames)
-        };
+        my $feature = $adaptor->fetch_by_dbID($feature_id);
 
-        my $sth = $dbc->prepare($sql);
-        $sth->execute();
-        while( my ($feature_id, $qname) = $sth->fetchrow() ) {
-            $adaptor ||= $self->dba()->$adaptor_call; # only do it if we found something
-
-            my $feature = $adaptor->fetch_by_dbID($feature_id);
-
-            if($feature->is_current()) {
-                $self->register_feature($qname, $qtype, $feature);
-            }
+        if($feature->is_current()) {
+            $self->register_feature($qname, $qtype, $feature);
         }
     }
 }
 
 sub find_by_seqregion_names {
-    my ($self, $quoted_qnames) = @_;
+    my ($self, $condition) = @_;
 
     my $dbc      = $self->dbc();
     my $adaptor;
@@ -215,7 +217,7 @@ sub find_by_seqregion_names {
         FROM seq_region sr, coord_system cs
         WHERE sr.coord_system_id=cs.coord_system_id
           AND cs.name <> 'chromosome'
-          AND sr.name in ($quoted_qnames)
+          AND sr.name $condition
     };
 
     my $sth = $dbc->prepare($sql);
@@ -230,31 +232,29 @@ sub find_by_seqregion_names {
 }
 
 sub find_by_seqregion_attributes {
-    my ($self, $quoted_qnames, $cs_name, $code_hash) = @_;
+    my ($self, $condition, $qtype, $cs_name, $code) = @_;
+
+    my $sql = qq{
+        SELECT sr.name, sra.value
+        FROM seq_region sr, coord_system cs, seq_region_attrib sra
+        WHERE cs.name='$cs_name'
+          AND sr.coord_system_id=cs.coord_system_id
+          AND sr.seq_region_id=sra.seq_region_id
+          AND sra.attrib_type_id = (SELECT attrib_type_id from attrib_type where code='$code')
+          AND sra.value $condition
+    };
 
     my $dbc      = $self->dbc();
+    my $sth = $dbc->prepare($sql);
+    $sth->execute();
+
     my $adaptor;
+    while( my ($sr_name, $qname) = $sth->fetchrow() ) {
+        $adaptor ||= $self->dba()->get_SliceAdaptor();
 
-    while( my ($code,$qtype) = each %$code_hash ) {
-        my $sql = qq{
-            SELECT sr.name, sra.value
-            FROM seq_region sr, coord_system cs, seq_region_attrib sra
-            WHERE cs.name='$cs_name'
-              AND sr.coord_system_id=cs.coord_system_id
-              AND sr.seq_region_id=sra.seq_region_id
-              AND sra.attrib_type_id = (SELECT attrib_type_id from attrib_type where code='$code')
-              AND sra.value in ($quoted_qnames)
-        };
+        my $slice = $adaptor->fetch_by_region($cs_name, $sr_name);
 
-        my $sth = $dbc->prepare($sql);
-        $sth->execute();
-        while( my ($sr_name, $qname) = $sth->fetchrow() ) {
-            $adaptor ||= $self->dba()->get_SliceAdaptor();
-
-            my $slice = $adaptor->fetch_by_region($cs_name, $sr_name);
-
-            $self->register_feature($qname, $qtype, $slice);
-        }
+        $self->register_feature($qname, $qtype, $slice);
     }
 }
 
@@ -263,23 +263,33 @@ sub find {
 
     $self->{_unhide} = $unhide;
 
-    my $quoted_qnames = join(', ', map {"'$_'"} keys %{$self->qnames_locators()} );
+    my $in_quoted_list = 'in ('. join(', ', map {"'$_'"} keys %{$self->qnames_locators()} ) .' ) ';
 
     $self->find_by_stable_ids();
 
-    $self->find_by_seqregion_names($quoted_qnames);
+    $self->find_by_seqregion_names($in_quoted_list);
 
-    $self->find_by_feature_attributes($quoted_qnames, 'gene_attrib', 'gene_id',
-        { 'name' => 'gene_name', 'synonym' => 'gene_synonym'},
-        'get_GeneAdaptor');
+    $self->find_by_feature_attributes($in_quoted_list, 'gene_name',
+        'gene_attrib', 'gene_id', 'name', 'get_GeneAdaptor');
 
-    $self->find_by_feature_attributes($quoted_qnames, 'transcript_attrib', 'transcript_id',
-        { 'name' => 'transcript_name'},
-        'get_TranscriptAdaptor');
+    $self->find_by_feature_attributes($in_quoted_list, 'gene_synonym',
+        'gene_attrib', 'gene_id', 'synonym', 'get_GeneAdaptor');
 
-    $self->find_by_seqregion_attributes($quoted_qnames, 'clone',
-        { 'intl_clone_name' => 'international_clone_name', 'embl_acc' => 'clone_accession' },
-        );
+    $self->find_by_feature_attributes($in_quoted_list, 'transcript_name',
+        'transcript_attrib', 'transcript_id', 'name', 'get_TranscriptAdaptor');
+
+    foreach my $qname (keys %{$self->qnames_locators()}) {
+
+        $self->find_by_feature_attributes("like '%:$qname'", 'prefixed_gene_name',
+            'gene_attrib', 'gene_id', 'name', 'get_GeneAdaptor');
+
+        $self->find_by_feature_attributes("like '%:$qname'", 'prefixed_transcript_name',
+            'transcript_attrib', 'transcript_id', 'name', 'get_TranscriptAdaptor');
+    }
+
+    $self->find_by_seqregion_attributes($in_quoted_list, 'international_clone_name', 'clone', 'intl_clone_name');
+
+    $self->find_by_seqregion_attributes($in_quoted_list, 'clone_accession', 'clone', 'embl_acc');
 }
 
 sub generate_output {

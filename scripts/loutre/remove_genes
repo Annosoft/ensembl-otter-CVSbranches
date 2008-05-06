@@ -2,6 +2,12 @@
 
 ### remove_genes
 
+BEGIN {
+    foreach (@INC) {
+        s{ensembl/modules}{ensembl_head/modules}g;
+    }
+}
+
 use strict;
 
 use Bio::Otter::Lace::Defaults;
@@ -15,7 +21,7 @@ use Bio::Vega::DBSQL::DBAdaptor;
     );
 
     my $dba;
-    if (1) {
+    if (0) {
         $dba = Bio::Vega::DBSQL::DBAdaptor->new(
             -host   => 'otterlive',
             -port   => 3301,
@@ -37,12 +43,19 @@ use Bio::Vega::DBSQL::DBAdaptor;
         SELECT gene_id FROM gene_stable_id WHERE stable_id = ?
         });
     while (<>) {
-        foreach my $stable (split) {
-            $sth->execute($stable);
-            while (my ($gene_db_id) = $sth->fetchrow) {
-                print STDERR "$stable\t$gene_db_id\n";
+        foreach my $name (split) {
+            if($name=~/^(\d+)$/) { # (deleting genes by their db_ids)
+                my $gene_db_id = $1;
+                print STDERR "\t\t$gene_db_id\n";
                 my $gene = $gene_dba->fetch_by_dbID($gene_db_id);
                 $gene_dba->remove($gene);
+            } else {               # (deleting genes by their stable_ids)
+                $sth->execute($name);
+                while (my ($gene_db_id) = $sth->fetchrow) {
+                    print STDERR "$name\t$gene_db_id\n";
+                    my $gene = $gene_dba->fetch_by_dbID($gene_db_id);
+                    $gene_dba->remove($gene);
+                }
             }
         }
     }

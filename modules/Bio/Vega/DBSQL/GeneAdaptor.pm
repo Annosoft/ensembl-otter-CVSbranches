@@ -575,11 +575,6 @@ sub store {
             $gene->dissociate();
         }
 
-        ###
-        ##
-        # End of code where order is critical
-        ##
-        ###
 
             # If a gene is marked is non-current, we assume it was intended for deletion.
             # We also assume unsetting is_current() is the only thing needed to declare such intention.
@@ -592,7 +587,23 @@ sub store {
                     $del_exon->is_current(0);
                 }
             }
+        } else {
+                # Otherwise make sure we haven't spoilt the original gene's is_current flags
+                # if it was the same object as the db_gene:
+                #
+            foreach my $tran (@{ $gene->get_all_Transcripts() }) {
+                $tran->is_current(1);
+                foreach my $exon (@{$tran->get_all_Exons}) {
+                    $exon->is_current(1);
+                }
+            }
         }
+
+        ###
+        ##
+        # End of code where order is critical
+        ##
+        ###
 
         $gene->version($db_gene->version() + $seq_changes);  # CHANGED||RESTORED||DELETED will affect the author, so get a new version
         $gene->created_date($db_gene->created_date());
@@ -604,6 +615,15 @@ sub store {
 
         $gene->version(1);
         $gene->created_date($time_now);
+
+        my $gene_current = $gene->is_current();
+
+        foreach my $tran (@{ $gene->get_all_Transcripts() }) {
+            $tran->is_current($gene_current);
+            foreach my $exon (@{$tran->get_all_Exons}) {
+                $exon->is_current($gene_current);
+            }
+        }
     }
     $gene->modified_date($time_now);
 
@@ -647,6 +667,24 @@ sub remove {
     }
     
     $self->SUPER::remove($gene);
+}
+
+sub resurrect { # make a particular gene current (without touching the previously current one)
+    my ($self, $gene) = @_;
+
+    my $ta = $self->db->get_TranscriptAdaptor;
+    my $ea = $self->db->get_ExonAdaptor;
+
+    $gene->is_current(1);
+    $self->update($gene);
+    foreach my $transcript (@{ $gene->get_all_Transcripts() }) {
+        $transcript->is_current(1);
+        $ta->update($transcript);
+        foreach my $exon (@{$transcript->get_all_Exons}) {
+            $exon->is_current(1);
+            $ea->update($exon); # may happen several times due to shared exons
+        }
+    }
 }
 
 1;

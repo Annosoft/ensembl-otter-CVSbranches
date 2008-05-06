@@ -5,12 +5,15 @@ package InterimTranscript;
 
 use Bio::EnsEMBL::Utils::Exception qw(warning);
 
+
+
 sub new {
   my $class = shift;
 
   return bless {'exons' => [],
                 'StatsMsgs' => []}, $class;
 }
+
 
 sub add_StatMsg {
   my $self = shift;
@@ -79,16 +82,10 @@ sub biotype {
   return $self->{'biotype'};
 }
 
-sub status {
+sub confidence {
   my $self = shift;
-  $self->{'status'} = shift if(@_);
-  return $self->{'status'};
-}
-
-sub analysis {
-  my $self = shift;
-  $self->{'analysis'} = shift if(@_);
-  return $self->{'analysis'};
+  $self->{'confidence'} = shift if(@_);
+  return $self->{'confidence'};
 }
 
 sub description {
@@ -133,39 +130,6 @@ sub move_cdna_coding_end {
   my $offset = shift;
   $self->{'cdna_coding_end'} += $offset;
 }
-
-sub transcript_attribs {
-  my $self = shift;
-  my $attribs;
-  if ( ($attribs) = @_) {
-	  my $new_attribs;
-	  foreach my $attrib (@{$attribs}) {
-		  #don't transfer ccds attribs
-		  next if ($attrib->code eq 'ccds');
-		  push @{$new_attribs},$attrib;
-	  }
-	  $self->{'transcript_attribs'} = $new_attribs;
-  }
-  return $self->{'transcript_attribs'};
-}
-
-sub add_TranscriptSupportingFeature {
-    my ($self, $sf) = @_;
-    push @{ $self->{'transcript_supporting_features'} }, $sf;
-}
-
-sub get_all_TranscriptSupportingFeatures {
-    my $self = shift;
-    $self->{'transcript_supporting_features'} ||= [];
-    return $self->{'transcript_supporting_features'};
-}
-
-#sub display_xref {
-#    my $self = shift;
-#    $self->{'display_xref'} = shift if (@_);
-#    return $self->{'display_xref'};
-#}
-
 
 
 1;
