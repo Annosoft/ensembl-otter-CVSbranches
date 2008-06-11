@@ -233,11 +233,12 @@ if ($support->param('prune') && $support->user_proceed("Do you want to delete al
                   WHERE x.external_db_id = ed.external_db_id
                   AND ed.db_name NOT IN ('Interpro')
      ));
+#                  AND ed.db_name NOT IN ('Vega_gene','Vega_transcript','Vega_translation')
     $support->log("Done.\n");
 }
 
 
-my (%stat_hash,%trans_numbers);
+my %stat_hash;
 
 # loop over chromosomes
 $support->log("Looping over chromosomes...\n");
@@ -292,7 +293,7 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
             my $interim_transcript = transfer_transcript($transcript, $mapper,
                 $V_cs, $V_pfa, $E_slice);
             my ($finished_transcripts, $protein_features) =
-                create_transcripts($interim_transcript, $E_sa, $gsi);
+                create_transcripts($interim_transcript, $E_sa);
 
             # set the translation stable identifier on the finished transcripts
             foreach my $tr (@{ $finished_transcripts }) {
@@ -316,10 +317,6 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
 			next GENE;
         }
 
-		#make a note of the number of transcripts per gene
-		$trans_numbers{$gsi}->{'vega'} = scalar(@{$transcripts});
-		$trans_numbers{$gsi}->{'evega'} = $num_finished_t;
-
 		#count gene and transcript if it's been transferred
         $stat_hash{$V_chr}->{'genes'}++;
 		$stat_hash{$V_chr}->{'transcripts'} += $c;
@@ -331,18 +328,10 @@ foreach my $V_chr ($support->sort_chromosomes($V_chrlength)) {
     }
     $support->log("Done with chromosome $V_chr.\n", 1);
 }
+$support->log("Done.\n");
 
 # write out to statslog file
 do_stats_logging();
-
-#see if any transcripts / gene are different
-foreach my $gsi (keys %trans_numbers) {
-	if ($trans_numbers{$gsi}->{'vega'} != $trans_numbers{$gsi}->{'evega'}) {
-		my $v_num = $trans_numbers{$gsi}->{'vega'};
-		my $e_num = $trans_numbers{$gsi}->{'evega'};
-		$support->log("There are different numbers of transcripts for gene $gsi in vega ($v_num) and ensembl_vega ($e_num)\n");
-	}
-}
 
 # finish logfile
 $support->finish_log;
@@ -515,7 +504,6 @@ sub transfer_transcript {
 
   Arg[1]      : InterimTranscript $itranscript - an interim transcript object
   Arg[2]      : Bio::EnsEMBL::SliceAdaptor $E_sa - Ensembl slice adaptor
-  Arg[3]      : Gene Stable ID (used for checking against curation)
   Description : Creates the actual transcripts from interim transcripts
   Return type : List of a listref of Bio::EnsEMBL::Transcripts and a hashref of
                 protein features (keys: transcript_stable_id, values:
@@ -528,10 +516,9 @@ sub transfer_transcript {
 sub create_transcripts {
     my $itranscript   = shift;
     my $E_sa = shift;
-	my $gsi = shift;
 
     # check the exons and split transcripts where exons are bad
-    my $itranscripts = Transcript::check_iexons($support, $itranscript, $gsi);
+    my $itranscripts = Transcript::check_iexons($support, $itranscript);
 
     my @finished_transcripts;
     my %protein_features;
@@ -578,4 +565,5 @@ sub do_stats_logging{
 			$support->log("  ".$g->[0].": ".$g->[1]."-".$g->[2]."\n");
 		}
     }
+    exit;
 }

@@ -60,7 +60,7 @@ sub zMap_make_exoncanvas_edit_window{
     return $ec;
 }
 
-=head1 _launchZMap
+=head1 _launchZMapZMap
 
 The guts of the code to launch and display the features in a zmap.
 
@@ -371,12 +371,10 @@ sub zMapServerDefaults {
     my $server = $self->AceDatabase->ace_server;
     
     my $protocol    = 'acedb';
-    my $username    = 'any';
-    my $password    = 'any';
 
     my $url = sprintf q{"%s://%s:%s@%s:%d"},
         $protocol,
-        $username, $password,
+        $server->user, $server->pass,
         $server->host, $server->port;
     
     return $self->formatZmapDefaults(
@@ -419,6 +417,8 @@ sub zMapZMapDefaults {
     return $self->formatZmapDefaults(
         'ZMap',
         show_mainwindow  => $show_main,
+        pfetch      => sprintf(qq{"%s"}, $self->AceDatabase->Client->url_root . '/nph-pfetch'),
+        cookie_jar  => sprintf(qq{"$ENV{'OTTERLACE_COOKIE_JAR'}"}),
     );
 }
 
@@ -854,9 +854,9 @@ sub zmap_feature_evidence_xml {
         my $xml = Hum::XmlWriter->new(5);    
         $xml->open_tag('page', {name => 'Details'});
         $xml->open_tag('subsection', {name => 'Feature'});
-        $xml->open_tag('paragraph', {type => 'tagvalue_table'});
+        $xml->open_tag('paragraph', {name => 'Evidence', type => 'homogenous'});
         foreach my $name (@$used_subseq_names) {
-            $xml->full_tag('tagvalue', {name => 'Evidence for transcript', type => 'simple'}, $name);
+            $xml->full_tag('tagvalue', {name => 'for transcript', type => 'simple'}, $name);
         }
         $xml->close_all_open_tags;
         return $xml->flush;
@@ -913,7 +913,7 @@ sub RECEIVE_FILTER {
         }
     }
 
-    #warn "Response:\n$response";
+    warn "Response:\n$response";
 
     return ($status, $response);
 }

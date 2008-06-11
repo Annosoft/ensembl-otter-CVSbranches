@@ -158,9 +158,8 @@ elsif ($support->param('prune')){
 my @gene_stable_ids = $support->param('gene_stable_id');
 my %gene_stable_ids = map { $_, 1 } @gene_stable_ids;
 
-#links xrefs andf the biotypes they link to
-my %assigned_xrefs;
 #get xrefs from E! db for wanted chromosomes
+
 my $ens_ids;
 CHR:
 foreach my $slice (@{$esa->fetch_all('toplevel')}) {
@@ -178,7 +177,7 @@ foreach my $slice (@{$esa->fetch_all('toplevel')}) {
 				my $name = $x->display_id;
 				next XREF unless ($dbname =~ /OTTT/);
 				next XREF unless ($name =~ /OTT/);
-				$assigned_xrefs{$dbname}->{$t->biotype}++;
+
 				$ens_ids->{$name}{$tsi}{$dbname}++;
 			}
 		}
@@ -187,18 +186,16 @@ foreach my $slice (@{$esa->fetch_all('toplevel')}) {
 }
 
 warn Dumper($ens_ids);
-my $external_db;
 
+my $external_db;
 
 #this defines the order in which the e! xrefs will be used, and which external_db 
 #they match in Vega
-my @priorities = qw(
-				shares_CDS_and_UTR_with_OTTT:ENST_ident
-				shares_CDS_with_OTTT:ENST_CDS
-				OTTT:ENST_ident
-				);
+my @priorities = qw(shares_CDS_and_UTR_with_OTTT:ENST_ident
+					shares_CDS_with_OTTT:ENST_CDS
+					OTTT:ENST_ident);
 
-#add one xref to each E! transcript
+#add xrefs to each 
 foreach my $v_id (keys %$ens_ids) {
 	my $transcript = $ta->fetch_by_stable_id($v_id);
 	unless ($transcript) {
@@ -221,7 +218,6 @@ foreach my $v_id (keys %$ens_ids) {
 					-release    => 1,
 					-dbname     => $vdb,
 				);
-				$assigned_xrefs{$vdb}->{$transcript->biotype}++;
 				$transcript->add_DBEntry($dbentry);
 				if ($support->param('dry_run')) {
 					$support->log("Would store $vdb xref $e_id for transcript $v_id.\n", 1);
@@ -258,7 +254,5 @@ foreach my $v_id (keys %$ens_ids) {
 		$support->log("Vega transcript $v_id matches to multiple Ensembl transcripts: $ids\n");
 	}
 }
-
-warn Dumper(\%assigned_xrefs);
 
 $support->finish_log;

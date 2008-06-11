@@ -18,14 +18,6 @@ use Bio::EnsEMBL::Exon;
 
 use constant MAX_INTRON_LEN => 2e6;
 
-#these are long genes that have been OKeyed by Havana
-my %long_genes = map {$_,1 } qw(
-								OTTHUMG00000086796
-								OTTHUMG00000030300
-								OTTMUSG00000022667
-								OTTMUSG00000031222
-								OTTMUSG00000026145
-							);
 
 #
 # sanity checks the interim exons, and splits this
@@ -35,7 +27,6 @@ my %long_genes = map {$_,1 } qw(
 sub check_iexons {
     my $support = shift;
     my $itranscript = shift;
-	my $gsi = shift;
     my $itranscript_array = shift;
 
     my $prev_start = undef;
@@ -43,9 +34,7 @@ sub check_iexons {
     my $transcript_seq_region = undef;
     my $transcript_strand     = undef;
 
-	my $tsi = $itranscript->stable_id;
-
-    $support->log_verbose("checking exons for $tsi\n", 4);
+    $support->log_verbose("checking exons for ".$itranscript->stable_id."\n", 4);
 
     my $first = 1;
     my $fail_flag = 0;
@@ -68,12 +57,12 @@ sub check_iexons {
 
         # sanity check: start must be less than or equal to end
         if ($iexon->end < $iexon->start) {
-            $support->log_warning("Unexpected: exon start less than end: ".$iexon->stable_id.": ".$iexon->start.'-'.$iexon->end."\n", 6);
+            $support->log_error("Unexpected: exon start less than end: ".$iexon->stable_id.": ".$iexon->start.'-'.$iexon->end."\n", 6);
         }
 
         # sanity check: cdna length must equal length
         if($iexon->length != $iexon->cdna_end - $iexon->cdna_start + 1) {
-            $support->log_warning("Unexpected: exon cdna length != exon length: ".
+            $support->log_error("Unexpected: exon cdna length != exon length: ".
                     $iexon->stable_id.": ".$iexon->start.'-'.$iexon->end .
                     $iexon->cdna_start.'-'.$iexon->cdna_end."\n", 6);
         }
@@ -87,7 +76,7 @@ sub check_iexons {
                     $prev_end > $iexon->start) ||
                 (defined($prev_start) && $iexon->strand == -1 &&
                  $prev_start < $iexon->end)) {
-            $support->log_warning("Exon ".$iexon->stable_id." in wrong order. Skipping transcript.\n", 4);
+            $support->log("Exon ".$iexon->stable_id." in wrong order. Skipping transcript.\n", 4);
             $fail_flag = 1;
             last EXON;
         }
@@ -95,7 +84,7 @@ sub check_iexons {
         if (!defined($transcript_strand)) {
             $transcript_strand = $iexon->strand;
         } elsif ($transcript_strand != $iexon->strand) {
-            $support->log_warning("Exon ".$iexon->stable_id." on wrong strand. Skipping transcript.\n", 4);
+            $support->log("Exon ".$iexon->stable_id." on wrong strand. Skipping transcript.\n", 4);
             $fail_flag = 1;
             last EXON;
         }
@@ -112,15 +101,10 @@ sub check_iexons {
         }
 
         if($intron_len > MAX_INTRON_LEN) {
-			if ($long_genes{$gsi}) {
-				$support->log("Long intron in transcript but OKeyed by Havana\n",5);
-			}
-			else {
-				$support->log_warning("Very long intron ($intron_len bp). skipping transcript $tsi.\n", 5);
-				$fail_flag = 1;
-				last EXON;
-			}
-		}
+            $support->log_verbose("Very long intron ($intron_len bp). skipping transcript.\n", 5);
+            $fail_flag = 1;
+            last EXON;
+        }
 
         $prev_end = $iexon->end;
         $prev_start = $iexon->start;
