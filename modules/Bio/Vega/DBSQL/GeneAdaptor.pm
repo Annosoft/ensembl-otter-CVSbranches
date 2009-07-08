@@ -8,6 +8,8 @@ use Bio::Vega::Transcript;
 use Bio::EnsEMBL::Utils::Exception qw(throw warning);
 use Bio::Vega::Utils::Comparator qw(compare);
 use Bio::Vega::AnnotationBroker;
+use Bio::Otter::MFetcher;
+
 use base 'Bio::EnsEMBL::DBSQL::GeneAdaptor';
 
 use constant UNCHANGED => 0;
@@ -15,6 +17,19 @@ use constant CHANGED   => 1;
 use constant NEW       => 2;
 use constant RESTORED  => 3;
 use constant DELETED   => 5;
+
+
+sub list_current_dbIDs {
+    my ($self) = @_;
+
+    my $sth = $self->prepare(q{ SELECT gene_id FROM gene WHERE is_current = 1 });
+    $sth->execute;
+    my $gene_id_list = [];
+    while (my ($id) = $sth->fetchrow) {
+        push(@$gene_id_list, $id);
+    }
+    return $gene_id_list;
+}
 
 sub fetch_by_dbID {
     my ($self, $db_id) = @_;
@@ -44,31 +59,48 @@ sub fetch_by_name {
   my $gene;
   my $dbid;
   if ($genes){
-	 my $stable_id;
-	 foreach my $g (@$genes){
-		if ($stable_id && $stable_id ne $g->stable_id){
-            ### Does this make sense? Why not return a list of genes?
-		  die "more than one gene has the same name\n";
-		}
-		$stable_id=$g->stable_id;
-		if ($dbid ){
-		  if ($g->dbID > $dbid){
-            ## Why not just keep the gene?
-			 $dbid=$g->dbID;
-		  }
-		}
-		else {
-		  $dbid=$g->dbID;
-		}
-	 }
+    my $stable_id;
+    foreach my $g (@$genes){
+      if ($stable_id && $stable_id ne $g->stable_id){
+	### Does this make sense? Why not return a list of genes?
+	warn "more than one gene has the same name [$genename]\n";
+      }
+      $stable_id=$g->stable_id;
+      if ($dbid ){
+	if ($g->dbID > $dbid){
+	  ## Why not just keep the gene?
+	  $dbid=$g->dbID;
+	}
+      }
+      else {
+	$dbid=$g->dbID;
+      }
+    }
   }
   if ($dbid){
-	 print STDOUT "gene found\n";
-	 $gene=$self->fetch_by_dbID($dbid);
-	 $self->reincarnate_gene($gene);
+    print STDOUT "gene found\n";
+    $gene=$self->fetch_by_dbID($dbid);
+    $self->reincarnate_gene($gene);
   }
-
+  
   return $gene;
+}
+
+sub fetch_all_current_by_name {
+  my ($self,$genename)=@_;
+  unless ($genename) {
+	 throw("Must enter a gene name to fetch Genes");
+  }
+  my $genes=$self->fetch_by_attribute_code_value('name',$genename);
+  my $current_genes;
+  if ($genes) {
+    foreach my $g (@{$genes}){
+      next unless $g->is_current;
+      $self->reincarnate_gene($g);
+      push @{$current_genes},$g;
+    }
+  }
+  return $current_genes || [];
 }
 
 sub fetch_consortiumID_by_dbID {
@@ -105,15 +137,14 @@ sub fetch_by_attribute_code_value {
   $sth->execute($attrib_code,$attrib_value);
   my $geneids = [map {$_->[0]} @{$sth->fetchall_arrayref()}];
   $sth->finish();
-
   if (@$geneids){
-	return $self->fetch_all_by_dbID_list($geneids);
+    return $self->fetch_all_by_dbID_list($geneids);
   }
   else {
-	 return 0;
+    return 0;
   }
-
 }
+
 sub fetch_stable_id_by_name {
 
   # can search either genename or transname by name or synonym,
@@ -190,7 +221,7 @@ sub reincarnate_gene {
 
     my $this_class = 'Bio::Vega::Gene';
 
-    if($gene->isa($this_class)) {
+    if ($gene->isa($this_class)) {
         # warn "Gene is already a $this_class, possibly due to caching";
     } else {
         bless $gene, $this_class;
@@ -481,13 +512,7 @@ sub fetch_latest_by_stable_id {
  Args    :
          : $gene to be stored (mandatory)
          :
-         : $on_whole_chromosome (optional, default==false)
-         : is a binary flag that controls whether the object to be stored is attached to slice
-         : (and in this case all the fetching of components for comparison also happens from that slice)
-         : or, if the slice is not known, everything is stored on whole chromosomes (as when we convert old otter
-         : databases into new lutra ones).
-         :
-         : $time_now is the time to be considered the current time. Also useful when converting otter->lutra.
+         : $time_now is the time to be considered the current time.
 
 =cut
 
@@ -559,9 +584,9 @@ sub store {
         ##
         ###
 
-        ##add synonym if old gene name is not a current gene synonym
-        $broker->compare_synonyms_add($db_gene, $gene);
-
+        # Add synonym if old gene name is not a current gene synonym
+        # Commented out since it causes problems.  Synonyms are only added by nomenclature scripts.
+        # $broker->compare_synonyms_add($db_gene, $gene);
 
             # mark the existing gene non-current:
 		$db_gene->is_current(0);
@@ -711,7 +736,49 @@ sub resurrect { # make a particular gene current (without touching the previousl
     }
 }
 
+sub fetch_all_genes_on_ncbi_slice {
+
+  # returns a list reference to loutre genes 
+  # converted to the coords of the specified NCBI version
+  # $ncbi_ver is eg, 36, M36
+
+  my ($self, $ncbi_chr, $otter_chr, $loutre_slice, $ncbi_ver) = @_;
+
+  #  ncbi_chr, eg '22';        (num or x, y)
+  #  otter_chr, eg, 'chr22-07' (sset name)
+
+  my $mfetcher  = Bio::Otter::MFetcher->new();
+
+  $mfetcher->otter_dba($self->db);
+
+  my $start = $loutre_slice->start;
+  my $end   = $loutre_slice->end;
+  my $ncbi = "NCBI$ncbi_ver";
+
+  my $transformed_genes = $mfetcher->fetch_and_export('get_all_Genes', ['otter', undef, 1],
+                                                      'chromosome', $ncbi_chr, $otter_chr, $start, $end, 'Otter', $ncbi);
+
+  #warn "Got ", scalar @$transformed_genes, " genes\n";
+  #my $ncbi_slice = $transformed_genes->[0]->loutre_slice;
+
+  return $transformed_genes;
+}
+
+# called by MFetcher, so that the transformed genes will have exons
+sub Bio::EnsEMBL::Gene::propagate_slice {
+    my ($gene, $slice) = @_;
+
+    foreach my $transcript (@{ $gene->get_all_Transcripts() }) {
+        foreach my $exon (@{ $transcript->get_all_Exons() }) {
+            $exon->slice($slice);
+        }
+        $transcript->slice($slice);
+    }
+    $gene->slice($slice);
+}
+
 1;
+
 __END__
 
 =head1 NAME - Bio::Vega::DBSQL::GeneAdaptor
