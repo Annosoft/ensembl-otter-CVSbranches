@@ -4,10 +4,11 @@
 package EditWindow::LoadColumns;
 
 use strict;
+use warnings;
 use Carp;
 use Scalar::Util 'weaken';
 
-use Tk::HListplus;
+use Tk::HListplusplus;
 use Tk::Checkbutton;
 use Tk::LabFrame;
 use Tk::Balloon;
@@ -76,7 +77,7 @@ sub initialize {
     my $filter_count = scalar keys %{$self->n2f};
     my $max_rows = 28;
     my $height = $filter_count > $max_rows ? $max_rows : $filter_count;
-	my $hlist = $top->Scrolled("HListplus",
+	my $hlist = $top->Scrolled("HListplusplus",
 		-header => 1,
 		-columns => 3,
 		-scrollbars => 'ose',
@@ -257,7 +258,7 @@ sub reset_progress {
     
     for my $key (keys %{ $self->n2f }) {
         my $filter = $self->n2f->{$key};
-        $num_done++ if $filter->done and !$filter->failed;
+        $num_done++ if $filter->done && !$filter->failed;
         $num_failed++ if $filter->failed;
     }
     
@@ -280,14 +281,14 @@ sub loading_filter {
     my ($self, $filter) = @_;
     $self->{_current_filter} = $filter;
     $filter->load_time(time);
-    $self->label_text("Loading: ".$filter->method_tag." (".($self->{_filters_done}+1)." of ".$self->{_num_filters}.")"); 
-    $self->top->update;
+    $self->label_text("Loading: ".$filter->method_tag." (".($self->{_filters_done}+1)." of ".$self->{_num_filters}.")");
+    $self->update_tk_preserve_grab;
 }
 
 sub filter_done {
     my ($self) = @_;
     $self->{_filters_done}++;
-    $self->top->update; # to move the progress bar
+    $self->update_tk_preserve_grab; # to move the progress bar
     #if ($self->{_filters_done} == $self->{_num_filters}) {}
 }
 
@@ -335,7 +336,7 @@ sub load_filters {
     my $self = shift;
 
     my $top = $self->top;
-    $top->Busy;
+    $top->Busy(-recurse => 1);
     
     # save off the current selection as the last selection
     $self->last_selection(
@@ -412,6 +413,15 @@ sub load_filters {
     $top->Unbusy;
     $top->withdraw;
     $self->reset_progress;
+}
+
+sub update_tk_preserve_grab {
+    my ($self) = @_;
+    
+    my $top = $self->top;
+    # printf STDERR "\nGrab status of top before update is: '%s'\n", $top->grabStatus;
+    $top->update;
+    # printf STDERR "\nGrab status of top after update is:  '%s'\n", $top->grabStatus;
 }
 
 sub set_filters_wanted {
@@ -694,7 +704,14 @@ sub DataSetChooser {
 
 sub DESTROY {
     my( $self ) = @_;
+    
     warn "Destroying LoadColumns\n";
+    if (my $sn = $self->SequenceNotes) {
+        my $adb = $self->AceDatabase;
+        $adb->post_exit_callback(sub{
+            $sn->refresh_lock_columns;    
+        });
+    }
 }
 
 1;

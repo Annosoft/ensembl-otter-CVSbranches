@@ -77,6 +77,8 @@ sub DESTROY {
 
     # So that DESTROY gets called in baseclass:
     bless $self, 'Bio::Vega::Transform';
+
+    return;
 }
 
 # initialize the parser with methods
@@ -93,7 +95,6 @@ sub initialize {
             evidence            => 'build_Evidence',
             feature             => 'build_Feature',
             xref                => 'build_XRef',
-            # assembly_tag        => 'build_AssemblyTag',
             sequence_fragment   => 'build_SequenceFragment',
             dna                 => 'build_DNA',
             otter               => 'save_species',
@@ -174,10 +175,19 @@ sub build_SequenceFragment {
     my $ctg_name       = $data->{'id'};
     my $cln_length     = $data->{'clone_length'};
 
-    unless ($assembly_type && $start && $end && $frag_offset && $strand && $ctg_name && $cln_length) {
+    ### We were checking that clone_length is given, but we don't need it.
+    # my $cln_length     = $data->{'clone_length'};
+    #
+    # unless ($assembly_type && $start && $end && $frag_offset && $strand && $ctg_name && $cln_length) {
+    #     die "XML does not contain information needed to create slice:\n"
+    #        ."assembly_type='$assembly_type' start='$start' end='$end' frag_offset='$frag_offset' strand='$strand' "
+    #        ."ctg_name='$ctg_name' cln_length='$cln_length'";
+    # }
+
+    unless ($assembly_type && $start && $end && $frag_offset && $strand && $ctg_name) {
         die "XML does not contain information needed to create slice:\n"
-           ."assembly_type='$assembly_type' start='$start' end='$end' frag_offset='$frag_offset' strand='$strand' "
-           ."ctg_name='$ctg_name' cln_length='$cln_length'";
+          . "assembly_type='$assembly_type' start='$start' end='$end' frag_offset='$frag_offset' strand='$strand' "
+          . "ctg_name='$ctg_name'";
     }
 
     if (my $chr_slice = $chrslice{$self}) {
@@ -250,7 +260,9 @@ sub build_SequenceFragment {
         -start              => $cmp_start,
         -end                => $cmp_end,
         -strand             => $strand,
-        -seq_region_length  => $cln_length,
+        # -seq_region_length  => $cln_length,
+        ### Hack for pig workshop.  Value missing, but wanted by EnsEMBL API
+        -seq_region_length  => 1_000_000,
         -coord_system       => $ctg_coord_system{$self},
     );
 
@@ -321,27 +333,6 @@ sub build_Feature {
     push @$list, $feature;
 }
 
-# sub build_AssemblyTag {
-#     my ($self, $data) = @_;
-#
-#     my $chr_slice = $self->get_ChromosomeSlice;
-#
-#     #convert xml coordinates which are in chromosomal coords - to tag coords
-#     my $slice_offset = $chr_slice->start - 1;
-#
-#     my $at = Bio::Vega::AssemblyTag->new(
-#         -start     => $data->{'contig_start'} - $slice_offset,
-#         -end       => $data->{'contig_end'}   - $slice_offset,
-#         -strand    => $data->{'contig_strand'},
-#         -tag_type  => $data->{'tag_type'},
-#         -tag_info  => $data->{'tag_info'},
-#         -slice     => $chr_slice,
-#     );
-#
-#     my $list = $assembly_tag_list{$self} ||= [];
-#     push @$list, $at;
-# }
-
 sub build_Exon {
     my ($self, $data) = @_;
 
@@ -380,6 +371,8 @@ sub add_xrefs_to_object {
     foreach my $xref (@$xref_list) {
         $obj->add_DBEntry($xref);
     }
+
+    return;
 }
 
 sub build_Transcript {
@@ -430,12 +423,15 @@ sub build_Transcript {
         $translation->start($start_Exon_Pos);
         $translation->end_Exon($end_Exon);
         $translation->end($end_Exon_Pos);
+
+        # TO DO: decide whether is this kludge is necessary and remove it if not
         ##probably add a check to see if $end_Exon_Pos is set or not
         if ($start_Exon->strand == 1 && $start_Exon->start != $tran_start_pos) {
           $start_Exon->end_phase(($start_Exon->length-$start_Exon_Pos+1)%3);
         } elsif ($start_Exon->strand == -1 && $start_Exon->end != $tran_start_pos) {
           $start_Exon->end_phase(($start_Exon->length-$start_Exon_Pos+1)%3);
         }
+
         if ($end_Exon->length >= $end_Exon_Pos) {
           $end_Exon->end_phase(-1);
         }
@@ -524,7 +520,7 @@ sub translation_pos {
         return $exon->end - $loc + 1;
      }
   } else {
-     return undef;
+     return;
   }
 }
 
@@ -653,13 +649,16 @@ sub set_ChromosomeSlice {
     my ($self, $slice) = @_;
 
     $chrslice{$self} = $slice;
+
+    return;
 }
 
 sub get_Tiles {
     my $self = shift;
 
     if (my $t = $tiles{$self}) {
-        return sort { $a->[0] <=> $b->[0] } @$t;
+        my @tiles = sort { $a->[0] <=> $b->[0] } @$t;
+        return @tiles;
     } else {
         return;
     }

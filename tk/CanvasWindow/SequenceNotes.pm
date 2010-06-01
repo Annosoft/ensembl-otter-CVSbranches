@@ -4,6 +4,7 @@
 package CanvasWindow::SequenceNotes;
 
 use strict;
+use warnings;
 use Carp;
 
 use base 'CanvasWindow';
@@ -735,33 +736,6 @@ sub _open_SequenceSet {
 	$lc->initialize;
 }
 
-#sub make_EviCollection {
-#    my( $self, $ss ) = @_;
-#    
-#    return unless Bio::Otter::Lace::Defaults::fetch_pipeline_switch();
-#    my $dataset = $self->Client->get_DataSet_by_name($ss->dataset_name);
-#    #$dataset->selected_SequenceSet($ss);
-#    my $ctg = $ss->selected_CloneSequences;
-#    my( $chr, $chr_start, $chr_end ) = $self->Client->chr_start_end_from_contig($ctg);
-#    #print STDERR "EviSlice: $chr $chr_start-$chr_end\n";
-#    
-#    my $pipe_db = Bio::Otter::Lace::PipelineDB::get_DBAdaptor($dataset->get_cached_DBAdaptor);
-#    $pipe_db->assembly_type($ss->name);
-#    my $slice_adaptor = $pipe_db->get_SliceAdaptor;
-#    my $slice = $slice_adaptor->fetch_by_chr_start_end($chr, $chr_start, $chr_end);
-#    warn "No components in tiling path in Slice for EviCollection"
-#        unless @{$slice->get_tiling_path};
-#
-#    return Evi::EviCollection->new_from_pipeline_Slice(
-#        $pipe_db,
-#        $slice,
-#        [qw{ vertrna Est2genome_human Est2genome_mouse Est2genome_other }],
-#        #[qw{ vertrna }],
-#        #[qw{ Uniprot }],
-#        [],
-#       );
-#}
-
 # creates a string based on the selected clones
 sub selected_clones_string {
     my ($self ) = @_ ;
@@ -1082,8 +1056,7 @@ sub draw {
             my $last = $cs_list->[$i - 1];
             
             my $gap = 0; # default for non SequenceNotes methods inheriting this method
-            #if ($cs->can('chr_start')){
-            if (UNIVERSAL::can($cs,'chr_start')){
+            if ( eval { $cs->can('chr_start'); } ){
                 $gap = $cs->chr_start - $last->chr_end - 1;
             }
             if ($gap > 0) {
@@ -1114,7 +1087,7 @@ sub draw {
             my $col_tag = "col=$col";
             my ($draw_method, $data_method) = @{$methods->[$col]};
             
-	        my $opt_hash = $data_method->($cs, $i, $self, $ss) if $data_method;
+            my $opt_hash = $data_method ? $data_method->($cs, $i, $self, $ss) : {};
             $opt_hash->{'-anchor'} ||= 'nw';
 	        $opt_hash->{'-font'}   ||= $helv_def;
 	        $opt_hash->{'-width'}  ||= $max_width;
@@ -1187,7 +1160,7 @@ sub extend_selection {
     
     my( @new_select, %is_selected );
     if (@sel_rows) {
-        %is_selected = map {$_, 1} @sel_rows;
+        %is_selected = map { $_ => 1 } @sel_rows;
 
         # Find the row closest to the current row
         my( $closest, $distance );
@@ -1365,29 +1338,38 @@ sub save_sequence_notes {
     }
     my $cl = $self->Client();
     my $ds = $self->SequenceSetChooser->DataSet;
+    my $time = time();
 
-    my $new_note = Bio::Otter::Lace::SequenceNote->new;
-    $new_note->author($cl->author); # will be ignored by the client anyway, but let it be known to the interface
-    $new_note->text($text);
-    $new_note->timestamp(time());
     my $seq_list = $self->SequenceSet->selected_CloneSequences;
     
-    foreach my $cs (@$seq_list) {
-        $cs->add_SequenceNote($new_note);    
-        $cs->current_SequenceNote($new_note);
-
-            # store new SequenceNote in the database
+    my $all_list = $self->SequenceSet->CloneSequence_list;
+    my $contig_string = join "|",map($_->contig_name,@$seq_list);
+    my %seq_hash;
+    foreach(grep($_->contig_name =~ /$contig_string/,@$all_list)){
+    	$seq_hash{$_->contig_name} ||= [];
+    	push @{$seq_hash{$_->contig_name}},$_;
+    }
+    
+    foreach my $contig_name (keys %seq_hash) {
+    	my $new_note = Bio::Otter::Lace::SequenceNote->new;
+        $new_note->author($cl->author);
+        $new_note->text($text);
+        $new_note->timestamp($time);
+    	# store new SequenceNote in the database
         $cl->push_sequence_note(
             $ds->name(),
-            $cs->contig_name(),
+            $contig_name,
             $new_note,
-        );
-
+        );    	
+    	foreach my $cs (@{$seq_hash{$contig_name}}){
+            $cs->add_SequenceNote($new_note);    
+            $cs->current_SequenceNote($new_note);
             # sync state of SequenceNote objects with database
-        for my $note (@{$cs->get_all_SequenceNotes()}) {
-            $note->is_current(0);
-        }
-        $new_note->is_current(1);
+            for my $note (@{$cs->get_all_SequenceNotes()}) {
+                $note->is_current(0);
+            }
+            $new_note->is_current(1);
+    	}
     } 
     $self->draw;
     $self->set_scroll_region_and_maxsize;

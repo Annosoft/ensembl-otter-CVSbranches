@@ -30,18 +30,17 @@ sub Client {
 ############## Session recovery methods ###################################
 
 sub sessions_needing_recovery {
-    my $self = shift @_;
+    my( $self ) = @_;
     
     my $proc_table = Proc::ProcessTable->new;
     my @otterlace_procs = grep {$_->cmndline =~ /otterlace/} @{$proc_table->table};
     my %existing_pid = map {$_->pid, 1} @otterlace_procs;
 
     my $tmp_dir = '/var/tmp';
-    local *VAR_TMP;
-    opendir VAR_TMP, $tmp_dir or die "Cannot read '$tmp_dir' : $!";
+    opendir my $var_tmp, $tmp_dir or die "Cannot read '$tmp_dir' : $!";
     my $to_recover = [];
     my $version = $self->Client->version;
-    foreach (readdir VAR_TMP) {
+    foreach (readdir $var_tmp) {
         if (/^lace_$version\.(\d+)/o) {
             my $pid = $1;
             next if $existing_pid{$pid};
@@ -56,12 +55,29 @@ sub sessions_needing_recovery {
                 my $title = $self->get_title($lace_dir);
                 push(@$to_recover, [$lace_dir, $mtime, $title]);
             } else {
-                print STDERR "\nNo such file: '$ace_wrm'\nDeleting uninitialized database '$lace_dir'\n";
-                rmtree($lace_dir);
+                my $client = $self->Client;
+                my $save_sub = $client->fatal_error_prompt;
+                $client->fatal_error_prompt(sub{ die shift });
+                eval {
+                    # Attempt to release locks of uninitialised sessions
+                    my $adb = $self->recover_session($lace_dir);
+                    $adb->error_flag(0);    # It is uninitialised, so we want it to be removed
+                    $lace_dir = $adb->home;
+                    if ($adb->write_access) {
+                        $adb->unlock_otter_slice;
+                        print STDERR "\nRemoved lock from uninitialised database in '$lace_dir'\n";
+                    }
+                };
+                $client->fatal_error_prompt($save_sub);
+                if (-d $lace_dir) {
+                    # Belt and braces - if the session was unrecoverable we want it to be deleted.
+                    print STDERR "\nNo such file: '$lace_dir/database/ACEDB.wrm'\nDeleting uninitialized database '$lace_dir'\n";
+                    rmtree($lace_dir);
+                }
             }
         }
     }
-    closedir VAR_TMP or die "Error reading directory '$tmp_dir' : $!";
+    closedir $var_tmp or die "Error reading directory '$tmp_dir' : $!";
 
     # Sort by modification date, ascending
     $to_recover = [sort {$a->[1] <=> $b->[1]} @$to_recover];
@@ -73,7 +89,7 @@ sub get_title {
     my ($self, $home_dir) = @_;
     
     my $displays_file = "$home_dir/wspec/displays.wrm";
-    open my $DISP, $displays_file or die "Can't read '$displays_file'; $!";
+    open my $DISP, '<', $displays_file or die "Can't read '$displays_file'; $!";
     my $title;
     while (<$DISP>) {
         if (/_DDtMain.*-t\s*"([^"]+)/) {
@@ -102,6 +118,12 @@ sub recover_session {
     my $home = $adb->home;
     rename($dir, $home) or die "Cannot move '$dir' to '$home'; $!";
     
+    unless ($adb->db_initialized) {
+        eval { $adb->recover_smart_slice_from_region_xml_file };
+        warn $@ if $@;
+        return $adb;
+    }
+
     # All the info we need about the genomic region
     # in the lace database is saved in the region XML
     # dot file.
@@ -130,6 +152,8 @@ sub kill_old_sgifaceserver {
         printf STDERR "Killing old sgifaceserver '%s'\n", $proc->cmndline;
         kill 9, $proc->pid;
     }    
+
+    return;
 }
 
 ############## Session recovery methods end here ############################

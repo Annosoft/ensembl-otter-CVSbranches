@@ -9,7 +9,6 @@ use Carp;
 use File::Path 'rmtree';
 use Fcntl qw{ O_WRONLY O_CREAT };
 
-# use Bio::Otter::Converter;
 use Bio::Vega::Transform::Otter::Ace;
 use Bio::Vega::AceConverter;
 use Bio::Vega::Transform::XML;
@@ -90,6 +89,15 @@ sub error_flag {
     return ($self->{'_error_flag'} ? 1 : 0);
 }
 
+sub post_exit_callback {
+    my( $self, $post_exit_callback ) = @_;
+    
+    if ($post_exit_callback) {
+        $self->{'_post_exit_callback'} = $post_exit_callback;
+    }
+    return $self->{'_post_exit_callback'};
+}
+
 sub MethodCollection {
     my ($self) = @_;
 
@@ -126,15 +134,6 @@ sub empty_acefile_list {
     my( $self ) = @_;
 
     $self->{'_acefile_list'} = undef;
-}
-
-sub add_zmap_styles_acefile {
-    my ($self) = @_;
-
-    my $styles_file = $self->home . "/rawdata/zmap_styles.ace";
-    confess "Missing Zmap_Styles file: '$styles_file'"
-        unless -e $styles_file;
-    $self->add_acefile($styles_file);
 }
 
 sub init_AceDatabase {
@@ -181,7 +180,7 @@ sub write_local_exonerate {
     my $ace_text = $exon->run or return;
 
     my $ace_filename = $self->home . '/rawdata/local_exonerate_search.ace';
-    open(my $ace_fh, "> $ace_filename") or die "Can't write to '$ace_filename' : $!";
+    open my $ace_fh, '>', $ace_filename or die "Can't write to '$ace_filename' : $!";
     print $ace_fh $ace_text;
     close $ace_fh or confess "Error writing to '$ace_filename' : $!";
 
@@ -209,7 +208,7 @@ sub get_region_xml {
     return $smart_slice->get_region_xml;
     
     # my $save = "/var/tmp/slice.xml";
-    # open my $tmp, "> $save" or die "Can't write to '$save'; $!";
+    # open my $tmp, '>', $save or die "Can't write to '$save'; $!";
     # print $tmp $xml_string;
     # close $tmp or die "Error writing to '$save'; $!";
 }
@@ -219,7 +218,7 @@ sub write_otter_acefile {
 
     # Storing ace_text in a file
     my $ace_filename = $self->home . '/rawdata/otter.ace';
-    open my $ace_fh, "> $ace_filename" or die "Can't write to '$ace_filename'";
+    open my $ace_fh, '>', $ace_filename or die "Can't write to '$ace_filename'";
     print $ace_fh $parser->make_ace;
     close $ace_fh or confess "Error writing to '$ace_filename' : $!";
     $self->add_acefile($ace_filename);
@@ -237,7 +236,7 @@ sub write_file {
     my ($self, $file_name, $content) = @_;
     
     my $full_file = join('/', $self->home, $file_name);
-    open my $LF, "> $full_file" or die "Can't write to '$full_file'; $!";
+    open my $LF, '>', $full_file or die "Can't write to '$full_file'; $!";
     print $LF $content;
     close $LF or die "Error writing to '$full_file'; $!";
 }
@@ -247,7 +246,7 @@ sub read_file {
     
     local $/ = undef;
     my $full_file = join('/', $self->home, $file_name);
-    open my $RF, $full_file or die "Can't read '$full_file'; $!";
+    open my $RF, '<', $full_file or die "Can't read '$full_file'; $!";
     my $content = <$RF>;
     close $RF or die "Error reading '$full_file'; $!";
     return $content;
@@ -269,10 +268,26 @@ sub recover_smart_slice_from_region_xml_file {
     
     my $client = $self->Client or die "No Client attached";
     
-    my $region_file = join('/', $self->home, $REGION_XML_FILE);
+    # We try the LOCK_REGION_XML_FILE too, since uninitialised
+    # lace sessions sometimes have it becuase it is created
+    # before the REGION_XML_FILE, and we want to recover the
+    # session to remove the lock.
     
-    my $parser = Bio::Vega::Transform::Otter->new;
-    $parser->parsefile($region_file);
+    my ($error, $parser);
+    foreach my $f ($LOCK_REGION_XML_FILE, $REGION_XML_FILE) {
+        my $region_file = join('/', $self->home, $f);
+        $parser = Bio::Vega::Transform::Otter->new;
+        eval { $parser->parsefile($region_file) };
+        if ($error = $@) {
+            warn $error;
+            $parser = undef;
+        } else {
+            last;
+        }
+    }
+    if ($error) {
+        confess $error;
+    }
     
     my $slice = $parser->get_ChromosomeSlice;
     
@@ -344,18 +359,14 @@ sub unlock_otter_slice {
     my $smart_slice = $self->smart_slice();
     my $slice_name  = $smart_slice->name();
     my $dsname      = $smart_slice->dsname();
+    
+    warn "Unlocking $dsname:$slice_name\n";
 
     my $client   = $self->Client or confess "No Client attached";
 
     my $xml_text = $self->read_file($LOCK_REGION_XML_FILE);
 
     return $client->unlock_otter_xml($xml_text, $dsname);
-}
-
-sub ace_server_registered {
-    my( $self ) = @_;
-
-    return $self->{'_ace_server'};
 }
 
 sub ace_server {
@@ -372,6 +383,12 @@ sub ace_server {
     return $sgif;
 }
 
+sub ace_server_registered {
+    my( $self ) = @_;
+
+    return $self->{'_ace_server'};
+}
+
 sub aceperl_db_handle {
     my( $self ) = @_;
 
@@ -386,9 +403,9 @@ sub make_database_directory {
         or confess "Client did not return tar file for local acedb database directory structure";
     mkdir($home, 0777) or die "Can't mkdir('$home') : $!\n";
 
-    my $tar_command = qq{| (cd "$home" ; tar xzf -)};
+    my $tar_command = "cd '$home' && tar xzf -";
     eval {
-        open my $expand, $tar_command or die "Can't open pipe '$tar_command'; $?";
+        open my $expand, '|-', $tar_command or die "Can't open pipe '$tar_command'; $?";
         print $expand $tar;
         close $expand or die "Error running pipe '$tar_command'; $?";
     };
@@ -424,7 +441,8 @@ sub make_passwd_wrm {
     my $real_name      = ( getpwuid($<) )[0];
     my $effective_name = ( getpwuid($>) )[0];
 
-    sysopen(my $fh, $passWrm, O_CREAT | O_WRONLY, 0644)
+    my $fh;
+    sysopen($fh, $passWrm, O_CREAT | O_WRONLY, 0644)
         or confess "Can't write to '$passWrm' : $!";
     print $fh "// PASSWD.wrm generated by $prog\n\n";
 
@@ -448,7 +466,7 @@ sub edit_displays_wrm {
 
     my $displays = "$home/wspec/displays.wrm";
 
-    open my $disp_in, $displays or confess "Can't read '$displays' : $!";
+    open my $disp_in, '<', $displays or confess "Can't read '$displays' : $!";
     my @disp = <$disp_in>;
     close $disp_in;
 
@@ -460,7 +478,7 @@ sub edit_displays_wrm {
         last;
     }
 
-    open my $disp_out, "> $displays" or confess "Can't write to '$displays' : $!";
+    open my $disp_out, '>', $displays or confess "Can't write to '$displays' : $!";
     print $disp_out @disp;
     close $disp_out;
 }
@@ -479,22 +497,20 @@ sub initialize_database {
 
     my $home = $self->home;
     my $tace = $self->tace;
-    my @parse_commands = map "parse $_\n",
-        $self->list_all_acefiles;
 
     my $parse_log = "$home/init_parse.log";
-    my $pipe = "| $tace $home >> $parse_log";
+    my $pipe = "'$tace' '$home' >> '$parse_log'";
 
-    open my $pipe_fh, $pipe
+    open my $pipe_fh, '|-', $pipe
         or die "Can't open pipe '$pipe' : $!";
     # Say "yes" to "initalize database?" question.
     print $pipe_fh "y\n" unless $self->db_initialized;
-    foreach my $com (@parse_commands) {
-        print $pipe_fh $com;
+    foreach my $file ($self->list_all_acefiles) {
+        print $pipe_fh "parse $file\n";
     }
     close $pipe_fh or die "Error initializing database exit($?)\n";
 
-    open my $fh, $parse_log or die "Can't open '$parse_log' : $!";
+    open my $fh, '<', $parse_log or die "Can't open '$parse_log' : $!";
     my $file_log = '';
     my $in_parse = 0;
     my $errors = 0;
@@ -522,18 +538,15 @@ sub initialize_database {
 
     confess "Error initializing database\n" if $errors;
     $self->empty_acefile_list;
-    $self->db_initialized(1);
     return 1;
 }
 
 
 sub db_initialized {
-    my( $self, $db_initialized ) = @_;
+    my( $self ) = @_;
 
-    if (defined $db_initialized) {
-        $self->{'_db_initialized'} = $db_initialized ? 1 : 0;
-    }
-    return $self->{'_db_initialized'};
+    my $init_file = join('/', $self->home, 'database/ACEDB.wrm');
+    return -e $init_file;
 }
 
 sub write_dna_data {
@@ -551,7 +564,7 @@ sub write_dna_data {
     my $ace_filename = $self->home . '/rawdata/dna.ace';
     $self->add_acefile($ace_filename);
 
-    open my $ace_fh, "> $ace_filename" or confess "Can't write to '$ace_filename' : $!";
+    open my $ace_fh, '>', $ace_filename or confess "Can't write to '$ace_filename' : $!";
     print $ace_fh $dna_filter->ace_data($slice);
     close $ace_fh;
 }
@@ -588,10 +601,13 @@ sub get_filter_loaded_states_from_acedb {
     my $ace_handle = $self->aceperl_db_handle;
     $ace_handle->raw_query('find Assembly *');
     my $ace_text = $ace_handle->AceText_from_tag('Filter');
-    foreach my $name (map $_->[0], $ace_text->get_values('Filter')) {
-        my $filt = $n2f->{$name}
-            or confess "No filter '$name'";
-        $filt->done(1);
+    foreach ($ace_text->get_values('Filter')) {
+        my $name = $_->[0];
+        if (my $filt = $n2f->{$name}) {
+            $filt->done(1);
+        } else {
+            warn "No filter '$name'";
+        }
     }
 }
 
@@ -655,7 +671,6 @@ sub make_pipeline_DataFactory {
                 #print STDERR "Trying to get a method Object with tag '$tag' ... filter '$class' ... ";
             my $methObj = $collect->get_Method_by_name($tag);
                 #print STDERR $methObj ? "found one\n" : "find failed\n";
-            $pipe_filter->add_method_object($methObj);    # or some other place
         }
 
         # add the filter to the factory
@@ -685,6 +700,7 @@ sub DESTROY {
     #warn "Debug - leaving database intact"; return;
 
     my $home = $self->home;
+    my $callback = $self->post_exit_callback;
     print STDERR "DESTROY has been called for AceDatabase.pm with home $home\n";
     if ($self->error_flag) {
         warn "Not cleaning up '$home' because error flag is set\n";
@@ -692,11 +708,14 @@ sub DESTROY {
     }
     my $client = $self->Client;
     eval{
-        if($client) {
+        if ($self->ace_server_registered) {
+            $self->ace_server->kill_server;
+        }
+        if ($client) {
             $self->unlock_otter_slice() if $self->write_access;
         }
     };
-    if($@) {
+    if ($@) {
         warn "Error in AceDatabase::DESTROY : $@";
     } else {
         # rmtree fails with:
@@ -709,6 +728,10 @@ sub DESTROY {
           or die "Can't chdir to /var/tmp : $!";
         rmtree($home)
           or die "Error removing lace database directory";
+    }
+    
+    if ($callback) {
+        $callback->();
     }
 }
 

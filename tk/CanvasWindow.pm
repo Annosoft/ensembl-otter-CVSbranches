@@ -346,18 +346,6 @@ sub bind_scroll_commands {
 	}
 }
 
-    #foreach my $key_seq ($x_scroll->bind($class)) {
-    #    my $x_com_ref = $x_scroll->bind($class, $key_seq);
-    #    my $y_com_ref = $y_scroll->bind($class, $key_seq);
-    #    if ($x_com_ref =~ /ARRAY/) {
-    #        my($x_method, @x_args) = @$x_com_ref;
-    #        my($y_method, @y_args) = @$y_com_ref;
-    #        warn "\nx: $key_seq [$x_method, @x_args]\n";
-    #        warn "y: $key_seq [$y_method, @y_args]\n";
-    #    }
-    #}
-
-
 sub scroll_to_obj {
     my( $self, $obj ) = @_;
 
@@ -640,20 +628,7 @@ sub print_postscript {
                 my $join = ($v_num && $h_num) ? '-' : '';
                 $ps_file_name = "$file_root-$h_num$join$v_num.ps";
             }
-            
-#            warn "\nps args =
-#  -file => $ps_file_name,
-#  '-x' => $x,
-#  '-y' => $y,
-#  -width  => $tile_width,
-#  -height => $tile_height,
-#  -pageanchor => 'nw',
-#  -pagex => $page_x,
-#  -pagey => $page_y,
-#  -rotate => $landscape,
-#  @ps_args,
-#";
-            
+
             $canvas->postscript(
                 -file => $ps_file_name,
                 '-x' => $x,
@@ -869,9 +844,9 @@ sub message_at_x_y {
     $canvas->lower($yellow_rec, $text);
     
     # Put a shadow under the yellow rectangle
-    @bbox = map {$_ += 3} @bbox;
+    my @shadow_bbox = map {$_ + 3} @bbox;
     my $grey_rec = $canvas->createRectangle(
-        @bbox,
+        @shadow_bbox,
         -outline    => undef,
         -fill       => '#666666',
         -tags       => [@tags],

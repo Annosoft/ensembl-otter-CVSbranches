@@ -60,10 +60,6 @@ sub AceDatabase {
 sub drop_AceDatabase {
     my $self = shift;
 
-    # do an explicit destroy to force the locks to be cleared before calling 
-    # refresh_locks in this objects destructor
-    $self->{'_AceDatabase'}->DESTROY if $self->{'_AceDatabase'};
-
     $self->{'_AceDatabase'} = undef;
 }
 
@@ -569,30 +565,6 @@ sub populate_menus {
     $top->bind('<Control-d>', $delete_command);
     $top->bind('<Control-D>', $delete_command);
 
-    ### Unimplemented methods
-    #$subseq->add('command',
-    #    -label          => 'Merge',
-    #    -command        => sub{ warn "Called Merge" },
-    #    -accelerator    => 'Ctrl+M',
-    #    -underline      => 0,
-    #    -state          => 'disabled',
-    #    );
-    #$subseq->add('command',
-    #    -label          => 'AutoMerge',
-    #    -command        => sub{ warn "Called AutoMerge" },
-    #    -accelerator    => 'Ctrl+U',
-    #    -underline      => 0,
-    #    -state          => 'disabled',
-    #    );
-    #
-    # What did I intend this command to do?
-    #$subseq->add('command',
-    #    -label          => 'Transcript',
-    #    -command        => sub{ warn "Called Transcript" },
-    #    -accelerator    => 'Ctrl+T',
-    #    -underline      => 0,
-    #    );
-
     my $clone_menu = $self->make_menu("Clone");
     $self->clone_menu($clone_menu);
 
@@ -627,17 +599,6 @@ sub populate_menus {
     #     );
     $top->bind('<Control-l>', $xace_launch_command);
     $top->bind('<Control-L>', $xace_launch_command);
-
-    ## Attach xace
-    #my $xace_attach_command = sub { $self->attach_xace };
-    #$tools_menu->add('command',
-    #    -label          => 'Attach Xace',
-    #    -command        => $xace_attach_command,
-    #    -accelerator    => 'Ctrl+X',
-    #    -underline      => 0,
-    #    );
-    #$top->bind('<Control-x>', $xace_attach_command);
-    #$top->bind('<Control-X>', $xace_attach_command);
 
     # Genomic Features editing window
     my $gf_command = sub { $self->launch_GenomicFeatures };
@@ -2106,12 +2067,7 @@ sub DESTROY {
     warn "Destroying XaceSeqChooser for ", $self->ace_path, "\n";
 
     $self->zMapKillZmap;
-
     $self->drop_AceDatabase;
-    
-    if (my $sn = $self->SequenceNotes) {
-        $sn->refresh_lock_columns;
-    }
 }
 
 1;

@@ -44,41 +44,21 @@ sub _config_from_client {
     my ($self, $section) = @_;
     
     my $client = $self->Client or confess "No Client attached";
-
+    
     my $ds = $self;
-    my @name_list;
-    while ($ds) {
-        unshift(@name_list, $ds->name);
-        # Allow multiple levels of ALIAS inheritance
-        if (my $alias = $ds->ALIAS) {
-            $ds = $client->get_DataSet_by_name($alias);
-        } else {
-            $ds = undef;
-        }
+    # Used to fetch config from both ALIAS dataset and this dataset
+    # but this does not work because the "default" setting in
+    # this dataaset override the settings in the ALIAS dataset.
+    if (my $alias = $ds->ALIAS) {
+        $ds = $client->get_DataSet_by_name($alias);
     }
     
     my $config = {};
-    foreach my $name (@name_list) {
-        my $nc = $client->option_from_array([$name, $section]);
-        while (my ($tag, $val) = each %$nc) {
-            $config->{$tag} = $val;
-        }
+    my $name = $ds->name;
+    my $nc = $client->option_from_array([$name, $section]);
+    while (my ($tag, $val) = each %$nc) {
+        $config->{$tag} = $val;
     }
-    
-    # my $ds = $self;
-    # # Used to fetch config from both ALIAS dataset and this dataset
-    # # but this does not work because the "default" setting in
-    # # this dataaset override the settings in the ALIAS dataset.
-    # if (my $alias = $ds->ALIAS) {
-    #     $ds = $client->get_DataSet_by_name($alias);
-    # }
-    # 
-    # my $config = {};
-    # my $name = $ds->name;
-    # my $nc = $client->option_from_array([$name, $section]);
-    # while (my ($tag, $val) = each %$nc) {
-    #     $config->{$tag} = $val;
-    # }
     
     return $config;
 }
@@ -214,7 +194,6 @@ sub fetch_all_CloneSequences_for_SequenceSet {
     if($other_things_too) {
         $client->fetch_all_SequenceNotes_for_DataSet_SequenceSet($self, $ss);
         $client->lock_refresh_for_DataSet_SequenceSet($self, $ss);
-
         $client->status_refresh_for_DataSet_SequenceSet($self, $ss);
     }
 
@@ -229,24 +208,11 @@ sub get_cached_DBAdaptor {
     my( $self ) = @_;
 
     unless($self->{'_dba_cache'}){
-	    $self->{'_dba_cache'} = $self->make_DBAdaptor;
+	    $self->{'_dba_cache'} = $self->make_Vega_DBAdaptor;
 	    $self->_attach_DNA_DBAdaptor($self->{'_dba_cache'});
     }
     #warn "OTTER DBADAPTOR = '$dba'";
     return $self->{'_dba_cache'};
-}
-
-sub make_DBAdaptor {
-    my( $self ) = @_;
-
-    return $self->HEADCODE() ? $self->make_Vega_DBAdaptor() : $self->make_Otter_DBAdaptor();
-}
-
-sub make_Otter_DBAdaptor {
-    my( $self ) = @_;
-
-    require Bio::Otter::DBSQL::DBAdaptor;
-    return $self->_make_DBAdaptor_with_class('Bio::Otter::DBSQL::DBAdaptor');
 }
 
 sub make_EnsEMBL_DBAdaptor {
@@ -332,7 +298,6 @@ sub list_all_db_properties {
         DNA_USER
         DNA_DBNAME
         PORT
-        HEADCODE
         ALIAS
         };
 }
@@ -432,14 +397,6 @@ sub PORT {
         $self->{'_PORT'} = $PORT;
     }
     return $self->{'_PORT'};
-}
-sub HEADCODE {
-    my( $self, $HEADCODE ) = @_;
-    
-    if(defined($HEADCODE)) {
-        $self->{'_HEADCODE'} = $HEADCODE;
-    }
-    return $self->{'_HEADCODE'};
 }
 
 sub ALIAS {

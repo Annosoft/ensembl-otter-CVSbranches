@@ -166,12 +166,19 @@ The xremote Object [C<<< X11::XRemote >>>].
 sub xremote{
     my ($self, $id) = @_;
     my $xr = $self->{'_xremote'};
-    if(!$xr){
-        if($self->_is_server){
-            $xr = X11::XRemote->new(-server => 1,
-                                    -id     => $id
-                                    );
-        }else{
+    if (!$xr) {
+        if ($self->_is_server) {
+            if (defined $id) {
+                $xr = X11::XRemote->new(
+                    -server => 1,
+                    -id     => $id
+                );
+            }
+            else {
+                die "ZMap::Connect::xremote called as server without providing a window ID";
+            }
+        }
+        else {
             $xr = X11::XRemote->new();
         }
         $self->{'_xremote'} = $xr;
@@ -301,14 +308,28 @@ sub widget{
         $widget = $tk->Label(
                              -text => "${qName}|${sName}|Widget",
                              )->pack(-side => 'left');
-        $widget->packForget();
+        
         $self->{'_widget'} = $widget;
-
+        
         my $id = $self->server_window_id();
+        
+        # we need to wait until the widget is mapped by the x server so that we 
+        # can reliably initialise the xremote protocol so we must wait for the
+        # <Map> event
+        
+        my $mapped; # a flag used in waitVariable below to indicate that the widget is mapped
+        
+        $widget->bind('<Map>' => sub {
+            $widget->packForget;
+            my $xr = $self->xremote($id);
+            $xr->request_name($self->request_name);
+            $xr->response_name($self->response_name);
+            $mapped = 1;
+        });
 
-        my $xr = $self->xremote($id);
-        $xr->request_name($self->request_name);
-        $xr->response_name($self->response_name);
+        # this call will essentially block until the widget is mapped and the
+        # xremote protocol is initialised (the tk event loop will continue though)
+        $widget->waitVariable(\$mapped);
     }
     return $widget;
 }

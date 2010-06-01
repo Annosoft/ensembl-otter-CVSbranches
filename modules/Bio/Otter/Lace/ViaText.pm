@@ -22,11 +22,12 @@ use Bio::EnsEMBL::Map::Marker;
 use Bio::EnsEMBL::Map::MarkerFeature;
 use Bio::EnsEMBL::Map::Ditag;
 use Bio::EnsEMBL::Map::DitagFeature;
-use Bio::EnsEMBL::Variation::Variation;
-use Bio::EnsEMBL::Variation::VariationFeature;
+#use Bio::EnsEMBL::Variation::Variation;
+#use Bio::EnsEMBL::Variation::VariationFeature;
 use Bio::Otter::DnaDnaAlignFeature;
 use Bio::Otter::DnaPepAlignFeature;
 use Bio::Otter::HitDescription;
+use Bio::Vega::PredictionTranscript;
 
 use base ('Exporter');
 our @EXPORT    = ();
@@ -139,8 +140,8 @@ our %LangDesc = (
     },
 
     'PredictionTranscript' => {
-        -constructor  => 'Bio::EnsEMBL::PredictionTranscript',
-        -optnames     => [ qw(start end dbID) ],
+        -constructor  => 'Bio::Vega::PredictionTranscript',
+        -optnames     => [ qw(start end dbID truncated_5_prime truncated_3_prime) ],
         -hash_by      => 'dbID',
         -get_all_cmps => 'get_all_Exons',
         -call_args   => [['analysis' => undef], ['load_exons' => 1]],
@@ -208,7 +209,9 @@ sub generate_unless_hashed {
     my $optnames  = $feature_subhash->{-optnames};
     my @optvalues = ($feature_type);
     for my $opt (@$optnames) {
-        push @optvalues, $feature->$opt() || 0;
+        if ($feature->can($opt)) {
+            push @optvalues, $feature->$opt() || 0;
+        }
     }
 
     if(my $ref_link = $feature_subhash->{-reference}) { # reference link is one-way (the referenced object doesn't know its referees)
@@ -230,13 +233,15 @@ sub generate_unless_hashed {
     if($parent_hash_key) {
         push @optvalues, $parent_hash_key;
     }
-	my @analysis = split(/,/,$analysis_name);
-    if($feature->can('analysis') && (!$analysis_name || scalar(@analysis) > 1)) {
+	my $multi_analysis =
+            defined $analysis_name
+            && $analysis_name =~ /,/;
+    if($feature->can('analysis') && (!$analysis_name || $multi_analysis)) {
         my $analysis = $feature->analysis();
         my $logic_name =
             defined $analysis
             ? $analysis->logic_name()
-            : undef;
+            : '';
         push @optvalues, $logic_name;
     }
 
@@ -299,8 +304,10 @@ sub ParseFeatures {
         }
 
         my $logic_name = $analysis_name;
-        my @analysis = split(/,/,$analysis_name);
-        if($feature->can('analysis') && (!$analysis_name || scalar(@analysis) > 1 )) {
+	my $multi_analysis =
+            defined $analysis_name
+            && $analysis_name =~ /,/;
+        if($feature->can('analysis') && (!$analysis_name || $multi_analysis)) {
         	$logic_name = pop @optvalues;
     	}
 
