@@ -568,6 +568,7 @@ sub zMapZMapDefaults {
         'script-dir'        => $ENV{'OTTER_HOME'}.'/ensembl-otter/scripts/',
         'xremote-debug'     => $ZMAP_DEBUG ? 'true' : 'false',
         'columns'           => $columns_string,
+        'legacy-styles'     => 'true',
         );
 
     if ($ENV{'PFETCH_WWW'}) {
