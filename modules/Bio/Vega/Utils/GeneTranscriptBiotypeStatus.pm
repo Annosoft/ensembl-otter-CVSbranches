@@ -5,6 +5,7 @@ package Bio::Vega::Utils::GeneTranscriptBiotypeStatus;
 
 use strict;
 use warnings;
+use Carp;
 use base 'Exporter';
 our @EXPORT_OK = qw{ method2biotype_status biotype_status2method };
 
@@ -24,14 +25,20 @@ my @method_biotype_status = qw{
     Novel_Transcript                processed_transcript    KNOWN
     Novel_Transcript                processed_transcript    NOVEL
     Transcript                      processed_transcript    -
-        Non_coding                  =                       -
         Ambiguous_ORF               =                       -
         Retained_intron             =                       -
-        Antisense                   =                       -
         Disrupted_domain            =                       -
         IG_segment                  =                       -
         IG_gene                     =                       -
+        IG_pseudogene               =                       -
         Putative                    processed_transcript    PUTATIVE
+
+    Non_coding                      =                       -
+        lincRNA                     =                       -
+        Antisense                   =                       -
+        ncRNA_host                  =                       -
+        3'_overlapping_ncRNA        =                       -
+        
                                     
     Pseudogene                      =                       -
         Processed_pseudogene        =                       -
@@ -49,7 +56,7 @@ my @method_biotype_status = qw{
 };
 
 if (@method_biotype_status % 3) {
-    die "Method, Biotype, Status list is not a multiple of 3";
+    confess "Method, Biotype, Status list is not a multiple of 3";
 }
 
 my (%method_to_biotype_status, %biotype_status_to_method);
