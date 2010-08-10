@@ -174,7 +174,7 @@ sub cleanup_log_dir {
     my $LOG = gensym();
     opendir $LOG, $log_dir or confess "Can't open directory '$log_dir': $!";
     foreach my $file (grep /^$file_root\./, readdir $LOG) {
-        my $full = "$log_dir/$file";
+        my $full = "$log_dir/$file"; #" comment soley for eclipses buggy parsing!
         if (-M $full > $days) {
             unlink $full
                 or warn "Couldn't delete file '$full' : $!";
@@ -433,6 +433,12 @@ sub general_http_dialog {
             confess sprintf "%d (%s)", $response->code, $response->decoded_content;
         }
     }
+    
+#    if ($response->content =~ /The Sanger Institute Web service you requested is temporarily unavailable/) {
+#    	print STDERR "The web server is down\n";
+#    	$response = '';
+#    }
+    
     return $response;
 }
 
@@ -895,6 +901,45 @@ sub get_methods_ace {
         $self->{'_methods_ace'} = $self->http_response_content('GET', 'get_methods_ace', {});
     }
     return $self->{'_methods_ace'};
+}
+
+sub get_accession_types {
+	
+	my $self = shift;
+	
+	my @accessions = @_;
+	
+	my @uncached = ();
+	my %res = ();
+	
+	for my $acc (@accessions) {
+		if (defined $self->{_accession_types}->{$acc}) {
+			$res{$acc} = $self->{_accession_types}->{$acc};
+		}
+		else {
+			push @uncached, $acc;
+		}	
+	}
+	
+	if (@uncached) {
+		
+		my $response = $self->http_response_content(
+							'GET', 
+							'get_accession_types', 
+							{accessions => join ',', @uncached}
+						);
+
+		for my $line (split /\n/, $response) {
+			my ($acc, $type, $full_acc) = split /\t/, $line;
+			$res{$acc} = [$type, $full_acc];
+		}
+		
+		for my $acc (keys %res) {
+			$self->{_accession_types}->{$acc} = $res{$acc}; 
+		}
+	}
+	
+	return \%res;
 }
 
 sub save_otter_xml {

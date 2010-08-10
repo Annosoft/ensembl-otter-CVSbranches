@@ -59,31 +59,48 @@ sub fetch_by_name {
   my $gene;
   my $dbid;
   if ($genes){
-	 my $stable_id;
-	 foreach my $g (@$genes){
-		if ($stable_id && $stable_id ne $g->stable_id){
-            ### Does this make sense? Why not return a list of genes?
-		  die "more than one gene has the same name\n";
-		}
-		$stable_id=$g->stable_id;
-		if ($dbid ){
-		  if ($g->dbID > $dbid){
-            ## Why not just keep the gene?
-			 $dbid=$g->dbID;
-		  }
-		}
-		else {
-		  $dbid=$g->dbID;
-		}
-	 }
+    my $stable_id;
+    foreach my $g (@$genes){
+      if ($stable_id && $stable_id ne $g->stable_id){
+	### Does this make sense? Why not return a list of genes?
+	warn "more than one gene has the same name [$genename]\n";
+      }
+      $stable_id=$g->stable_id;
+      if ($dbid ){
+	if ($g->dbID > $dbid){
+	  ## Why not just keep the gene?
+	  $dbid=$g->dbID;
+	}
+      }
+      else {
+	$dbid=$g->dbID;
+      }
+    }
   }
   if ($dbid){
-	 print STDOUT "gene found\n";
-	 $gene=$self->fetch_by_dbID($dbid);
-	 $self->reincarnate_gene($gene);
+    print STDOUT "gene found\n";
+    $gene=$self->fetch_by_dbID($dbid);
+    $self->reincarnate_gene($gene);
   }
-
+  
   return $gene;
+}
+
+sub fetch_all_current_by_name {
+  my ($self,$genename)=@_;
+  unless ($genename) {
+	 throw("Must enter a gene name to fetch Genes");
+  }
+  my $genes=$self->fetch_by_attribute_code_value('name',$genename);
+  my $current_genes;
+  if ($genes) {
+    foreach my $g (@{$genes}){
+      next unless $g->is_current;
+      $self->reincarnate_gene($g);
+      push @{$current_genes},$g;
+    }
+  }
+  return $current_genes || [];
 }
 
 sub fetch_consortiumID_by_dbID {
@@ -120,15 +137,14 @@ sub fetch_by_attribute_code_value {
   $sth->execute($attrib_code,$attrib_value);
   my $geneids = [map {$_->[0]} @{$sth->fetchall_arrayref()}];
   $sth->finish();
-
   if (@$geneids){
-	return $self->fetch_all_by_dbID_list($geneids);
+    return $self->fetch_all_by_dbID_list($geneids);
   }
   else {
-	 return 0;
+    return 0;
   }
-
 }
+
 sub fetch_stable_id_by_name {
 
   # can search either genename or transname by name or synonym,
@@ -205,7 +221,7 @@ sub reincarnate_gene {
 
     my $this_class = 'Bio::Vega::Gene';
 
-    if($gene->isa($this_class)) {
+    if ($gene->isa($this_class)) {
         # warn "Gene is already a $this_class, possibly due to caching";
     } else {
         bless $gene, $this_class;
@@ -496,13 +512,7 @@ sub fetch_latest_by_stable_id {
  Args    :
          : $gene to be stored (mandatory)
          :
-         : $on_whole_chromosome (optional, default==false)
-         : is a binary flag that controls whether the object to be stored is attached to slice
-         : (and in this case all the fetching of components for comparison also happens from that slice)
-         : or, if the slice is not known, everything is stored on whole chromosomes (as when we convert old otter
-         : databases into new lutra ones).
-         :
-         : $time_now is the time to be considered the current time. Also useful when converting otter->lutra.
+         : $time_now is the time to be considered the current time.
 
 =cut
 
@@ -574,9 +584,9 @@ sub store {
         ##
         ###
 
-        ##add synonym if old gene name is not a current gene synonym
-        $broker->compare_synonyms_add($db_gene, $gene);
-
+        # Add synonym if old gene name is not a current gene synonym
+        # Commented out since it causes problems.  Synonyms are only added by nomenclature scripts.
+        # $broker->compare_synonyms_add($db_gene, $gene);
 
             # mark the existing gene non-current:
 		$db_gene->is_current(0);
@@ -719,10 +729,10 @@ sub resurrect { # make a particular gene current (without touching the previousl
     foreach my $transcript (@{ $gene->get_all_Transcripts() }) {
         $transcript->is_current(1);
         $ta->update($transcript);
-        foreach my $exon (@{$transcript->get_all_Exons}) {
-            $exon->is_current(1);
-            $ea->update($exon); # may happen several times due to shared exons
-        }
+    }
+    foreach my $exon (@{$gene->get_all_Exons}) {
+        $exon->is_current(1);
+        $ea->update($exon);
     }
 }
 
@@ -767,10 +777,8 @@ sub Bio::EnsEMBL::Gene::propagate_slice {
     $gene->slice($slice);
 }
 
-
-
-
 1;
+
 __END__
 
 =head1 NAME - Bio::Vega::DBSQL::GeneAdaptor

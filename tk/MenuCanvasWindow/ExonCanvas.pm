@@ -2620,6 +2620,7 @@ sub new_SubSeq_from_tk {
         $new->utr_start_not_found(1);
         $new->start_not_found(0);
     } else {
+        $new->utr_start_not_found(0);
         $new->start_not_found($snf);
     }
 

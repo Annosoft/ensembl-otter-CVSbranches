@@ -22,6 +22,17 @@ sub new {
   return $self;
 }
 
+sub get_all_Exons_ref {
+    my ($self) = @_;
+    
+    $self->get_all_Exons;
+    if (my $ref = $self->{'_trans_exon_array'}) {
+        return $ref;
+    } else {
+        $self->throw("'_trans_exon_array' not set");
+    }
+}
+
 sub transcript_author {
   my ($self,$value) = @_;
   if( defined $value) {
@@ -95,7 +106,10 @@ sub truncate_to_Slice {
   my $exons_truncated = 0;
   my $in_translation_zone = 0;
   my $slice_length = $slice->length;
-  my $ex_list = $self->get_all_Exons;
+
+  # Ref to list of exons for inplace editing
+  my $ex_list = $self->get_all_Exons_ref;
+  
   for (my $i = 0; $i < @$ex_list;) {
 	 my $exon = $ex_list->[$i];
 	 my $exon_start = $exon->start;
@@ -104,8 +118,6 @@ sub truncate_to_Slice {
 	 # slice references can be different not the slice names
 	 if ($exon->slice->name ne $slice->name or $exon_end < 1 or $exon_start > $slice_length) {
 		#warn "removing exon that is off slice";
-		### This won't work if get_all_Exons() ceases to return
-		### a ref to the actual array of exons in the transcript.
 		splice(@$ex_list, $i, 1);
 		$exons_truncated++;
 	 } else {
@@ -132,6 +144,17 @@ sub truncate_to_Slice {
   if ($exons_truncated) {
 	 $self->{'translation'}     = undef;
 	 $self->{'_translation_id'} = undef;
+	 my $attrib = $self->get_all_Attributes;
+	 for (my $i = 0; $i < @$attrib;) {
+	     my $this = $attrib->[$i];
+	     # Should not have CDS start/end not found attributes
+	     # if there is no CDS!
+	     if ($this->code =~ /^cds_(start|end)_NF$/) {
+	         splice(@$attrib, $i, 1);
+	     } else {
+	         $i++;
+	     }
+	 }
   }
   return $exons_truncated;
 }

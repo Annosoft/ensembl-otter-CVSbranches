@@ -8,6 +8,10 @@ use strict;
 use vars '@ISA';
 use Tk;
 
+# Work around UTF8 conversion bug
+# "selection conversion left too many bytes unconverted"
+$Tk::encodeFallback = 1;
+
 @ISA = ('MainWindow');
 
 sub new {
@@ -80,6 +84,10 @@ sub add_default_options {
         CanvasWindow*Menubutton.padX            6
         CanvasWindow*Menubutton.padY            6
         CanvasWindow*Balloon*background         #ffffcc
+        CanvasWindow*Text*background            white
+        CanvasWindow*ProgressBar*troughColour   #aaaaaa
+        CanvasWindow*ProgressBar*relief         sunken
+        CanvasWindow*ProgressBar*foreground     gold
         };
     
     for (my $i = 0; $i < @opt_val; $i += 2) {

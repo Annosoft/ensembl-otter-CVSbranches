@@ -107,7 +107,7 @@ sub font {
         $self->{'_font'} = $font;
         $self->clear_font_caches;
     }
-    return $self->{'_font'} || $self->canvas->optionGet('fontFixed', 'CanvasWindow');;
+    return $self->{'_font'} || $self->canvas->optionGet('fontFixed', 'CanvasWindow');
 }
 
 sub font_size {
@@ -1161,7 +1161,6 @@ sub hash_from_clipboard {
 
     return $results;
 }
-
 
 1;
 

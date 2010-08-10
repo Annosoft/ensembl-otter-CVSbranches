@@ -9,209 +9,150 @@ use Carp;
 
 use Hum::Pfetch;
 use Hum::FastaFileIO;
+use Hum::ClipboardUtils qw{ accessions_from_text };
 use Bio::Otter::Lace::Exonerate;
+use Bio::Otter::Lace::Client;
+use Hum::Sort qw{ ace_sort };
 use Tk::LabFrame;
-use Tk::FileDialog;
 use Tk::Balloon;
+use Data::Dumper;
 
 use base 'EditWindow';
 
-my $PROT_SCORE = 150;
-my $DNA_SCORE  = 2000;
+my $PROT_SCORE = 100;
+my $DNA_SCORE  = 100;
 my $DNAHSP     = 120;
+my $BEST_N	   = 1;
+
+my $INITIAL_DIR = (getpwuid($<))[7];
 
 sub initialise {
 	my ( $self ) = @_;
+
+    my @frame_pack = (-side => 'top', -fill => 'x');
+    my @frame_expand = (-side => 'top', -fill => 'both', -expand => 1);
+
 	my $top  = $self->top;
 
 	### Query frame
 	my $query_frame = $top->LabFrame(
-									  -borderwidth => 3,
-									  -label       => 'Query sequences',
-									  -labelside   => 'acrosstop',
-	)->pack( -side => 'top', );
-	## Molecule type
-	my $type_frame =
-	  $query_frame->Frame( -border => 3, )->pack( -side => 'top', );
-	$type_frame->Label(
-						-text   => 'Molecule type:',
-						-anchor => 's',
-						-padx   => 6,
-	)->pack( -side => 'left' );
+        -label      => 'Query sequences',
+        -labelside  => 'acrosstop',
+        -border     => 3,
+	)->pack(@frame_expand);
 
-	# Pad
-	$type_frame->Frame( -width => 20, )->pack( -side => 'left' );
-
-	# dna or protein sequence
-	my $type = 'dna';
-	$self->query_type($type);
-	my $mol_type = sub {
-		if ( $type eq 'dna' ) {
-			$self->set_entry( 'score', $DNA_SCORE );
-			$self->dnahsp->configure( -state => 'normal' );
-			$self->set_entry( 'dnahsp', $DNAHSP );
-			$self->set_entry( 'method_tag', 'Exon_DNA' );
-			$self->set_entry( 'logic_name', 'Exon_DNA' );
-		}
-		else {
-			$self->set_entry( 'score',  $PROT_SCORE );
-			$self->set_entry( 'dnahsp', 0 );
-			$self->dnahsp->configure( -state => 'disable' );
-			$self->set_entry( 'method_tag', 'Exon_PROT' );
-			$self->set_entry( 'logic_name', 'Exon_PROT' );
-		}
-		$self->query_type($type);
-	};
-	foreach (qw/dna protein/) {
-		$type_frame->Radiobutton(
-								  -text     => $_,
-								  -variable => \$type,
-								  -value    => $_,
-								  -command  => $mol_type
-		)->pack( -side => 'right' );
-	}
 	## Accession entry box
-	my $match_frame =
-	  $query_frame->Frame( -border => 3, )->pack( -side => 'top', );
+	my $match_frame = $query_frame->Frame( -border => 3 )->pack(@frame_pack);
 	$match_frame->Label(
-						 -text   => 'Accessions:',
-						 -anchor => 's',
-						 -padx   => 6,
+        -text   => 'Accessions:',
+        -anchor => 's',
+        -padx   => 6,
 	)->pack( -side => 'left' );
-	$self->match(
-				$match_frame->Entry( -width => 24, )->pack( -side => 'left' ) );
+	$self->match( $match_frame->Entry->pack( -side => 'left', -expand => 1, -fill => 'x' ) );
+	$match_frame->Frame( -width => 6, )->pack( -side => 'left' );
+
+	my $update = sub {
+		$self->accessions_from_clipboard;
+	};
+	$match_frame->Button(
+        -text      => 'Fetch from clipboard',
+        -underline => 0,
+        -command   => $update,
+	)->pack( -side => 'left' );
+	$top->bind( '<Control-u>', $update );
+	$top->bind( '<Control-U>', $update );
+
+
 	## Fasta file entry box
 	my $fname;
-	my $Horiz      = 1;
-	my $file_frame =
-	  $query_frame->Frame( -border => 3, )->pack( -side => 'top', );
+	my $file_frame = $query_frame->Frame( -border => 3 )->pack(@frame_pack);
 	$file_frame->Label(
-						-text   => 'OR Fasta file:',
-						-anchor => 's',
-						-padx   => 6,
+        -text   => 'Fasta file:',
+        -anchor => 's',
+        -padx   => 6,
 	)->pack( -side => 'left' );
 
+	$self->fasta_file( $file_frame->Entry( -textvariable => \$fname )->pack( -side => 'left', -expand => 1, -fill => 'x' ) );
+
 	# Pad between entries
-	$file_frame->Frame( -width => 10, )->pack( -side => 'top' );
-	my $LoadDialog = $top->FileDialog(
-											  -Title   => 'Select a Fasta file',
-											  -Create  => 0,
-											  -FPat    => '*fa',
-											  -ShowAll => 'NO'
-	);
-	$self->fasta_file(
-		 $file_frame->Entry( -textvariable => \$fname )->pack( -side => 'left' ) );
+	$file_frame->Frame( -width => 6, )->pack( -side => 'left' );
+
 	$file_frame->Button(
 		-text    => 'Browse...',
 		-command => sub {
-			$fname = $LoadDialog->Show( -Horiz => $Horiz );
+			$fname = $top->getOpenFile(
+			    -title          => 'Choose fasta file',
+			    -initialdir     => $INITIAL_DIR,
+                -filetypes      => [
+                    # ['Fasta Files'  => [qw{ .seq .pep .dna .fasta .fa }]],
+                    # ['All Files'    => '*'],
+
+                    # Do not want to show hidden files.
+                    ['Fasta Files (*.seq,*.pep,*.dna,*.fasta,*.fa)' => sub {
+                        my ($widget, $file, $dir) = @_;
+                        # Match non-hidden files which end with one of our extensions
+                        return $file =~ /^[^\.].*\.(seq|pep|dna|fasta|fa)$/;
+                    } ],
+                    ['All Files (*)' => sub {
+                        my ($widget, $file, $dir) = @_;
+                        # Match non-hidden files
+                        return $file !~ /^\./;
+                    } ],
+                ],
+
+                -sortcmd        => sub { ace_sort(@_) },
+			    );
+			if ($fname) {
+			    if (my ($dir) = $fname =~ m{^(.+?)[^/]+$}) {
+                    # warn "Setting inital dir to '$dir'";
+			        $INITIAL_DIR = $dir;
+			    }
+			}
+			# Show the end of the Entry, so that when the file path is long the
+			# user can see the name of the file which was chosen.
+			$self->fasta_file->xviewMoveto(1);
 		}
 	)->pack( -side => 'left' );
+
 	## Sequence text box
-	my $txt_frame =
-	  $query_frame->Frame( -border => 3, )->pack( -side => 'top', );
-	$txt_frame->Label(
-					   -text   => 'OR Fasta sequences',
-					   -anchor => 's',
-					   -padx   => 6,
-	)->pack( -side => 'top' );
+	my $txt_frame = $query_frame->Frame( -border => 3 )->pack(@frame_expand);
+    $txt_frame->Label(
+                     -text   => 'Fasta sequence:',
+                     -anchor => 'w',
+                     -padx   => 6,
+    )->pack(@frame_pack);
 	$self->fasta_txt(
-		   $txt_frame->Scrolled( "Text", -background => 'white', -height => 12 )
-			 ->pack( -side => 'top', ) );
-	### Exonerate and diplay parameters
+		   $txt_frame->Scrolled( "Text",
+            # -background => 'white',
+		   	-height => 12,
+		   	-width  => 62,
+		   	-scrollbars => 'se',
+		   	-font	=> $self->XaceSeqChooser->font_fixed,
+		   	 )->pack(@frame_expand)
+    );
+
+	### Parameters
 	my $param_frame = $top->LabFrame(
-									  -borderwidth => 3,
-									  -label       => 'Parameters',
-									  -labelside   => 'acrosstop',
-	)->pack( -side => 'top', );
-	## Score and dna hsp thresholds
-	my $threshold_frame =
-	  $param_frame->Frame( -border => 3, )->pack( -side => 'top', );
-	$threshold_frame->Label(
-							 -text   => 'Threshold ',
-							 -anchor => 's',
-							 -padx   => 6,
-	)->pack( -side => 'left' );
-	$threshold_frame->Label(
-							 -text   => 'Score:',
-							 -anchor => 's',
-							 -padx   => 6,
-	)->pack( -side => 'left' );
-	$self->score(
-				  $threshold_frame->Entry(
-										   -width   => 9,
-										   -justify => 'right',
-					)->pack( -side => 'left' )
-	);
-	$self->set_entry( 'score', $DNA_SCORE );
-	$threshold_frame->Label(
-							 -text   => 'Dna hsp:',
-							 -anchor => 's',
-							 -padx   => 6,
-	)->pack( -side => 'left' );
-	$self->dnahsp(
-				   $threshold_frame->Entry(
-											-width   => 9,
-											-justify => 'right',
-					 )->pack( -side => 'left' )
-	);
-	$self->set_entry( 'dnahsp', $DNAHSP );
-	## ace method tag/color and logic_name
-	my $display_frame =
-	  $param_frame->Frame( -border => 3, )->pack( -side => 'top', );
-	$display_frame->Label(
-						   -text   => 'Method ',
-						   -anchor => 's',
-						   -padx   => 6,
-	)->pack( -side => 'left' );
-	$display_frame->Label(
-						   -text   => 'Tag:',
-						   -anchor => 's',
-						   -padx   => 6,
-	)->pack( -side => 'left' );
-	$self->method_tag(
-					   $display_frame->Entry(
-											  -width   => 9,
-											  -justify => 'right',
-						 )->pack( -side => 'left' )
-	);
-	$display_frame->Label(
-						   -text   => 'Color:',
-						   -anchor => 's',
-						   -padx   => 6,
-	)->pack( -side => 'left' );
+        -label      => 'Parameters',
+        -labelside  => 'acrosstop',
+        -border     => 3,
+	)->pack(@frame_pack);
 
-	$self->method_color('red');
-	my $button_color;
-	my $balloon    = $display_frame->Balloon(-bg => "khaki2", -initwait => 500);
-	my $show = sub { $self->show_color_panel($button_color); };
-	$button_color = $display_frame->Button(
-						   -background => 'red',
-						   -activebackground => 'red',
-						   -relief => 'flat',
-						   -borderwidth => 1,
-						   -width   => 5,
-						   -command => $show
-	)->pack( -side => 'left' );
-	$balloon->attach($button_color, -msg => "click to change color");
+    $self->bestn(
+        $param_frame->Entry(
+            -width   => 4,
+            -justify => 'right',
+            )->pack( -side => 'right' )
+        );
+	$self->set_entry( 'bestn', $BEST_N );
+	$param_frame->Label(
+        -text   => 'Number of transcript alignments to report (0 for all):',
+        -anchor => 's',
+        -padx   => 6,
+	)->pack( -side => 'right' );
 
-
-	$display_frame->Label(
-						   -text   => 'Logic_name:',
-						   -anchor => 's',
-						   -padx   => 6,
-	)->pack( -side => 'left' );
-	$self->logic_name(
-					   $display_frame->Entry(
-											  -width   => 9,
-											  -justify => 'right',
-						 )->pack( -side => 'left' )
-	);
-	$self->set_entry( 'method_tag',   'Exon_DNA' );
-	$self->set_entry( 'logic_name',   'Exon_DNA' );
 	### Commands
-	my $button_frame = $top->Frame->pack(    -side => 'top',
-										  -fill => 'x', );
+	my $button_frame = $top->Frame->pack(@frame_pack);
 	my $launch = sub {
 		$self->launch_exonerate or return;
 		$top->withdraw;
@@ -224,17 +165,6 @@ sub initialise {
 	$top->bind( '<Control-l>', $launch );
 	$top->bind( '<Control-L>', $launch );
 
-	# Update coords
-	my $update = sub {
-		$self->update_from_clipboard;
-	};
-	$button_frame->Button(
-						   -text      => 'Update',
-						   -underline => 0,
-						   -command   => $update,
-	)->pack( -side => 'left' );
-	$top->bind( '<Control-u>', $update );
-	$top->bind( '<Control-U>', $update );
 
 	# Manage window closes and destroys
 	my $close_window = sub { $top->withdraw };
@@ -246,11 +176,12 @@ sub initialise {
 	$top->bind( '<Control-W>', $close_window );
 	$top->protocol( 'WM_DELETE_WINDOW', $close_window );
 	$top->bind( '<Destroy>', sub {	$self = undef ;  } );
+	$self->set_minsize;
 }
 
 sub update_from_XaceSeqChooser {
 	my ( $self ) = @_;
-	$self->update_from_clipboard;
+	$self->accessions_from_clipboard;
 	my $top = $self->top;
 	$top->deiconify;
 	$top->raise;
@@ -264,25 +195,47 @@ sub query_Sequence {
 	return $self->{'_query_Sequence'};
 }
 
-sub update_from_clipboard {
-	my ($self) = @_;
-	if ( my ( $name, $start, $end ) = $self->name_start_end_from_fMap_blue_box )
-	{
-		$self->set_entry( 'match', $name );
-	}
+sub accessions_from_clipboard {
+    my ($self) = @_;
+
+    my $text = $self->get_clipboard_text or return;
+
+    # Add clipboard text to existing entry text so that annotator
+    # can easily build up a list of accessions to search
+    if (my $entry_txt = $self->get_entry('match')) {
+        $text = join(' ', $entry_txt, $text);
+    }
+
+    # accessions_from_text extracts all the accessions from its
+    # text argument and removes duplicates from the list
+    if (my @acc = accessions_from_text($text)) {
+        $self->set_entry('match', join ' ', @acc);
+        # Show the end of the Entry so that the annotator sees
+        # the latest accessions added.
+        $self->match->xviewMoveto(1);
+    }
 }
 
 sub set_entry {
 	my ( $self, $method, $txt ) = @_;
 	my $entry = $self->$method();
+
+	my $reset = 0;
+	if ($entry->cget('-state') eq 'readonly') {
+		$entry->configure( -state => 'normal' );
+		$reset = 1;
+	}
+
 	$entry->delete( 0, 'end' );
 	$entry->insert( 0, $txt );
+
+	$entry->configure( -state => 'readonly' ) if $reset;
 }
 
 sub get_entry {
 	my ( $self, $method ) = @_;
+
 	my $txt = $self->$method()->get or return;
-	$txt =~ s/\s//g;
 	return $txt;
 }
 
@@ -310,44 +263,12 @@ sub fasta_file {
 	return $self->{'_fasta_file'};
 }
 
-sub method_color {
-	my ( $self, $match ) = @_;
-	if ($match) {
-		$self->{'_method_color'} = $match;
+sub bestn {
+	my ( $self, $bestn ) = @_;
+	if ($bestn) {
+		$self->{'_bestn'} = $bestn;
 	}
-	return $self->{'_method_color'};
-}
-
-sub query_type {
-	my ( $self, $type ) = @_;
-	if ($type) {
-		$self->{'_type'} = $type;
-	}
-	return $self->{'_type'};
-}
-
-sub logic_name {
-	my ( $self, $match ) = @_;
-	if ($match) {
-		$self->{'_logic_name'} = $match;
-	}
-	return $self->{'_logic_name'};
-}
-
-sub score {
-	my ( $self, $match ) = @_;
-	if ($match) {
-		$self->{'_score'} = $match;
-	}
-	return $self->{'_score'};
-}
-
-sub dnahsp {
-	my ( $self, $match ) = @_;
-	if ($match) {
-		$self->{'_dnahsp'} = $match;
-	}
-	return $self->{'_dnahsp'};
+	return $self->{'_bestn'};
 }
 
 sub match {
@@ -398,37 +319,6 @@ sub revcomp_ref {
 	return $self->{'_revcomp_ref'};
 }
 
-sub show_color_panel {
-	my ($self,$button_color) = @_;
-	my $color_dialog = $self->top()->DialogBox( -title => 'Choose a color', -buttons => ['Cancel'] );
-	my @color_name = Hum::Ace::Colors::list_all_color_names_by_value();
-	my $balloon    = $color_dialog->Balloon(-bg => "khaki2", -initwait => 700);
-	for (my $i = 0; $i < @color_name; $i++) {
-       my $name = $color_name[$i];
-        my $hex = Hum::Ace::Colors::acename_to_webhex($name);
-        my $color = sub {
-        	$button_color->configure(
-        					-background => $hex,
-        					-activebackground => $hex);
-			$self->method_color($name);
-			$color_dialog->Exit();
-        };
-        my $button = $color_dialog->add("Button",
-        				   -background => $hex,
-						   -activebackground => $hex,
-						   -relief => 'flat',
-						   -borderwidth => 1,
-						   -width   => 3,
-						   -command => $color)->pack;
-		$balloon->attach($button, -msg => "$name");
-
-
-	}
-	$color_dialog->bind( '<Destroy>', sub { $self = undef } );
-
-	return $color_dialog->Show();
-}
-
 sub XaceSeqChooser {
 	my ($self,$xc) = @_;
 	if ($xc) {
@@ -438,53 +328,112 @@ sub XaceSeqChooser {
 }
 
 sub launch_exonerate {
+	
 	my ($self) = @_;
-	my $seq = $self->get_query_seq();
-	print STDOUT "Found " . scalar(@$seq) . " sequences\n";
-	my $score   = $self->get_entry('score');
-	my $dnahsp  = $self->get_entry('dnahsp');
-	my $m_tag   = $self->get_entry('method_tag');
-	my $m_color = $self->method_color();
-	my $query_type = $self->query_type();
-	my $l_name  = $self->get_entry('logic_name');
-	unless ( $score and $m_tag and $m_color and $l_name and $seq) {
-		warn "Missing parameters\n";
-		return;
+
+	my $seqs;
+
+	$seqs = $self->get_query_seq();
+
+	print STDOUT "Found " . scalar(@$seqs) . " sequences\n";
+
+	unless (@$seqs) {
+	    $self->top->messageBox(
+	        -title      => 'No sequence',
+	        -icon       => 'warning',
+	        -message    => 'Did not get any sequence data',
+	        -type       => 'OK',
+	        );
+	    return;
 	}
 
-	my $exonerate = Bio::Otter::Lace::Exonerate->new;
-	$exonerate->AceDatabase($self->XaceSeqChooser->AceDatabase);
-	$exonerate->genomic_seq($self->XaceSeqChooser->Assembly->Sequence);
-	$exonerate->query_seq($seq);
-	$exonerate->query_type($query_type);
-	$exonerate->score($score);
-	$exonerate->dnahsp($dnahsp);
-	$exonerate->method_tag($m_tag);
-	$exonerate->method_color($m_color);
-	$exonerate->logic_name($l_name);
-	my $seq_file = $exonerate->write_seq_file();
-	if($seq_file){
-		$exonerate->initialise($seq_file);
-		my $ace_text = $exonerate->run or return;
-		# delete query file
-		unlink $seq_file;
-		$self->top->Busy;
-		# Need to add new method to collection if we don't have it already
-    	my $coll = $exonerate->AceDatabase->MethodCollection;
-    	my $coll_zmap = $self->XaceSeqChooser->Assembly->MethodCollection;
-    	my $method = $exonerate->ace_Method;
-    	unless ($coll->get_Method_by_name($method->name) ||
-    			$coll_zmap->get_Method_by_name($method->name)) {
-        	$coll->add_Method($method);
-        	$coll_zmap->add_Method($method);
-        	$self->XaceSeqChooser->save_ace($coll->ace_string());
-    	}
+	my %seqs_by_type = ();
 
-		$self->XaceSeqChooser->save_ace($ace_text);
-		$self->XaceSeqChooser->zMapWriteDotZmap;
+	for my $seq (@$seqs) {
+
+		if ($seq->type &&
+			($seq->type eq 'EST' ||
+			 $seq->type eq 'mRNA' ||
+			 $seq->type eq 'Protein')) {
+			push @{ $seqs_by_type{$seq->type} }, $seq;
+		}
+		elsif ($seq->sequence_string =~ /^[AGCTNagctn\s]*$/) {
+			push @{ $seqs_by_type{Unknown_DNA} }, $seq;
+		}
+		else {
+			push @{ $seqs_by_type{Unknown_Protein} }, $seq;
+		}
+	}
+
+	$self->top->Busy;
+
+	my $need_relaunch = 0;
+
+	for my $type (keys %seqs_by_type) {
+
+		print STDOUT "Running exonerate for sequence(s) of type: $type\n";
+
+		my $score    = $type =~ /Protein/ ? $PROT_SCORE : $DNA_SCORE;
+		my $ana_name = $type =~ /^Unknown/ ? $type : "OTF_$type";
+		my $dnahsp   = $DNAHSP;
+		my $best_n   = $self->get_entry('bestn');
+
+		my $exonerate = Bio::Otter::Lace::Exonerate->new;
+		$exonerate->AceDatabase($self->XaceSeqChooser->AceDatabase);
+		$exonerate->genomic_seq($self->XaceSeqChooser->Assembly->Sequence);
+		$exonerate->query_seq($seqs_by_type{$type});
+		$exonerate->query_type($type =~ /Protein/ ? 'protein' : 'dna');
+		$exonerate->score($score);
+		$exonerate->dnahsp($dnahsp);
+		$exonerate->bestn($best_n);
+		$exonerate->method_tag($ana_name);
+		$exonerate->logic_name($ana_name);
+
+		my $seq_file = $exonerate->write_seq_file();
+
+		if ($seq_file) {
+			$exonerate->initialise($seq_file);
+			my $ace_text = $exonerate->run;
+			# delete query file
+			unlink $seq_file;
+
+			next unless $ace_text;
+
+			$need_relaunch = 1;
+
+			# Need to add new method to collection if we don't have it already
+	    	my $coll = $exonerate->AceDatabase->MethodCollection;
+	    	my $coll_zmap = $self->XaceSeqChooser->Assembly->MethodCollection;
+	    	my $method = $exonerate->ace_Method;
+	    	unless ($coll->get_Method_by_name($method->name) ||
+	    			$coll_zmap->get_Method_by_name($method->name)) {
+	        	$coll->add_Method($method);
+	        	$coll_zmap->add_Method($method);
+	        	$self->XaceSeqChooser->save_ace($coll->ace_string());
+	    	}
+
+			$self->XaceSeqChooser->save_ace($ace_text);
+			$self->XaceSeqChooser->zMapWriteDotZmap;
+		}
+	}
+
+	if ($need_relaunch) {
 		$self->XaceSeqChooser->resync_with_db();
 		$self->XaceSeqChooser->zMapLaunchZmap;
-		$self->top->Unbusy;
+	}
+
+	$self->top->Unbusy;
+
+	if ($need_relaunch) {
+    	return 1;
+	} else {
+	    $self->top->messageBox(
+	        -title      => 'No matches',
+	        -icon       => 'warning',
+	        -message    => 'Exonerate did not find any matches on genomic sequence',
+	        -type       => 'OK',
+	        );
+	    return 0;
 	}
 }
 
@@ -492,48 +441,126 @@ my $seq_tag = 1;
 
 sub get_query_seq {
 	my ($self) = @_;
-	my @seq;
-	if ( $self->get_entry('match') ) {
-		my @accessions = split /\,|\;/, $self->get_entry('match');
-		if (@accessions) {
-			push @seq, Hum::Pfetch::get_Sequences(@accessions);
-		}
-	}
+	my @seqs;
+
+	# get seqs from fasta file and text box
+
 	if ( my $string = $self->fasta_txt->get( '1.0', 'end' ) ) {
-		if( $string =~ /\S/ && !($string =~ />/)) {
-			$string = ">Unknow_$seq_tag\n".$string; $seq_tag++;
-			push @seq, Hum::FastaFileIO->new_String_IO($string)->read_all_sequences;
+		if ($string =~ /\S/ and $string !~ />/) {
+			print "creating new seq tag num: $seq_tag\n";
+			$string = ">OTF_seq_$seq_tag\n" . $string;
+			$seq_tag++;
 		}
+		push @seqs, Hum::FastaFileIO->new_String_IO($string)->read_all_sequences;
 	}
 	if ( $self->get_entry('fasta_file') ) {
-		push @seq, Hum::FastaFileIO->new( $self->get_entry('fasta_file') )
-		  ->read_all_sequences;
+		push @seqs, Hum::FastaFileIO->new( $self->get_entry('fasta_file') )
+		  	->read_all_sequences;
 	}
-	return \@seq;
-}
 
-sub name_start_end_from_fMap_blue_box {
-	my ($self) = @_;
-	my $tk = $self->top;
-	my $text = $self->get_clipboard_text or return;
+	my @accessions = map { $_->name } @seqs;
 
-	#warn "clipboard: $text";
-	# Match fMap "blue box"
-	if ( $text =~
-/^(?:<?(?:Protein|Sequence)[:>]?)?\"?([^\"\s]+)\"?\s+-?(\d+)\s+-?(\d+)\s+\(\d+\)/
-	  )
-	{
-		my $name  = $1;
-		my $start = $2;
-		my $end   = $3;
-		( $start, $end ) = ( $end, $start ) if $start > $end;
+	# get seqs from accession numbers supplied by the user
 
-		#warn "Got ($name, $start, $end)";
-		return ( $name, $start, $end );
+	my @supplied_accs;
+
+	if (my $txt = $self->get_entry('match')) {
+		@supplied_accs = split(/[,;\|\s]+/, $txt);
+		push @accessions, @supplied_accs;
 	}
-	else {
-		return;
+
+	# identify the types of all the accessions supplied
+
+    my $client = $self->XaceSeqChooser->AceDatabase->Client;
+
+    my $types = $client->get_accession_types(@accessions);
+
+	# add type and full accession information to the existing sequences
+
+	for my $seq (@seqs) {
+		if ($types->{$seq->name}) {
+			my ($type, $full_acc) = @{ $types->{$seq->name} };
+			$seq->type($type);
+			$seq->name($full_acc);
+		}
 	}
+
+	# map between the corrected and supplied accessions
+
+	my %correct_to_supplied = ();
+
+	map { $correct_to_supplied{ $types->{$_}->[1] || $_ } = $_ } @supplied_accs;
+
+	# build a list of all the correct accessions for pfetch
+
+	my @correct_accs = map { $types->{$_}->[1] || $_ } @supplied_accs;
+
+	my $remapped_msg = '';
+
+	my %seq_fetched = map { $_ => 0 } @correct_accs;
+
+	if (@correct_accs) {
+
+		# and pfetch the remaining sequences using the corrected accessions
+		
+		for my $seq (Hum::Pfetch::get_Sequences(@correct_accs)) {
+
+			# add the type information to the sequence
+
+			$seq->type($types->{ $correct_to_supplied{$seq->name} }->[0]);
+			push @seqs, $seq;
+
+			# flag to the user that we changed the accession if necessary
+
+			unless ($seq->name =~ $correct_to_supplied{$seq->name}) {
+				$remapped_msg .= "  ".$correct_to_supplied{$seq->name}.
+								 " to ".$seq->name."\n";
+			}
+			
+			# and flag that we have found a sequence for this accession
+			
+			$seq_fetched{$seq->name} = 1;
+		}
+	}
+	
+	# build a list of accessions we didn't find anything for
+
+	my $missing_msg = '';
+	
+	map { $missing_msg .= "\t$_\n" unless $seq_fetched{$_} } @correct_accs;
+
+	$missing_msg = "I did not find any sequences for the following accessions:\n\n" . $missing_msg 
+		if $missing_msg;
+
+	# tell the user about any missing sequences or remapped accessions
+
+	if ($missing_msg || $remapped_msg) {
+
+		$remapped_msg = "The following supplied accessions have been ".
+						"mapped to more recent accessions\n\n".$remapped_msg
+							if $remapped_msg;
+
+		$missing_msg .= "\n" if ($missing_msg && $remapped_msg);
+
+		$self->top->messageBox(
+	        -title      => 'Problems with accessions supplied',
+	        -icon       => 'warning',
+	        -message    => $missing_msg.$remapped_msg,
+	        -type       => 'OK',
+		);
+	}
+
+
+	# lower case query polyA/T tails to avoid spurious exons
+	
+	foreach my $seq (@seqs) {
+		my $s = $seq->uppercase;
+		$s =~ s/(^T{6,}|A{6,}$)/lc($1)/ge;
+
+		$seq->sequence_string($s);
+	}
+
+	return \@seqs;
 }
 
 sub DESTROY {

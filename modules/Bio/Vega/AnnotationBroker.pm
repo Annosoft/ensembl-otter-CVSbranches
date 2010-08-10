@@ -84,7 +84,7 @@ sub translations_diff {
             ##Remember to uncomment this after loading and remove the line/s after
             #	throw('translation stable_ids of the same two transcripts are different\n');
             #
-            
+
             my $existing_translation=$self->db->get_TranslationAdaptor->fetch_by_stable_id($translation->stable_id);
             if($existing_translation){
                 throw ("new translation stable_id(".$translation->stable_id
@@ -132,12 +132,11 @@ sub translations_diff {
 
 sub exons_diff {
   my ($self, $transcript, $shared_exons) = @_;
-  
-  ### DANGER: This code depends on get_all_Exons() returning
-  ### a ref to the actual list of exons in the object 
-  my $actual_exon_list = $transcript->get_all_Exons;
+
+  # Get a ref to the actual list of exons in the object
+  my $actual_exon_list = $transcript->get_all_Exons_ref;
   my $transl = $transcript->translation;
-  
+
   ### Why pass in $shared_exons as an argument?  Shouldn't it be a property of the AnnotationBroker?
 
   my $exons_any_changes = 0;
@@ -174,7 +173,7 @@ sub exons_diff {
             $exon->modified_date($self->current_time);
 
             # has the sequence of the exon changed?
-            my $seq_diff = $db_exon->seq() ne $exon->seq();
+            my $seq_diff = $db_exon->seq()->seq ne $exon->seq()->seq;
             $exon->version($db_exon->version + $seq_diff);
             $exons_any_changes   = 1;
             $exons_seq_changes ||= $seq_diff;
@@ -199,7 +198,7 @@ sub exons_diff {
     if (! $shared_exons->{$exon->stable_id}) {
         $shared_exons->{$exon->stable_id} = $exon;
     }
-    
+
     # If we have used an exon from the database, we must
     # check to see if the translation uses it.
     if ($transl and $exon != $save_exon) {
@@ -210,7 +209,7 @@ sub exons_diff {
             $transl->end_Exon($exon);
         }
     }
-    
+
   }
 
   return ($exons_any_changes, $exons_seq_changes);
@@ -243,37 +242,6 @@ sub hide_unused_exons {
     }
 }
 
-sub compare_synonyms_add {
-    my ($self,$db_obj,$obj)=@_;
-
-    my $db_name_attrib = $db_obj->get_all_Attributes('name');
-    my $db_name = $db_name_attrib && $db_name_attrib->[0] && $db_name_attrib->[0]->value();
-
-    my $name_attrib = $obj->get_all_Attributes('name');
-    my $name = $name_attrib && $name_attrib->[0] && $name_attrib->[0]->value();
-
-    if(!$db_name or ($db_name eq $name)) {
-        return;
-    }
-
-    my %synonym =  map {$_->value, $_} @{ $obj->get_all_Attributes('synonym') };
-    if (!exists $synonym{$db_name}){
-        $obj->add_Attributes( $self->make_Attribute('synonym','Synonym','',$db_name) );
-    }
-}
-
-sub make_Attribute {
-  my ($self,$code,$name,$description,$value) = @_;
-  my $attrib = Bio::EnsEMBL::Attribute->new
-	 (
-	  -CODE => $code,
-	  -NAME => $name,
-	  -DESCRIPTION => $description,
-	  -VALUE => $value
-	 );
-  return $attrib;
-}
-
 	 ##check to see if the start_Exon,end_Exon has been assigned right after comparisons
 	 ##this check is needed since we reuse exons
      #
@@ -286,7 +254,7 @@ sub check_start_and_end_of_translation {
         return 0;
     }
 
-	my $exons=$transcript->get_all_Exons;
+	my $exons=$transcript->get_all_Exons_ref;
 
     #make sure that the start and end exon are set correctly
     my $start_exon = $translation->start_Exon();
@@ -370,7 +338,6 @@ sub transcripts_diff {
         $tran->created_date($db_transcript->created_date);
 
         if($this_transcript_any_changes) {
-            $self->compare_synonyms_add($db_transcript,$tran);
             $tran->is_current(1);
             $tran->modified_date($self->current_time);
 

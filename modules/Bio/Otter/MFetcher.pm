@@ -1,3 +1,4 @@
+
 package Bio::Otter::MFetcher;
 
 # Previously a part of ServerScriptSupport,
@@ -9,10 +10,9 @@ package Bio::Otter::MFetcher;
 
 use strict;
 use warnings;
-use Carp qw{ confess longmess };
+use Carp qw{ longmess };
 
 use Bio::EnsEMBL::DBSQL::DBAdaptor;
-use Bio::Otter::DBSQL::DBAdaptor;
 use Bio::Vega::DBSQL::DBAdaptor;
 
 use base ('Bio::Otter::SpeciesDat');
@@ -28,7 +28,7 @@ sub new { # just to make it possible to instantiate an object
     # to be overloaded by ServerScriptSupport
 sub dataset_name {
     my( $self, $dataset_name ) = @_;
-    
+
     if($dataset_name) {
         $self->{'_dataset_name'} = $dataset_name;
     }
@@ -93,7 +93,7 @@ sub otter_dba {
         };
         $self->error_exit("Failed opening dna database [$@]") if $@;
         $odba->dnadb($dnadb);
-        
+
         $self->log("Connected to dna database");
     }
 
@@ -173,7 +173,7 @@ sub satellite_dba {
     while( my ($k,$v) = each %anycase_options) {
         $uppercased_options{uc($k)} = $v;
     }
-    
+
     $self->error_exit("No connection parameters for '$metakey' in otter database")
         unless (keys %uppercased_options);
 
@@ -190,7 +190,7 @@ sub satellite_dba {
     return $self->{_sdba}{$metakey} = $sdba;
 }
 
-sub get_slice { # codebase-independent version for scripts
+sub get_slice {
     my ($self, $dba, $cs, $name, $type, $start, $end, $csver) = @_;
 
     my $slice;
@@ -201,16 +201,15 @@ sub get_slice { # codebase-independent version for scripts
         $csver = 'Otter';
     }
 
-        # The following statement ensures
-        # that we use 'assembly type' as the chromosome name
-        # only for Otter chromosomes.
-        # EnsEMBL chromosomes will have simple names.
-    my ($segment_attr, $segment_name);
-    ($segment_attr, $segment_name) = (($cs eq 'chromosome') && ($csver eq 'Otter'))
+    # The following statement ensures
+    # that we use 'assembly type' as the chromosome name
+    # only for Otter chromosomes.
+    # EnsEMBL chromosomes will have simple names.
+    my ($segment_attr, $segment_name) = (($cs eq 'chromosome') && ($csver eq 'Otter'))
         ? ('type', $type)
         : ('name', $name);
 
-    $self->error_exit("$cs '$segment_attr' attribute not set ") unless $segment_name;
+    $self->error_exit("$cs '$segment_attr' attribute not set") unless $segment_name;
 
     $slice =  $dba->get_SliceAdaptor()->fetch_by_region(
         $cs,
@@ -220,13 +219,41 @@ sub get_slice { # codebase-independent version for scripts
         1,      # somehow strand parameter is needed
         $csver,
     );
+    
+    # $self->check_slice($slice);
 
-    if(not $slice) {
+    unless ($slice) {
         $self->log('Could not get a slice, probably not (yet) loaded into satellite db');
         $self->return_emptyhanded();
     }
 
     return $slice;
+}
+
+sub check_slice {
+    my ($self, $slice) = @_;
+    
+    my $slice_projection = $slice->project('contig');
+
+    my (%contig_strand, @both_strands_used);
+    foreach my $seg (@$slice_projection) {
+        my $contig_slice = $seg->to_Slice();
+        my $name    = $contig_slice->seq_region_name;
+        my $strand  = $contig_slice->strand;
+        if (my $ns = $contig_strand{$name}) {
+            if ($ns ne 'BOTH' and $ns != $strand) {
+                push(@both_strands_used, $name);
+                $contig_strand{$name} = 'BOTH';
+            }
+        }
+        else {
+            $contig_strand{$name} = $strand;
+        }
+    }
+    if (@both_strands_used) {
+        my $ctg = @both_strands_used == 1 ? 'this contig uses' : 'these contigs use';
+        $self->error_exit("Smap will fail because $ctg both strands in the assembly: @both_strands_used");
+    }
 }
 
 sub return_emptyhanded { # we probably only want to know about it only if using MFetcher directly,
@@ -238,33 +265,45 @@ sub return_emptyhanded { # we probably only want to know about it only if using 
 }
 
 sub otter_assembly_equiv_hash { # $self->{_aeh}{NCBI36}{11} = 'chr11-02';
-    my $self = shift @_;
+    my $self = shift;
 
-    if(my $aeh = $self->{_aeh}) {
+    if (my $aeh = $self->{'_aeh'}) {
         return $aeh;
     }
 
     my $edba = $self->satellite_dba( 'equiv_asm_db' ); # the value is either '=otter' (for new schema)
                                                        # or '=pipeline' (for old schema DB with new schema pipeline)
     my $sql = qq{
-        SELECT ae_val.value, cn_val.value, sr.name
-          FROM seq_region sr, seq_region_attrib ae_val, seq_region_attrib cn_val, attrib_type ae_at, attrib_type cn_at
-         WHERE sr.seq_region_id=ae_val.seq_region_id
-           AND sr.seq_region_id=cn_val.seq_region_id
-           AND ae_val.attrib_type_id=ae_at.attrib_type_id
-           AND cn_val.attrib_type_id=cn_at.attrib_type_id
-           AND ae_at.code='equiv_asm'
-           AND cn_at.code='chr'
-    };
+        SELECT ae_val.value
+          , cn_val.value
+          , sr.name
+        FROM seq_region sr
+          , seq_region_attrib ae_val
+          , seq_region_attrib cn_val
+          , seq_region_attrib hi_val
+          , attrib_type ae_at
+          , attrib_type cn_at
+          , attrib_type hi_at
+        WHERE sr.seq_region_id = ae_val.seq_region_id
+          AND ae_val.attrib_type_id = ae_at.attrib_type_id
+          AND ae_at.code = 'equiv_asm'
+          AND sr.seq_region_id = cn_val.seq_region_id
+          AND cn_val.attrib_type_id = cn_at.attrib_type_id
+          AND cn_at.code = 'chr'
+          AND hi_at.code = 'hidden'
+          AND hi_val.attrib_type_id = hi_at.attrib_type_id
+          AND sr.seq_region_id = hi_val.seq_region_id
+          AND hi_val.value = 0
+        };
 
     my $sth = $edba->dbc()->prepare($sql);
     $sth->execute();
 
-    my %aeh = ();
+    my $aeh = $self->{'_aeh'} = {};
     while( my ($equiv_asm, $equiv_chr, $atype) = $sth->fetchrow()) {
-        $aeh{$equiv_asm}{$equiv_chr} = $atype;
+        $aeh->{$equiv_asm}{$equiv_chr} = $atype;
     }
-    return $self->{_aeh} = \%aeh;
+    return $aeh;
 }
 
 sub otter_assembly_mapping_hash { ## $self->{_amh}{NCBIM37}{11} = 'chr11-07';
@@ -321,7 +360,7 @@ sub init_csver {
     }
 }
 
-    # fetch things from Otter chromosome and map it to another assembly
+    # fetch things from Otter chromosome and map them to another assembly
 sub fetch_and_export {
     my ($self, $fetching_method, $call_parms,
         $cs, $name, $type, $start, $end, $csver_orig, $csver_target,
@@ -332,19 +371,19 @@ sub fetch_and_export {
 
     my $orig_features = $original_slice->$fetching_method(@$call_parms) || die "Could not fetch anything";
 
-    if($self->otter_assembly_equiv_hash()->{$csver_target}{$name} eq $type) {
+    if ($self->otter_assembly_equiv_hash()->{$csver_target}{$name} eq $type) {
         # no transformation is needed:
 
         return $orig_features;
 
-        # do the transformation if it is needed:
     } else {
+        # do the transformation if it is needed:
 
         my $mapper_metakey = "mapper_db.${csver_target}";
-        if(my $mdba = $self->satellite_dba($mapper_metakey) ) {
+        if (my $mdba = $self->satellite_dba($mapper_metakey) ) {
             my $original_slice_on_mapper = $self->get_slice($mdba, $cs, $name, $type, $start, $end, $csver_orig);
 
-            my @transformed_features = ();
+            my $transformed_features = [];
 
             foreach my $orig_feature (@$orig_features) {
 
@@ -356,20 +395,20 @@ sub fetch_and_export {
                 }
 
                 if( my $target_feature = $orig_feature->transform($cs, $csver_target) ) {
-                    push @transformed_features, $target_feature;
-                    warn "Transformed $csver_orig:".$orig_feature->start().'..'.$orig_feature->end()
+                    push @$transformed_features, $target_feature;
+                    warn "Transformed $csver_orig:".$original_slice_on_mapper->name.":".$orig_feature->start().'..'.$orig_feature->end()
                         ." --> $csver_target:".$target_feature->start().'..'.$target_feature->end()."\n";
                 } else {
-                    warn "Could not transform the feature ".$orig_feature->start().'..'.$orig_feature->end();
+                    warn "Could not transform the feature ".$original_slice_on_mapper->name." ".
+		          $orig_feature->start().'..'.$orig_feature->end();
                 }
             }
 
-            return \@transformed_features;
+            return $transformed_features;
 
         } else {
             die "Can't connect to the mapper ($mapper_metakey)";
         }
-
     }
 }
 
@@ -400,7 +439,7 @@ sub map_remote_slice_back {
         );
 
         return [ $local_slice ];
-        
+
     } else {
         # otherwise perform the mapping back:
 
@@ -492,18 +531,51 @@ sub fetch_mapped_features {
             my $proj_segments_on_mapper;
             eval {
                 $proj_segments_on_mapper = $original_slice_on_mapper->project( $cs, $csver_remote );
+                # Try to map to scaffold if coordinate system exists and mapping to chromosome failed
+                # allow getting ensembl objects from Zfish scaffolds
+                if(!@$proj_segments_on_mapper && $mdba->get_CoordSystemAdaptor->fetch_by_name('scaffold',$csver_remote)) {
+					$proj_segments_on_mapper = $original_slice_on_mapper->project( 'scaffold', $csver_remote );
+                }
             };
-            if($@
-               || (!scalar(@$proj_segments_on_mapper))
-            ) {
-                die "Unable to project: $type:$csver_orig($start..$end)->$csver_remote. Check the mapping.";
+            if ($@ || ! @$proj_segments_on_mapper) {
+                die "Unable to project: $type:$csver_orig($start..$end)->$csver_remote. Check the mapping.\n$@";
             }
             $self->log("Found ".scalar(@$proj_segments_on_mapper)." projection segments on mapper when projecting to $cs:$csver_remote");
 
+	    # group the projected slices by their chromosome and,
+	    # for each chromosome, calculate the endpoints of the
+	    # slice that just covers all the projected slices on
+	    # that chromosome
+
+	    my $amalgamated_endpoints = { };
+	    my $proj_slices_on_mapper;
+
+	    foreach my $segment (@$proj_segments_on_mapper) {
+		my $slice = $segment->to_Slice;
+		my $chromosome = $slice->seq_region_name;
+		my $start0 = $amalgamated_endpoints->{$chromosome}[0];
+		my $start1 = $slice->start;
+		my $end0 = $amalgamated_endpoints->{$chromosome}[1];
+		my $end1 = $slice->end;
+		$amalgamated_endpoints->{$chromosome}[0] = $start1 unless
+		    defined $start0 && $start0 <= $start1;
+		$amalgamated_endpoints->{$chromosome}[1] = $end1 unless
+		    defined $end0 && $end0 >= $end1;
+	    }
+
+	    # create the amalgamated slices
+	    my $strand = $original_slice_on_mapper->strand;
+	    my $adaptor = $original_slice_on_mapper->adaptor;
+	    $proj_slices_on_mapper = [ map {
+		my $seq_region_name = $_;
+		my ( $start, $end ) = @{$amalgamated_endpoints->{$_}};
+		$adaptor->fetch_by_region($cs, $seq_region_name,
+					  $start, $end, $strand, $csver_remote,);
+	    } keys %$amalgamated_endpoints ];
+
             if($das_style_mapping) { # In this mode there is no target_db involved.
                                      # Features are put directly on the mapper target slice and then mapped back.
-                foreach my $segment (@$proj_segments_on_mapper) {
-                    my $projected_slice_on_mapper = $segment->to_Slice();
+                foreach my $projected_slice_on_mapper (@$proj_slices_on_mapper) {
 
                     my $target_fs_on_mapper_segment
                         = $projected_slice_on_mapper->$fetching_method(@$call_parms);
@@ -511,7 +583,7 @@ sub fetch_mapped_features {
                     $self->log('***** : '.scalar(@$target_fs_on_mapper_segment)." ${feature_name}s created on the slice");
 
                     while (my $target_feature = shift @$target_fs_on_mapper_segment) {
-                        my $fname = sprintf( "%s [%d..%d]", 
+                        my $fname = sprintf( "%s [%d..%d]",
                                             $target_feature->display_id(),
                                             $target_feature->start(),
                                             $target_feature->end() );
@@ -531,8 +603,7 @@ sub fetch_mapped_features {
                 my $sdba = $self->satellite_dba( $metakey );
                 my $sa_on_target = $sdba->get_SliceAdaptor();
 
-                SEGMENT: foreach my $segment (@$proj_segments_on_mapper) {
-                    my $projected_slice_on_mapper = $segment->to_Slice();
+                SEGMENT: foreach my $projected_slice_on_mapper (@$proj_slices_on_mapper) {
 
                     my $target_slice_on_target = $sa_on_target->fetch_by_region(
                         $projected_slice_on_mapper->coord_system()->name(),
@@ -567,8 +638,7 @@ sub fetch_mapped_features {
                     $self->log('***** : '.scalar(@$target_fs_on_target_segment)." ${feature_name}s found on the slice $metakey:".$target_slice_on_target->start().'..'.$target_slice_on_target->end());
 
                     # foreach my $target_feature (@$target_fs_on_target_segment) {
-                    ## this is supposed to be faster:
-                    #
+                    # This is supposed to be faster:
                     while (my $target_feature = shift @$target_fs_on_target_segment) {
 
                         if($target_feature->can('propagate_slice')) {
@@ -577,7 +647,7 @@ sub fetch_mapped_features {
                             $target_feature->slice($projected_slice_on_mapper);
                         }
 
-                        my $fname = sprintf( "%s [%d..%d]", 
+                        my $fname = sprintf( "%s [%d..%d]",
                                             $target_feature->display_id(),
                                             $target_feature->start(),
                                             $target_feature->end() );

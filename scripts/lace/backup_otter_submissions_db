@@ -1,4 +1,7 @@
-#!/usr/local/bin/perl -w
+#!/usr/bin/env perl
+
+use warnings;
+
 
 ### backup_all_otter_submissions_databases from otterslave and archive on cbi1
 ### running this script as a cron job on cbi1
@@ -10,14 +13,18 @@ use Net::Netrc;
 
 {
     umask(002);
-    {
-        my $path = $ENV{'PATH'};
-        $ENV{'PATH'} = "/usr/local/mysql-standard-4.1.14-dec-osf5.1b-alphaev67/bin:usr/local/bin:/usr/apps/bin:$path";
-    }
 
-    my $host = 'otterslave';
+    my $host = 'otterlive';
+    my $port = '3301';
     my $mach = Net::Netrc->lookup($host);
-    my $port = '3311';
+    my $user = $mach->login;
+    my $password = $mach->password;
+
+    my $dbh = DBI->connect(
+        "DBI:mysql:host=$host:port=$port",
+        $user, $password, {RaiseError => 1});
+    my $dbs = list_otter_databases($dbh);
+
     my $base_dir = '/lustre/cbi4/work1/humpub/data/mysql_backup/otter_submissions';
     my $archive_dir = "$base_dir/OTTER_SUBMISSIONS_ARCHIVE";
 
@@ -26,13 +33,6 @@ use Net::Netrc;
     my $working_dir = "$base_dir/$date_dir";
     mkdir($working_dir) or die "Can't create '$working_dir' directory : $!";
     chdir($working_dir) or die "Can't chdir to '$working_dir' : $!";
-    my $user = $mach->login;
-    my $password = $mach->password;
-
-    my $dbh = DBI->connect(
-        "DBI:mysql:host=$host:port=3311",
-        $user, $password, {RaiseError => 1});
-    my $dbs = list_otter_databases($dbh);
   
     # As all tables are Innodb skip locking with single transaction would give
     # a consistent backup
