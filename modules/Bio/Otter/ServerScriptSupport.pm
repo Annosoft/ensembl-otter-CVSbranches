@@ -221,7 +221,15 @@ sub internal_user {
 }
 
 sub local_user {
-    return $ENV{'localuser'} =~ /local/ ? 1 : 0;
+    # Pre-2010-10, behind the Apache front-end reverse proxies.  It
+    # seems they set HTTP_CLIENTREALM=localuser
+    return 1 if $ENV{'localuser'} =~ /local/;
+
+    # Behind the Zeus (zxtm) reverse proxies.  We think this is
+    # equivalent to the old localuser.  See RT #190390.
+    return 1 if $ENV{'sanger'} eq 'sanger';
+
+    return 0;
 }
 
 sub show_restricted_datasets {
