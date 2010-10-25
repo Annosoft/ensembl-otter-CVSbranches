@@ -255,16 +255,15 @@ sub log {
 sub send_response{
     my ($self, $response, $wrap) = @_;
 
+    $response = wrap_response($response) if $wrap;
+
     print $self->header(
         -status => 200,
         -type   => 'text/plain',
+        -content_length => length($response),
         );
 
-    if ($wrap) {
-        print $self->wrap_response($response);
-    } else {
-        print $response;
-    }
+    print $response;
 }
 
 sub wrap_response {
@@ -282,6 +281,7 @@ sub unauth_exit {
     print $self->header(
         -status => 403,
         -type   => 'text/plain',
+        -content_length => length($reason),
         ), $reason;
     exit(1);
 }
@@ -291,11 +291,13 @@ sub error_exit {
 
     chomp($reason);
 
+    my $response = $self->wrap_response(" <response>\n    ERROR: $reason\n </response>\n");
     print $self->header(
         -status => 417,
         -type   => 'text/plain',
+        -content_length => length($response),
         ),
-      $self->wrap_response(" <response>\n    ERROR: $reason\n </response>\n");
+      $response;
     $self->log("ERROR: $reason\n");
 
     exit(1);
