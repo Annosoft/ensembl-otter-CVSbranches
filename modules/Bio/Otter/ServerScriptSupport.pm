@@ -255,7 +255,7 @@ sub log {
 sub send_response{
     my ($self, $response, $wrap) = @_;
 
-    $response = wrap_response($response) if $wrap;
+    $response = $self->wrap_response($response) if $wrap;
 
     print $self->header(
         -status => 200,
