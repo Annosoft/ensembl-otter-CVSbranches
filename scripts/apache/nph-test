@@ -3,8 +3,8 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2010-02-09 17:23:17 $
-# Id:            $Id: nph-test,v 1.20 2010-02-09 17:23:17 jh13 Exp $
+# Last modified: $Date: 2010-10-28 09:29:52 $
+# Id:            $Id: nph-test,v 1.20.2.1 2010-10-28 09:29:52 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-test,v $
 
 use strict;
@@ -38,7 +38,7 @@ $env .= sprintf "\nSangerWeb username = %s\n", $web->username;
 my $dbh = DBI->connect("DBI:mysql:database=pipe_human;host=otterslave;port=3312", "ottro", undef);
 $env .= "CONNECTED $dbh";
 
-if ($ENV{'localuser'} =~ /local/i) {
+if ($server->local_user) {
     $server->send_response($env);
 } else {
     $server->send_response("You are an external user\n");
