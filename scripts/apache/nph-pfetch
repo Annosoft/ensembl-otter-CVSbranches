@@ -3,8 +3,8 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2010-02-09 17:23:17 $
-# Id:            $Id: nph-pfetch,v 1.6 2010-02-09 17:23:17 jh13 Exp $
+# Last modified: $Date: 2010-10-28 13:38:10 $
+# Id:            $Id: nph-pfetch,v 1.6.2.1 2010-10-28 13:38:10 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-pfetch,v $
 
 use strict;
@@ -19,7 +19,10 @@ my $q;
 
 eval {
     $q = CGI->new;
-    $q->nph(1);
+
+    # XXX: remove this when nph-* are gone; should we be using ServerScriptSupport.pm ?
+    my $script = $ENV{SCRIPT_FILENAME} || $0;
+    $q->nph(1) if $script =~ m{/nph-};
     
     my $sw = SangerWeb->new({ cgi => $q });
     die "Not authorized\n"
