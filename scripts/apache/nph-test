@@ -3,8 +3,8 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2010-10-28 09:29:52 $
-# Id:            $Id: nph-test,v 1.20.2.1 2010-10-28 09:29:52 mca Exp $
+# Last modified: $Date: 2010-10-28 09:32:32 $
+# Id:            $Id: nph-test,v 1.20.2.2 2010-10-28 09:32:32 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-test,v $
 
 use strict;
@@ -26,6 +26,8 @@ my $env = "ENV:\n";
 foreach my $var (sort keys %ENV) {
     $env .= sprintf "%24s  %s\n", $var, $ENV{$var};
 }
+
+$env .= "\nCGI->nph=".($server->nph)."\n\$0=$0\n";
 
 $env .= "\nCGI param:\n";
 foreach my $var ($server->param) {
