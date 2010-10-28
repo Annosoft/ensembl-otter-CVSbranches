@@ -369,7 +369,7 @@ sub zMapWriteDotBlixemrc {
       $self->formatZmapDefaults(
         'pfetch-http',
         'pfetch-mode' => 'http',
-        'pfetch'      => $self->AceDatabase->Client->url_root . '/nph-pfetch',
+        'pfetch'      => $self->AceDatabase->Client->pfetch_url,
         'cookie-jar'  => $ENV{'OTTERLACE_COOKIE_JAR'},
         'port'        => 80,
       ),
@@ -452,7 +452,7 @@ sub zMapZMapDefaults {
         push(
             @config,
             'pfetch-mode' => 'http',
-            'pfetch'      => $self->AceDatabase->Client->url_root . '/nph-pfetch',
+            'pfetch'      => $self->AceDatabase->Client->pfetch_url,
         );
     }
     else {
