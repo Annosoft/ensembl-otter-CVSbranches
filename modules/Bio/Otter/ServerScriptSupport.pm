@@ -223,24 +223,15 @@ sub authorized_user {
     return $user;
 }
 
-sub internal_user {
-    my ($self) = @_;
-    
-    # authorized_user sets '_internal_user', and is called
-    # by new(), so this hash key will be populated.
-    return $self->{'_internal_user'};
-}
+=head2 local_user()
+
+Is the caller on the WTSI internal network?
+
+=cut
 
 sub local_user {
-    # Pre-2010-10, behind the Apache front-end reverse proxies.  It
-    # seems they set HTTP_CLIENTREALM=localuser
-    return 1 if $ENV{'localuser'} =~ /local/;
 
-    # Behind the Zeus (zxtm) reverse proxies.  We think this is
-    # equivalent to the old localuser.  See RT #190390.
-    return 1 if $ENV{'sanger'} eq 'sanger';
-
-    return 0;
+    return $ENV{'HTTP_CLIENTREALM'} =~ /sanger/ ? 1 : 0;
 }
 
 sub show_restricted_datasets {
