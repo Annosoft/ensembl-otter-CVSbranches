@@ -223,6 +223,15 @@ sub authorized_user {
     return $user;
 }
 
+sub internal_user {
+    my ($self) = @_;
+    
+    # authorized_user sets '_internal_user', and is called
+    # by new(), so this hash key will be populated.
+    return $self->{'_internal_user'};
+}
+
+
 =head2 local_user()
 
 Is the caller on the WTSI internal network?
