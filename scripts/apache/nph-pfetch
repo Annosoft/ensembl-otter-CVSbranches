@@ -3,8 +3,8 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2010-10-28 13:38:10 $
-# Id:            $Id: nph-pfetch,v 1.6.2.1 2010-10-28 13:38:10 mca Exp $
+# Last modified: $Date: 2010-11-19 11:16:50 $
+# Id:            $Id: nph-pfetch,v 1.6.2.2 2010-11-19 11:16:50 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-pfetch,v $
 
 use strict;
@@ -14,6 +14,15 @@ use SangerPaths qw{ core };
 use SangerWeb;
 use IO::Socket;
 use CGI;
+
+### We avoid these for faster turnaround of requests, but have to
+#   replicate equivalent functionality inline.
+#
+# use Bio::Otter::ServerScriptSupport;
+# use Hum::Conf qw{ PFETCH_SERVER_LIST };
+#
+# Listed here for the benefit of greppers...
+
 
 my $q;
 
@@ -48,7 +57,7 @@ eval {
 
     die "Empty request\n" unless $req =~ /\S/;
 
-    foreach my $ip_addr (qw{ 172.17.62.2 172.17.62.3 }){
+    foreach my $ip_addr (qw{ pfetch.sanger.ac.uk }){
         last if $socket = IO::Socket::INET->new(
             PeerAddr 	=> $ip_addr,
             PeerPort 	=> 22400,
