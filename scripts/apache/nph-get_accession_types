@@ -4,19 +4,20 @@
 # Author:        gr5
 # Group:         anacode
 # Maintainer:    gr5
-# Last modified: $Date: 2010-03-26 14:55:33 $
-# Id:            $Id: nph-get_accession_types,v 1.34 2010-03-26 14:55:33 gr5 Exp $
+# Last modified: $Date: 2010-11-19 11:07:30 $
+# Id:            $Id: nph-get_accession_types,v 1.34.2.1 2010-11-19 11:07:30 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_accession_types,v $
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl56 otter53 };
+use SangerPaths qw{ core bioperl123 ensembl56 otter53 humpub };
 use SangerWeb;
 use IO::Socket;
 
 use Bio::Otter::ServerScriptSupport;
 use Bio::Otter::Utils::MM;
+use Hum::Conf qw{ PFETCH_SERVER_LIST };
 
 my $server = Bio::Otter::ServerScriptSupport->new;
 
@@ -39,10 +40,11 @@ if ($@) {
     
     my $socket;
 
-    foreach my $ip_addr (qw{ 172.17.62.2 172.17.62.3 }){
+    foreach my $srv_arr (@$PFETCH_SERVER_LIST) {
+	my ($ip_addr, $port) = @$srv_arr;
         last if $socket = IO::Socket::INET->new(
             PeerAddr    => $ip_addr,
-            PeerPort    => 22400,
+            PeerPort    => $port,
             Proto       => 'tcp',
             Type        => SOCK_STREAM,
             Timeout     => 10,
