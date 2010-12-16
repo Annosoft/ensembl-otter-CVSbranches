@@ -4,27 +4,22 @@ package ToXML; # a module, but not really a class
 use strict;
 use warnings;
 use Bio::Vega::Utils::GeneTranscriptBiotypeStatus 'biotype_status2method';
+use Bio::Vega::Utils::XmlEscape qw{ xml_escape };
 
 # ----------------[simplify some formatting]----------------------
 
-sub emit_value { # just make sure it does not contain triangular brackets:
-    my $value = shift @_;
-
-    ### There are other characters that sould be escaped: & "
-    $value=~s/\>/&gt;/g;
-    $value=~s/\</&lt;/g;
-
-    return $value;
-}
-
 sub emit_opening_tag {
-    my ($tag, $offset) = (@_, 0);
+    my ($tag, $offset) = @_;
+
+    $offset ||= 0;
 
     return ( (' ' x $offset) . '<' . $tag . ">\n") ;
 }
 
 sub emit_closing_tag {
-    my ($tag, $offset) = (@_, 0);
+    my ($tag, $offset) = @_;
+
+    $offset ||= 0;
 
     return ( (' ' x $offset) . '</' . $tag . ">\n") ;
 }
@@ -37,14 +32,14 @@ sub emit_tagpair {
 
     $offset ||= 0;
 
-    return ( (' ' x $offset) . '<' . $tag . '>' . emit_value($value) . '</' . $tag . ">\n") ;
+    return ( (' ' x $offset) . '<' . $tag . '>' . xml_escape($value) . '</' . $tag . ">\n") ;
 }
 
 
 # ----------------[original Bio::EnsEMBL::... classes]--------------
 
 sub Bio::EnsEMBL::DBEntry::toXMLstring {
-    my $dbentry = shift @_;
+    my ($dbentry) = @_;
 
     my $str = '';
 
@@ -79,7 +74,7 @@ sub Bio::EnsEMBL::Gene::toXMLstring {
     my $tsct_str = '';
     foreach my $transcript (sort by_stable_id_or_name @{$gene->get_all_Transcripts}) {
         if(!$allowed_transcript_analyses_hash
-            or ($transcript->can('analysis')
+           || ($transcript->can('analysis')
                 and $allowed_transcript_analyses_hash->{$transcript->analysis()->logic_name()})
         ) {
             my $clear = ! $allowed_translation_xref_db_hash;
@@ -132,8 +127,8 @@ sub Bio::EnsEMBL::Transcript::toXMLstring {
     my ($transcript, $coord_offset, $slice_length) = @_;
 
     my $str  = emit_opening_tag('transcript', 2);
-       $str .= emit_tagpair('stable_id', $transcript->stable_id(), 4);
-	   $str .= emit_tagpair('analysis', $transcript->analysis->logic_name, 4);
+    $str .= emit_tagpair('stable_id', $transcript->stable_id(), 4);
+    $str .= emit_tagpair('analysis', $transcript->analysis->logic_name, 4);
     for my $dbentry (@{$transcript->get_all_DBEntries}) {
        $str .= $dbentry->toXMLstring();
     }
@@ -224,7 +219,7 @@ if($exon->end()<=0) { print STDERR "exon end is negative\n";}
 # ----------------[inherited Bio::Otter::... classes]--------------
 
 sub Bio::Otter::Author::toXMLstring {
-    my $author = shift @_;
+    my ($author) = @_;
 
     # my $name  = $author->name  or $author->throw("name not set");
     # my $email = $author->email or $author->throw("email not set");
@@ -239,12 +234,12 @@ sub Bio::Otter::Author::toXMLstring {
 }
 
 sub Bio::Otter::GeneInfo::toXMLstring {
-    my $ginfo = shift @_;
+    my ($ginfo) = @_;
 
     my $str = '';
     $str .= emit_opening_tag('gene_info', 2);
 
-	$str .= emit_tagpair('name', $ginfo->name() && $ginfo->name()->name(), 4);
+    $str .= emit_tagpair('name', $ginfo->name() && $ginfo->name()->name(), 4);
     $str .= emit_tagpair('known', $ginfo->known_flag, 4);
     $str .= emit_tagpair('truncated', $ginfo->truncated_flag, 4);
 
@@ -265,7 +260,7 @@ sub Bio::Otter::GeneInfo::toXMLstring {
 }
 
 sub Bio::Otter::TranscriptInfo::toXMLstring {
-    my $tinfo = shift @_;
+    my ($tinfo) = @_;
 
     my $str = '';
 
@@ -275,7 +270,7 @@ sub Bio::Otter::TranscriptInfo::toXMLstring {
         $str .= $author->toXMLstring();
     }
 
-    foreach my $remstr (sort map $_->remark, $tinfo->remark) {
+    foreach my $remstr (sort map { $_->remark } $tinfo->remark) {
         $remstr =~ s/\n/ /g;
         $str .= emit_tagpair('remark', $remstr, 6);
     }
@@ -306,17 +301,17 @@ sub Bio::Otter::TranscriptInfo::toXMLstring {
 # ----------------[back-porting the system to support Vega/Loutre genes]--------------
 
 sub Bio::Vega::Gene::toXMLstring_info {
-    my $gene = shift @_;
+    my ($gene) = @_;
 
     my $str = '';
     $str .= emit_opening_tag('gene_info', 2);
 
     my $gene_name_att = $gene->get_all_Attributes('name');
     my $gene_name = $gene_name_att->[0] ? $gene_name_att->[0]->value : '';
-	$str .= emit_tagpair('name', $gene_name, 4);
+    $str .= emit_tagpair('name', $gene_name, 4);
 
-	$str .= emit_tagpair('known', $gene->is_known || 0, 4);
-	$str .= emit_tagpair('truncated', $gene->truncated_flag, 4);
+    $str .= emit_tagpair('known', $gene->is_known || 0, 4);
+    $str .= emit_tagpair('truncated', $gene->truncated_flag, 4);
 
     if(my $synonyms = $gene->get_all_Attributes('synonym')) {
         foreach my $syn (@$synonyms){
@@ -344,7 +339,7 @@ sub Bio::Vega::Gene::toXMLstring_info {
 }
 
 sub Bio::Vega::Transcript::toXMLstring_info {
-    my $transcript = shift @_;
+    my ($transcript) = @_;
 
     my $str = '';
     $str .= emit_opening_tag('transcript_info', 4);
@@ -411,7 +406,7 @@ sub Bio::Vega::Transcript::toXMLstring_info {
 # ----------------[back-porting the system to support Vega/Loutre genes]--------------
 
 sub Bio::Vega::Author::toXMLstring {
-    my $author = shift @_;
+    my ($author) = @_;
 
     my $str = '';
     $str .= emit_opening_tag('author', 4);
