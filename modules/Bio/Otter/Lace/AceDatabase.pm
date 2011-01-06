@@ -14,6 +14,7 @@ use Bio::Vega::Transform::Otter::Ace;
 use Bio::Vega::AceConverter;
 use Bio::Vega::Transform::XML;
 
+use Bio::Otter::Lace::AccessionTypeCache;
 use Bio::Otter::Lace::PipelineDB;
 use Bio::Otter::Lace::SatelliteDB;
 use Bio::Otter::Lace::PersistentFile;
@@ -42,6 +43,15 @@ sub Client {
         $self->{'_Client'} = $client;
     }
     return $self->{'_Client'};
+}
+
+sub AccessionTypeCache {
+    my ($self) = @_;
+    
+    my $cache = $self->{'_AccessionTypeCache'}
+        ||= Bio::Otter::Lace::AccessionTypeCache->new;
+    $cache->Client($self->Client);
+    return $cache;
 }
 
 sub write_access {
@@ -578,9 +588,9 @@ sub save_filter_state {
     while ( my ($name, $value) = each %{$self->filters} ) {
         my $state_hash = $value->{state};
         for my $state (@FILTER_STATES) {
-            if ($state_hash->{$state}) {
+            if (defined(my $setting = $state_hash->{$state})) {
                 $cfg->AddSection($name) unless $cfg->SectionExists($name);
-                $cfg->newval($name, $state, 1);
+                $cfg->newval($name, $state, $setting);
             }
         }
     }
@@ -629,6 +639,21 @@ sub filters {
             };
         } @{$self->smart_slice->DataSet->filters},
     };
+}
+
+sub script_dir {    
+    my $script_dir = $ENV{'OTTER_HOME'} . '/ensembl-otter/scripts';
+    unless (-d $script_dir) {
+        $script_dir = undef;
+        foreach my $otter (grep { m{ensembl-otter/} } @INC) {
+            $otter =~ s{ensembl-otter/.+}{ensembl-otter/scripts};
+            if (-d $otter) {
+                $script_dir = $otter;
+                last;
+            }
+        }
+    }
+    return $script_dir;
 }
 
 sub gff_http_script_name {
