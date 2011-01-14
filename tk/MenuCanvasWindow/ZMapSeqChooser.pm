@@ -4,17 +4,21 @@ package MenuCanvasWindow::ZMapSeqChooser;
 
 use strict;
 use warnings;
-use Carp qw{ cluck confess };
+use Carp;
 use ZMap::Connect;
 use Sys::Hostname;
 use ZMap::XRemoteCache;
 use Data::Dumper;
 use Hum::Conf qw{ PFETCH_SERVER_LIST };
 use XML::Simple;
+use Bio::Vega::Utils::XmlEscape qw{ xml_escape };
 use File::Path 'mkpath';
 use Config::IniFiles;
 
-my $ZMAP_DEBUG = 1;
+my $ZMAP_DEBUG = $ENV{OTTERLACE_ZMAP_DEBUG};
+
+$Data::Dumper::Terse = 1;
+$Data::Dumper::Indent = 1;
 
 #==============================================================================#
 #
@@ -142,60 +146,40 @@ sub _launchInAZMap {
 
     my $xremote_cache = $self->xremote_cache;
 
-    if (my $pid_list = $xremote_cache->get_pid_list()) {
-        if (scalar(@$pid_list) == 1) {
-            my $pid = $pid_list->[0];
-            if ($self->zMapGetXRemoteClientByName($self->slice_name())) {
-                $self->message(sprintf("Already launched in zmap with pid %d", $pid));
-            }
-            elsif (my $xr = $xremote_cache->get_client_for_action_pid("new_view", $pid)) {
-                $self->zMapPID($pid);
-
-                my $sequence = $self->slice_name;
-                my $server   = $self->AceDatabase->ace_server;
-                my $protocol = 'acedb';
-
-                my $url = sprintf(q{%s://%s:%s@%s:%d?use_methods=true},
-                    $protocol, $server->user, $server->pass, $server->host, $server->port);
-
-                my $config = $self->formatZmapDefaults('ZMap', sources => "$sequence");
-                $config .= $self->zMapAceServerDefaults();
-                $config =~ s/\&/&amp;/g;    # needs fully xml escaping really
-
-                my $xml = sprintf(
-                    q!<zmap>
- <request action="new_view">
-  <segment sequence="%s" start="1" end="0">
-   %s
-  </segment>
- </request>
-</zmap>
-                                  !, $sequence, $config
-                );
-                warn $xml;
-                return unless $self->zMapDoRequest($xr, "new_view", $xml);
-
-                if ($xr = $self->zMapGetXRemoteClientByName($self->slice_name())) {
-                    $self->zMapRegisterClientRequest($xr);
-                }
-                else {
-                    cluck "Failed to find the new xremote client";
-                }
-            }
-            else {
-
-                # couldn't find a client who can new_view, probably need to
-                open_clones($self->zMapZmapConnector, $self);
-            }
-        }
-        elsif (scalar(@$pid_list) == 0) {
-            cluck "Process id list is empty. Is zmap running?";
-        }
-        else {
-            cluck "More than one process id in list, How to choose?";
-        }
+    my $pid_list = $xremote_cache->get_pid_list;
+    unless($pid_list) {
+        warn "Failed to get a process id list from the cache. Is zmap running?";
+        return;
     }
-    else { cluck "Failed to get a process id list from the cache. Is zmap running?"; }
+
+    if (@{$pid_list} < 1) {
+        warn "Process id list is empty. Is zmap running?";
+        return;
+    }
+
+    if (@{$pid_list} > 1) {
+        warn "More than one process id in list, How to choose?";
+        return;
+    }
+
+    if ($self->zMapGetXRemoteClientByName($self->slice_name)) {
+        $self->message("Already launched in a ZMap");
+        return;
+    }
+
+    my ($pid) = @{$pid_list};
+    my $xremote = $xremote_cache->get_client_for_action_pid("new_view", $pid);
+    unless ($xremote) {
+        # couldn't find a client who can new_view, probably need to
+        $self->zMapOpenClones;
+        return;
+    }
+
+    $self->zMapPID($pid);
+    my $config =
+        $self->formatZmapDefaults('ZMap', sources => $self->slice_name)
+        . $self->zMapAceServerDefaults();
+    $self->zMapNewView($xremote, $config);
 
     return;
 }
@@ -215,10 +199,10 @@ sub zMapSendCommands {
     for(my $i = 0; $i < @xml; $i++){
         my ($status, $xmlHash) = zMapParseResponse($a[$i]);
         if ($status =~ /^2\d\d/) { # 200s
-            print STDERR "OK\n";
+            warn "OK\n";
         } else {
             my $error = $xmlHash->{'error'}{'message'};
-            print STDERR "ERROR: $a[$i]\n$error\n";
+            warn "ERROR: $a[$i]\n$error\n";
             $self->xremote_cache->remove_clients_to_bad_windows();
             die $error;
         }
@@ -583,7 +567,8 @@ sub zMapZMapDefaults {
     my $show_mainwindow =
         $self->AceDatabase->Client->config_value('zmap_main_window');
 
-    my $dataset = $self->AceDatabase->smart_slice->DataSet;
+    my $slice = $self->AceDatabase->smart_slice;
+    my $dataset = $slice->DataSet;
 
     my $sources_string =
         join ' ; ',
@@ -599,10 +584,19 @@ sub zMapZMapDefaults {
 
     return $self->formatZmapDefaults(
         'ZMap',
+        ( $ENV{OTTERLACE_CHROMOSOME_COORDINATES}
+          ? (
+              'csname'            => $slice->csname,
+              'csver'             => $slice->csver,
+              'start'             => $slice->start,
+              'end'               => $slice->end,
+          )
+          : ( )
+        ),
         'sources'           => $sources_string,
         'show-mainwindow'   => ( $show_mainwindow ? 'true' : 'false' ),
         'cookie-jar'        => $ENV{'OTTERLACE_COOKIE_JAR'},
-        'script-dir'        => $ENV{'OTTER_HOME'}.'/ensembl-otter/scripts',
+        'script-dir'        => $self->AceDatabase->script_dir,
         'xremote-debug'     => $ZMAP_DEBUG ? 'true' : 'false',
         'pfetch-mode'       => ( $pfetch_www ? 'http' : 'pipe' ),
         'pfetch'            => ( $pfetch_www ? $pfetch_url : 'pfetch' ),
@@ -910,21 +904,24 @@ sub zMapHighlight {
 
     my $zc = $self->zMapZmapConnector;
 
+    my $features_hash = $xml_hash->{'request'}{'align'}{'block'}{'featureset'}{'feature'} || {};
+
     # Needs to do something interesting to find the object to highlight.
     if ($xml_hash->{'request'}->{'action'} eq 'single_select') {
         $self->deselect_all();
-        my $feature = $xml_hash->{'request'}->{'align'}->{'block'}->{'featureset'}->{'feature'} || {};
-        foreach my $name (keys(%$feature)) {
+        foreach my $name (keys(%$features_hash)) {
             $self->highlight_by_name_without_owning_clipboard($name);
         }
     }
     elsif ($xml_hash->{'request'}->{'action'} eq 'multiple_select') {
-        my $feature = $xml_hash->{'request'}->{'align'}->{'block'}->{'featureset'}->{'feature'} || {};
-        foreach my $name (keys(%$feature)) {
+        foreach my $name (keys(%$features_hash)) {
             $self->highlight_by_name_without_owning_clipboard($name);
         }
     }
     else { confess "Not a 'select' action\n"; }
+
+    my $cache = $self->AceDatabase->AccessionTypeCache;
+    $cache->cache_type_from_Zmap_XML($features_hash);
 
     return (200, $zc->handled_response(1));
 }
@@ -1013,8 +1010,6 @@ sub zmap_feature_evidence_xml {
 
     my $feat_name_is_prefixed =
         $feat_name =~ /\A[[:alnum:]]{2}:/;
-    warn sprintf "Feature name '%s' is prefixed: %s\n"
-        , $feat_name, $feat_name_is_prefixed;
 
     my $subseq_list = [];
     foreach my $name ($self->list_all_SubSeq_names) {
@@ -1093,7 +1088,7 @@ sub zMapFeaturesLoaded {
     
     my $status = $xml->{request}->{status}->{value};
     
-    print "zmap loaded featuresets: ".$xml->{request}->{featureset}->{names}." status: $status\n";   
+    warn "zmap loaded featuresets: ".$xml->{request}->{featureset}->{names}." status: $status\n";   
     
     my $msg = $xml->{request}->{status}->{message};
     
@@ -1222,7 +1217,7 @@ sub RECEIVE_FILTER {
         }
     }
 
-    warn "Response:\n$response";
+    warn "Response:\n$response" if $ZMAP_DEBUG;
 
     return ($status, $response);
 }
@@ -1255,28 +1250,22 @@ sub zMapGetXRemoteClientByAction {
     return $client;
 }
 
-# open_clones - Displays the data in  a zmap.  This is not a method on
-# self,  but  a  standalone  function  taking a  ZMap::Connect  and  a
-# MenuCanvasWindow::XaceSeqChooser.
+# This is not a method on self, but a standalone function taking a
+# ZMap::Connect and a MenuCanvasWindow::XaceSeqChooser.
 
 sub open_clones {
     my ($zmap, $self) = @_;
-
     $zmap->post_respond_handler();    # clear the handler...
+    $self->zMapOpenClones;
+    return;
+}
 
-    # first open a zmap window...
+sub zMapOpenClones {
+    my ($self) = @_;
     my $xremote = $self->zMapGetXRemoteClientByName($self->main_window_name());
     return unless $self->zMapDoRequest($xremote, "new_zmap", qq!<zmap><request action="new_zmap"/></zmap>!);
-
-    # now open a view
     $xremote = $self->zMapGetXRemoteClientByName("ZMap");
-    $self->zMapRegisterClientRequest($xremote);
-    my $xml = $zmap->open_view_request($self->slice_name);
-    return unless $self->zMapDoRequest($xremote, "new_view", $xml);
-
-    $xremote = $self->zMapGetXRemoteClientByName($self->slice_name());
-    $self->zMapRegisterClientRequest($xremote);
-
+    $self->zMapNewView($xremote);
     return;
 }
 
@@ -1325,7 +1314,7 @@ sub zMapLoadFeatures {
 
     if (my $client = $self->zMapGetXRemoteClientByAction('load_features')) {
         
-        print "Got client for load_features\n" if $ZMAP_DEBUG;
+        warn "Got client for load_features\n" if $ZMAP_DEBUG;
         
         my $xml = Hum::XmlWriter->new;
         $xml->open_tag('zmap');
@@ -1423,6 +1412,51 @@ sub zMapZoomToSubSeq {
     return;
 }
 
+my $zmap_new_view_format = <<'FORMAT'
+<zmap>
+ <request action="new_view">
+  <segment sequence="%s" start="%d" end="%d">
+%s
+  </segment>
+ </request>
+</zmap>
+FORMAT
+    ;
+
+sub zMapNewView {
+    my ($self, $xremote, $config) = @_;
+
+    $config = "" unless defined $config;
+
+    my $slice_name = $self->slice_name;
+    my $slice = $self->AceDatabase->smart_slice;
+    my @start_end =
+        ( $ENV{OTTERLACE_CHROMOSOME_COORDINATES}
+          ? ( $slice->start, $slice->end, )
+          : ( 1,             0,           )
+          );
+
+    my $xml = sprintf $zmap_new_view_format
+        , xml_escape($slice_name)
+        , @start_end
+        , xml_escape($config)
+        ;
+
+    unless ($self->zMapDoRequest($xremote, "new_view", $xml)) {
+        warn "Failed to create a new view";
+        return;
+    }
+
+    my $xremote_new = $self->zMapGetXRemoteClientByName($slice_name);
+    unless ($xremote_new) {
+        warn "Failed to find the new xremote client";
+        return;
+    }
+    $self->zMapRegisterClientRequest($xremote_new);
+
+    return;
+}
+
 =head1 zMapDoRequest
 
 return true for success
@@ -1515,7 +1549,7 @@ sub zMapProcessNewClientXML {
         }
     }
     else {
-        cluck "malformed register client xml [no window id]";
+        warn "malformed register client xml [no window id]";
     }
 
     return;
@@ -1560,7 +1594,7 @@ sub RESPONSE_HANDLER {
 
     }
     else {
-        cluck "RESPONSE_HANDLER knows nothing about how to handle actions of type '$action'";
+        warn "RESPONSE_HANDLER knows nothing about how to handle actions of type '$action'";
     }
 
     return;

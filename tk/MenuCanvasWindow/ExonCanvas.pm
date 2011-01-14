@@ -14,14 +14,13 @@ use Tk::LabFrame;
 use Tk::ComboBox;
 use Tk::SmartOptionmenu;
 use Hum::Ace::SubSeq;
-use MenuCanvasWindow;
 use Hum::Ace::DotterLauncher;
 use CanvasWindow::EvidencePaster;
 use EditWindow::PfamWindow;
 #use Evi::EviDisplay;
-use vars ('@ISA');
 use Hum::Ace;
-@ISA = ('MenuCanvasWindow');
+
+use base qw( MenuCanvasWindow );
 
 my $highlight_hydrophobic = 0;
 
@@ -1818,7 +1817,7 @@ sub make_labelled_text_widget {
 
 
     my (@tags) = $tw->bindtags;
-    warn "tags=(@tags)\n";
+    # warn "tags=(@tags)\n";
     $tw->bindtags([@tags[1, 0, 2, 3]]);
 
     $annotation_button->configure(-command => sub {

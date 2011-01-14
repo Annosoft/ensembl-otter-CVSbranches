@@ -128,7 +128,7 @@ sub initialize {
     my $tries = 1;
     $wait = 0;
     my $res;
-    until ( $tries >= $POLL_ATTEMPTS ) {
+    while ( $tries < $POLL_ATTEMPTS ) {
         $self->progress( 30 + $tries );
         $res = $pfam->poll_results($self->result_url);
         if ($res && $res =~ /<pfam/m ) {
@@ -334,8 +334,6 @@ sub initialize {
 
 sub fill_progressBar {
     my ($self, $value) = @_;
-
-    return unless $self->progress < $value;
 
     for ( my $percent = $self->progress ; $percent <= $value ; $percent++ ) {
         $self->progress($percent);
