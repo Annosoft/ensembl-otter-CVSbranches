@@ -4,12 +4,16 @@ use strict;
 use warnings;
 
 use Digest::MD5 qw(md5_hex);
-use URI::Escape qw(uri_escape);
+use URI::Escape qw(uri_escape uri_unescape);
 
 my $DEBUG   = 1;
 my $LOG     = 1;
 
-my %args = map { split(/=/) } @ARGV;
+my %args;
+foreach my $pair (@ARGV) {
+    my ($key, $val) = split /=/, $pair;
+    $args{uri_unescape($key)} = uri_unescape($val);
+}
 
 # pull off arguments meant for us
 
@@ -25,9 +29,7 @@ if ($LOG) {
     open $log_file, '>>', $log_file_name;
 }
 
-# we always want to rebase for zmap
-
-$args{rebase} = 1;
+$args{rebase} = 1 unless $ENV{OTTERLACE_CHROMOSOME_COORDINATES};
 
 # concatenate the rest of the arguments into a parameter string
 
