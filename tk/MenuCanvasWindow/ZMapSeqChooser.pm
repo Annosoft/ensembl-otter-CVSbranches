@@ -1088,7 +1088,7 @@ sub zMapFeaturesLoaded {
     
     my $status = $xml->{request}->{status}->{value};
     
-    warn "zmap loaded featuresets: ".$xml->{request}->{featureset}->{names}." status: $status\n";   
+    # warn "zmap loaded featuresets: ".$xml->{request}->{featureset}->{names}." status: $status\n";   
     
     my $msg = $xml->{request}->{status}->{message};
     
@@ -1265,6 +1265,7 @@ sub zMapOpenClones {
     my $xremote = $self->zMapGetXRemoteClientByName($self->main_window_name());
     return unless $self->zMapDoRequest($xremote, "new_zmap", qq!<zmap><request action="new_zmap"/></zmap>!);
     $xremote = $self->zMapGetXRemoteClientByName("ZMap");
+    $self->zMapRegisterClientRequest($xremote);
     $self->zMapNewView($xremote);
     return;
 }
