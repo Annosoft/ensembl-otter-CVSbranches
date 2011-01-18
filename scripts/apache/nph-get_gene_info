@@ -5,15 +5,15 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2011-01-18 13:56:28 $
-# Id:            $Id: nph-get_gene_info,v 1.4.2.2 2011-01-18 13:56:28 mca Exp $
+# Last modified: $Date: 2011-01-18 15:57:33 $
+# Id:            $Id: nph-get_gene_info,v 1.4.2.3 2011-01-18 15:57:33 jh13 Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_gene_info,v $
 
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl58 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl59 otter52 };
 
 use Bio::Otter::ServerScriptSupport;
 
