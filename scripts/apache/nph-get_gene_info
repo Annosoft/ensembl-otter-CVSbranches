@@ -5,15 +5,15 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2010-12-14 13:08:03 $
-# Id:            $Id: nph-get_gene_info,v 1.4.2.1 2010-12-14 13:08:03 jh13 Exp $
+# Last modified: $Date: 2011-01-18 13:56:28 $
+# Id:            $Id: nph-get_gene_info,v 1.4.2.2 2011-01-18 13:56:28 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_gene_info,v $
 
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl57 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl58 otter52 };
 
 use Bio::Otter::ServerScriptSupport;
 
@@ -26,10 +26,10 @@ use Bio::Otter::ServerScriptSupport;
             SELECT gnu.consortium_id
               , gsid1.stable_id
               , ga2.value as current_name
-            FROM gene_stable_id gsid1
-              , gene_stable_id gsid2
-              , gene g2
-              , gene_attrib ga2
+            FROM (gene_stable_id gsid1
+                  , gene_stable_id gsid2
+                  , gene g2
+                  , gene_attrib ga2)
             LEFT JOIN gene_name_update gnu
               ON gsid1.gene_id = gnu.gene_id
             WHERE gsid1.stable_id = gsid2.stable_id

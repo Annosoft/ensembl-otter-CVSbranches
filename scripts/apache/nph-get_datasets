@@ -3,13 +3,13 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2010-12-14 13:08:03 $
-# Id:            $Id: nph-get_datasets,v 1.23.2.1 2010-12-14 13:08:03 jh13 Exp $
+# Last modified: $Date: 2011-01-18 13:56:28 $
+# Id:            $Id: nph-get_datasets,v 1.23.2.2 2011-01-18 13:56:28 mca Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_datasets,v $
 
 use strict;
 use warnings;
-use SangerPaths qw{ core bioperl123 ensembl57 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl58 otter52 };
 use Bio::Otter::ServerScriptSupport;
 
 # For added security we don't show mysql connection details to clients outside
