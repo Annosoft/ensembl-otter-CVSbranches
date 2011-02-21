@@ -24,9 +24,9 @@ use Bio::EnsEMBL::Map::Ditag;
 use Bio::EnsEMBL::Map::DitagFeature;
 use Bio::EnsEMBL::Variation::Variation;
 use Bio::EnsEMBL::Variation::VariationFeature;
-use Bio::Otter::DnaDnaAlignFeature;
-use Bio::Otter::DnaPepAlignFeature;
-use Bio::Otter::HitDescription;
+use Bio::Vega::DnaDnaAlignFeature;
+use Bio::Vega::DnaPepAlignFeature;
+use Bio::Vega::HitDescription;
 use Bio::Vega::PredictionTranscript;
 
 use base ('Exporter');
@@ -41,7 +41,7 @@ our %LangDesc = ( ## no critic(Variables::ProhibitPackageVars)
     },
 
     'HitDescription' => {
-        -constructor => 'Bio::Otter::HitDescription',
+        -constructor => 'Bio::Vega::HitDescription',
         -optnames    => [ qw(hit_name db_name taxon_id hit_length description) ],
         -hash_by     => 'hit_name',
     },
@@ -50,10 +50,10 @@ our %LangDesc = ( ## no critic(Variables::ProhibitPackageVars)
         -optnames    => [ qw(start end strand hstart hend hstrand percent_id score cigar_string hseqname) ],
         -reference   => ['HitDescription', 'hseqname',
                                            sub{ my($af,$hd)=@_;
-                                                    bless $af,'Bio::Otter::DnaDnaAlignFeature';
+                                                    bless $af,'Bio::Vega::DnaDnaAlignFeature';
                                                     $af->{'_hit_description'} = $hd;
                                            },
-                                           sub{ my $af = shift @_;
+                                           sub{ my($af)=@_;
                                                 return $af->can('get_HitDescription') ? $af->get_HitDescription() : undef;
                                            } ],
          -call_args  => [['analysis' => undef], ['score' => undef], ['dbtype' => undef]],
@@ -64,10 +64,10 @@ our %LangDesc = ( ## no critic(Variables::ProhibitPackageVars)
         -optnames    => [ qw(start end strand hstart hend hstrand percent_id score cigar_string hseqname) ],
         -reference   => ['HitDescription', 'hseqname',
                                            sub{ my($af,$hd)=@_;
-                                                    bless $af,'Bio::Otter::DnaPepAlignFeature';
+                                                    bless $af,'Bio::Vega::DnaPepAlignFeature';
                                                     $af->{'_hit_description'} = $hd;
                                            },
-                                           sub{ my $af = shift @_;
+                                           sub{ my($af)=@_;
                                                 return $af->can('get_HitDescription') ? $af->get_HitDescription() : undef;
                                            } ],
          -call_args  => [['analysis' => undef], ['score' => undef], ['dbtype' => undef]],
@@ -128,7 +128,7 @@ our %LangDesc = ( ## no critic(Variables::ProhibitPackageVars)
         -reference   => [ 'Ditag', '', 'ditag' ],
             # group_by is used *only* by the parser for storing things in arrays in the feature_hash
             #          Hashing is similar to hash_by, but there is an additinal level of structure.
-        -group_by    => sub{ my $self=shift; return $self->ditag()->dbID().'.'.$self->ditag_pair_id();},
+        -group_by    => sub{ my ($self)=@_; return $self->ditag()->dbID().'.'.$self->ditag_pair_id();},
         -call_args   => [['ditypes', undef, qr/,/], ['analysis' => undef]],
     },
 
@@ -153,10 +153,10 @@ our %LangDesc = ( ## no critic(Variables::ProhibitPackageVars)
 
 # a Bio::EnsEMBL::Slice method to handle the dummy ExonSupportingFeature feature type
 sub Bio::EnsEMBL::Slice::get_all_ExonSupportingFeatures {
-    my $self = shift;
+    my ($self, $logic_name, $dbtype) = @_;
+
     my $load_exons = 1;
-    my $logic_name = shift;
-    my $dbtype     = shift;
+
     if(!$self->adaptor()) {
         warning('Cannot get Transcripts without attached adaptor');
         return [];
@@ -269,14 +269,14 @@ sub ParseFeatures {
     my $resplines_ref = [ split(/\n/,$$response_ref) ];
 
     foreach my $respline (@$resplines_ref) {
-        my @optvalues  = split(/\t/, $respline, -1);
+        my @respfields  = split(/\t/, $respline, -1);
 
-        unless (@optvalues) {
+        unless (@respfields) {
             confess "Blank line in output - due to newline on end of hit description?";
         }
 
 
-        my $feature_type    = shift @optvalues; # 'SimpleFeature'|'HitDescription'|...|'PredictionExon'
+        my ($feature_type, @optvalues) = @respfields; # 'SimpleFeature'|'HitDescription'|...|'PredictionExon'
         my $feature_subhash = $LangDesc{$feature_type};
 
         my $constructor = $feature_subhash->{-constructor};

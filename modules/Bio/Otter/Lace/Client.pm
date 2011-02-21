@@ -19,7 +19,6 @@ use Bio::Vega::Author;
 use Bio::Vega::ContigLock;
 
 use Bio::Otter::Lace::Defaults;
-use Bio::Otter::Lace::Locator;
 use Bio::Otter::Lace::PipelineStatus;
 use Bio::Otter::Lace::SequenceNote;
 use Bio::Otter::Lace::AceDatabase;
@@ -31,12 +30,16 @@ use Bio::Otter::Transform::CloneSequences;
 sub new {
     my( $pkg ) = @_;
 
+    my ($script) = $0 =~ m{([^/]+)$};
+    my $client_name = $script || 'otterlace';
+
     ## no critic(Variables::RequireLocalizedPunctuationVars)
 
     $ENV{'OTTERLACE_COOKIE_JAR'} ||= "$ENV{HOME}/.otter/ns_cookie_jar";
     $ENV{'BLIXEM_CONFIG_FILE'}   ||= "$ENV{HOME}/.otter/etc/blixemrc";
 
     my $new = bless {
+        _client_name     => $client_name,
         _cookie_jar_file => $ENV{'OTTERLACE_COOKIE_JAR'},
     }, $pkg;
 
@@ -103,12 +106,7 @@ sub fetch_truncated_genes {
 
 sub client_name {
     my ($self) = @_;
-    
-    my $name;
-    unless ($name = $self->{'_client_name'}) {
-        $name = $self->{'_client_name'} = Bio::Otter::Lace::Defaults::client_name();
-    }
-    return $name;
+    return $self->{'_client_name'};
 }
 
 sub debug {
@@ -329,7 +327,7 @@ sub password_prompt{
     }
     $callback = $self->{'_password_prompt_callback'} ||=
         sub {
-            my $self = shift;
+            my ($self) = @_;
             
             unless (-t STDIN) { ## no critic(InputOutput::ProhibitInteractiveTest)
                 warn "Cannot prompt for password - not attached to terminal\n";
@@ -357,7 +355,7 @@ sub fatal_error_prompt {
     
     $callback = $self->{'_fatal_error_callback'} ||=
         sub {
-            my $msg = shift;
+            my ($msg) = @_;
             die $msg;
         };
         
@@ -688,7 +686,7 @@ sub status_refresh_for_DataSet_SequenceSet{
 }
 
 sub find_string_match_in_clones {
-    my( $self, $dsname, $qnames_list, $ssname, $unhide_flag ) = @_;
+    my( $self, $dsname, $qnames_list ) = @_;
 
     my $qnames_string = join(',', @$qnames_list);
     my $ds = $self->get_DataSet_by_name($dsname);
@@ -699,8 +697,6 @@ sub find_string_match_in_clones {
         {
             'dataset'  => $dsname,
             'qnames'   => $qnames_string,
-            'unhide'   => $unhide_flag || 0,
-            defined($ssname) ? ('type' => $ssname ) : (),
         },
     );
 
@@ -708,9 +704,13 @@ sub find_string_match_in_clones {
 
     for my $line (split(/\n/,$response)) {
         my ($qname, $qtype, $component_names, $assembly) = split(/\t/, $line);
-        my $component_list = $component_names ? [ split(/,/, $component_names) ] : [];
-
-        push @results_list, Bio::Otter::Lace::Locator->new($qname, $qtype, $component_list, $assembly);
+        my $components = $component_names ? [ split(/,/, $component_names) ] : [];
+        push @results_list, {
+            qname      => $qname,
+            qtype      => $qtype,
+            components => $components,
+            assembly   => $assembly,
+        };
     }
 
     return \@results_list;
@@ -1089,7 +1089,11 @@ sub sessions_needing_recovery {
             push(@$to_recover, [$lace_dir, $mtime, $title]);
         } else {
             my $save_sub = $self->fatal_error_prompt;
-            $self->fatal_error_prompt(sub{ die shift });
+            $self->fatal_error_prompt(
+                sub {
+                    my ($msg) = @_;
+                    die $msg;
+                });
             eval {
                 # Attempt to release locks of uninitialised sessions
                 my $adb = $self->recover_session($lace_dir);
@@ -1161,9 +1165,6 @@ sub recover_session {
     $adb->reload_filter_state;
 
     my $title = $self->get_title($adb->home);
-    unless ($title =~ /^Recovered/) {
-        $title = "Recovered $title";
-    }
     $adb->title($title);
 
     return $adb;

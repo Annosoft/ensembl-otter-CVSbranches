@@ -259,11 +259,9 @@ sub reincarnate_gene {
 }
 
 sub fetch_all_versions_by_Slice_constraint {
-    my $self             = shift;
-    my $slice            = shift;
-    my $constraint       = shift || '1 = 1';    # this should not break the primitive MySQL patterns
-    my $logic_name       = shift;
-    my $load_transcripts = shift;
+    my ($self, $slice, $constraint, $logic_name, $load_transcripts) = @_;
+
+    $constraint ||= '1 = 1'; # this should not break the primitive MySQL patterns
 
     my $genes = $self->SUPER::fetch_all_by_Slice_constraint($slice, $constraint, $logic_name) || [];
 
@@ -871,21 +869,6 @@ sub fetch_all_genes_on_reference_slice {
     #my $ncbi_slice = $transformed_genes->[0]->loutre_slice;
 
     return $transformed_genes;
-}
-
-# called by MFetcher, so that the transformed genes will have exons
-sub Bio::EnsEMBL::Gene::propagate_slice {
-    my ($gene, $slice) = @_;
-
-    foreach my $transcript (@{ $gene->get_all_Transcripts() }) {
-        foreach my $exon (@{ $transcript->get_all_Exons() }) {
-            $exon->slice($slice);
-        }
-        $transcript->slice($slice);
-    }
-    $gene->slice($slice);
-
-    return;
 }
 
 1;

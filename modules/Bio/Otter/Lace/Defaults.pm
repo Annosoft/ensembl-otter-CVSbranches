@@ -75,19 +75,6 @@ sub save_deep_option {
 #
 ################################################
 
-sub client_name {
-    if (my ($script) = $0 =~ m{([^/]+)$}) {
-        return $script;
-    } else {
-        confess "Can't parse client name from '$0'";
-    }
-}
-
-sub platform_cpu {
-    my ($platform, $cpu) = (uname)[0, 4];
-    return "${platform}_$cpu";
-}
-
 
 =head1 do_getopt
 

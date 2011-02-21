@@ -5,29 +5,10 @@ package Bio::Vega::Utils::EnsEMBL2GFF;
 use strict;
 use warnings;
 
+use Bio::Vega::Utils::GFF;
+
 # This module allows conversion of ensembl/otter objects to GFF by inserting
 # to_gff (and supporting _gff_hash) methods into the necessary feature classes
-
-sub gff_header {
-    my ($name, $start, $end, $dna) = @_;
-
-    # build up a date string in the format specified by the GFF spec
-
-    my ($sec, $min, $hr, $mday, $mon, $year) = localtime;
-    $year += 1900;    # correct the year
-    $mon++;           # correct the month
-    my $date = sprintf "%4d-%02d-%02d", $year, $mon, $mday;
-
-    my $hdr =
-        "##gff-version 2\n"
-      . "##source-version EnsEMBL2GFF 1.0\n"
-      . "##date $date\n"
-      . "##sequence-region $name $start $end\n";
-
-    $hdr .= "##DNA\n##$dna\n##end-DNA\n" if $dna;
-
-    return $hdr;
-}
 
 ## no critic(Modules::ProhibitMultiplePackages)
 
@@ -48,7 +29,7 @@ sub gff_header {
         my $start = $rebase ? 1                                                : $self->start;
         my $end   = $rebase ? $self->length                                    : $self->end;
 
-        return Bio::Vega::Utils::EnsEMBL2GFF::gff_header($name, $start, $end, ($include_dna ? $self->seq : undef),);
+        return Bio::Vega::Utils::GFF::gff_header($name, $start, $end, ($include_dna ? $self->seq : undef),);
     }
 
     sub to_gff {
@@ -59,15 +40,12 @@ sub gff_header {
         # print $slice->to_gff(
         #     analyses       => ['RepeatMasker', 'vertrna'],
         #     feature_types  => ['RepeatFeatures', 'DnaAlignFeatures', 'SimpleFeatures'],
-        #     include_header => 1
         # );
 
         my ($self, %args) = @_;
 
         my $analyses = $args{analyses} || ['']; # if we're not given any analyses, search for features from all analyses
         my $feature_types  = $args{feature_types};
-        my $include_header = $args{include_header};
-        my $include_dna    = $args{include_dna};
         my $verbose        = $args{verbose};
         my $target_slice   = $args{target_slice} || $self;
         my $common_slice   = $args{common_slice};
@@ -77,10 +55,7 @@ sub gff_header {
 
         my $sources_to_types = $args{sources_to_types};
 
-        my $gff =
-            $include_header
-          ? $target_slice->gff_header(include_dna => $include_dna, rebase => $rebase, gff_seqname => $gff_seqname)
-          : '';
+        my $gff = '';
 
         # grab features of each type we're interested in
 
@@ -139,8 +114,9 @@ sub gff_header {
                         }
 
                         $gff .=
-                          $feature->to_gff(rebase => $rebase, gff_source => $gff_source, gff_seqname => $gff_seqname)
-                          . "\n";
+                            $feature->to_gff(rebase => $rebase,
+                                             gff_source => $gff_source,
+                                             gff_seqname => $gff_seqname);
 
                         if ($sources_to_types) {
 
@@ -213,8 +189,9 @@ sub gff_header {
 
             my @attrs = map { $_ . ' ' . $gff->{attributes}->{$_} } keys %{ $gff->{attributes} };
 
-            $gff_str .= "\t" . join(" ; ", @attrs);
+            $gff_str .= "\t" . join(' ; ', @attrs);
         }
+        $gff_str .= "\n";
 
         return $gff_str;
     }
@@ -286,12 +263,6 @@ sub gff_header {
 
     package Bio::EnsEMBL::FeaturePair;
 
-    my $db_prefix = {
-        EMBL      => 'Em',
-        Swissprot => 'Sw',
-        TrEMBL    => 'Tr',
-    };
-
     sub _gff_hash {
         my ($self, %args) = @_;
 
@@ -318,22 +289,14 @@ sub gff_header {
         $gff->{feature} = ($self->analysis && $self->analysis->gff_feature) || 'similarity';
 
         my $name = $self->hseqname;
-        my ($hit_description, $db_name, $hseq_prefix);
-        if (   $self->can('get_HitDescription')
-            && ($hit_description = $self->get_HitDescription)
-            && ($db_name         = $hit_description->db_name)
-            && ($hseq_prefix     = $db_prefix->{$db_name}))
-        {
-            $name = "$hseq_prefix:$name";
-        }
 
-        $gff->{attributes}->{Class}     = qq("Sequence");
-        $gff->{attributes}->{Name}      = '"' . $name . '"';
-        $gff->{attributes}->{Align}     = $self->hstart . ' ' . $self->hend . ' ' . ($self->hstrand == -1 ? '-' : '+');
-        $gff->{attributes}->{percentID} = $self->percent_id;
+        $gff->{'attributes'}{'Class'}     = qq("Sequence");
+        $gff->{'attributes'}{'Name'}      = qq{"$name"};
+        $gff->{'attributes'}{'Align'}     = $self->hstart . ' ' . $self->hend . ' ' . ($self->hstrand == -1 ? '-' : '+');
+        $gff->{'attributes'}{'percentID'} = $self->percent_id;
 
         if ($gap_string) {
-            $gff->{attributes}->{Gaps} = qq("$gap_string");
+            $gff->{'attributes'}->{'Gaps'} = qq("$gap_string");
         }
 
         return $gff;
@@ -346,6 +309,7 @@ sub gff_header {
 
     sub _gff_hash {
         my ($self, @args) = @_;
+
         my $gff = $self->SUPER::_gff_hash(@args);
         $gff->{attributes}->{Class} = qq("Protein");
         return $gff;
@@ -356,14 +320,17 @@ sub gff_header {
 
     package Bio::EnsEMBL::Gene;
 
-    sub synthetic_gene_name {
-        my ($self, $sgn) = @_;
-        
-        if ($sgn) {
-            $self->{'_synthetic_gene_name'} = $sgn;
-        }
-        return $self->{'_synthetic_gene_name'}
-    }
+    # sub _gff_hash {
+    #     my ($self, %args) = @_;
+    #     
+    #     my $gff = $self->SUPER::_gff_hash(%args);
+    #     $gff->{'feature'} = 'Locus';
+    #     $gff->{'attributes'}{'Class'} = qq{"Locus"};
+    #     if (my $stable = $self->stable_id) {
+    #         $gff->{'attributes'}{'Stable_ID'} = qq{"$stable"};
+    #     }
+    #     return $gff;
+    # }
 
     sub to_gff {
         my ($self, %args) = @_;
@@ -408,14 +375,15 @@ sub gff_header {
             }
         }
 
+        # my $gff_string = $self->SUPER::to_gff(%args);
         my $gff_string = '';
         if (@tsct_for_gff) {
             my $extra_attrs = $self->make_extra_attributes(%args);
-            if (my $sgn = $self->synthetic_gene_name) {
+            if (my $sgn = delete( $extra_attrs->{'synthetic_gene_name'} )) {
                 $args{'gene_name'} = $sgn;
             }
             foreach my $tsct (@tsct_for_gff) {
-                $gff_string .= $tsct->to_gff(%args, extra_attrs => $extra_attrs) . "\n";
+                $gff_string .= $tsct->to_gff(%args, extra_attrs => $extra_attrs);
             }
         }
         return $gff_string;
@@ -428,13 +396,18 @@ sub gff_header {
         my $gene_numeric_id = $self->dbID || ++$gene_count;
         
         my $extra_attrs = {};
-        if (my $url = $args{'url_string'}) {
-            if ($url =~ /pfam\.sanger\.ac\.uk/) {
+        
+        if (my $stable = $self->stable_id) {
+            $extra_attrs->{'Locus_Stable_ID'} = qq{"$stable"};
+        }
+        
+        if (my $url_fmt = $args{'url_string'}) {
+            if ($url_fmt =~ /pfam\.sanger\.ac\.uk/) {
                 foreach my $xr (@{$self->get_all_DBEntries}) {
                     if ($xr->dbname() eq 'PFAM') {
-                        $self->synthetic_gene_name($xr->display_id);
+                        $extra_attrs->{'synthetic_gene_name'} = $xr->display_id;
                         my $name = sprintf "%s.%d", $xr->display_id, $gene_numeric_id;
-                        my $url = sprintf $url, $xr->primary_id;
+                        my $url = sprintf $url_fmt, $xr->primary_id;
                         $extra_attrs->{'Locus'} = qq{"$name"};
                         $extra_attrs->{'URL'}   = qq{"$url"};
                     }
@@ -445,13 +418,14 @@ sub gff_header {
             }
             else {
                 # Assume it is an ensembl gene
-                $extra_attrs->{'URL'} = sprintf $url, $self->stable_id;
+                my $url = sprintf $url_fmt, $self->stable_id;
+                $extra_attrs->{'URL'} = qq{"$url"};
             }
         }
         
         unless ($extra_attrs->{'Locus'}) {
             if (my $xr = $self->display_xref) {
-                $self->synthetic_gene_name($xr->display_id);
+                $extra_attrs->{'synthetic_gene_name'} = $xr->display_id;
                 my $name = sprintf "%s.%d", $xr->display_id, $gene_numeric_id;
                 $extra_attrs->{'Locus'} = qq{"$name"};
             }
@@ -478,8 +452,11 @@ sub gff_header {
 
         my $gff = $self->SUPER::_gff_hash(%args);
 
-        $gff->{feature} = 'Sequence';
-        $gff->{attributes}->{Class} = qq{"Sequence"};
+        $gff->{'feature'} = 'Sequence';
+        $gff->{'attributes'}{'Class'} = qq{"Sequence"};
+        if (my $stable = $self->stable_id) {
+            $gff->{'attributes'}{'Stable_ID'} = qq{"$stable"};
+        }
         
         my $tsct_numeric_id = $self->dbID || ++$tsct_count;
         # Each transcript must have a (unique) name for GFF grouping purposes
@@ -504,7 +481,7 @@ sub gff_header {
         0  => 0,
         1  => 2,
         2  => 1,
-        -1 => '.',
+        -1 => 0,    # Start phase is (always?) -1 for first coding exon
     );
 
     sub to_gff {
@@ -522,7 +499,24 @@ sub gff_header {
 
         my $gff = $self->SUPER::to_gff(%args);
         my $gff_hash = $self->_gff_hash(%args);
+        
+        # $name is already double-quoted
         my $name = $gff_hash->{'attributes'}{'Name'};
+
+        # add gff lines for each of the introns and exons
+        # (adding lines for both seems a bit redundant to me, but zmap seems to like it!)
+        foreach my $feat (@{ $self->get_all_Exons }, @{ $self->get_all_Introns }) {
+
+            # exons and introns don't have analyses attached, so temporarily give them the transcript's one
+            $feat->analysis($self->analysis);
+
+            # and add the feature's gff line to our string, including the sequence name information as an attribute
+            $gff .= $feat->to_gff(%args, extra_attrs => { Name => $name });
+
+            # to be on the safe side, get rid of the analysis we temporarily attached
+            # (someone might rely on there not being one later)
+            $feat->analysis(undef);
+        }
 
         if (my $tsl = $self->translation) {
 
@@ -534,9 +528,20 @@ sub gff_header {
 
             my $end = $self->coding_region_end;
             $end += $self->slice->start - 1 unless $rebase;
-
-
-            $gff .= "\n" . join(
+            
+            my $frame;
+            if (defined(my $phase = $tsl->start_Exon->phase)) {
+                $frame = $ens_phase_to_gff_frame{$phase};
+            }
+            else {
+                $frame = 0;
+            }
+            
+            my $attrib_str = qq{Class "Sequence" ; Name $name};
+            if (my $stable = $tsl->stable_id) {
+                $attrib_str .= qq{ ; Stable_ID "$stable"};
+            }
+            $gff .= join(
                 "\t",
                 $gff_hash->{'seqname'},
                 $gff_hash->{'source'},
@@ -545,24 +550,9 @@ sub gff_header {
                 $end,
                 '.',      # score
                 $gff_hash->{'strand'},
-                $ens_phase_to_gff_frame{ $tsl->start_Exon->phase },    # frame
-                qq{Class "Sequence"; Name $name}
-            );
-        }
-
-        # add gff lines for each of the introns and exons
-        # (adding lines for both seems a bit redundant to me, but zmap seems to like it!)
-        foreach my $feat (@{ $self->get_all_Exons }, @{ $self->get_all_Introns }) {
-
-            # exons and introns don't have analyses attached, so temporarily give them the transcript's one
-            $feat->analysis($self->analysis);
-
-            # and add the feature's gff line to our string, including the sequence name information as an attribute
-            $gff .= "\n" . $feat->to_gff(%args, extra_attrs => { Name => $name });
-
-            # to be on the safe side, get rid of the analysis we temporarily attached
-            # (someone might rely on there not being one later)
-            $feat->analysis(undef);
+                $frame,
+                $attrib_str,
+            ) . "\n";
         }
 
         return $gff;
@@ -674,8 +664,11 @@ sub gff_header {
     sub _gff_hash {
         my ($self, @args) = @_;
         my $gff = $self->SUPER::_gff_hash(@args);
-        $gff->{feature} = 'exon';
-        $gff->{attributes}->{Class} = qq("Sequence");
+        $gff->{'feature'} = 'exon';
+        $gff->{'attributes'}{'Class'} = qq{"Sequence"};
+        if (my $stable = $self->stable_id) {
+            $gff->{'attributes'}{'Stable_ID'} = qq{"$stable"};
+        }
         return $gff;
     }
 }
@@ -697,6 +690,7 @@ sub gff_header {
 
     package Bio::EnsEMBL::Variation::VariationFeature;
 
+    ### Should unify with Gene URL stuff.
     my $url_format = 'http://www.ensembl.org/Homo_sapiens/Variation/Summary?v=%s';
 
     sub _gff_hash {
@@ -841,8 +835,8 @@ sub gff_header {
 
  #    sub _gff_hash {
  #
- #        my $self = shift;
- #        my $gff  = $self->SUPER::_gff_hash(@_);
+ #        my ($self, @args) = @_;
+ #        my $gff  = $self->SUPER::_gff_hash(@args);
  #
  #        $gff->{feature} = 'similarity';
  #
@@ -855,30 +849,41 @@ sub gff_header {
 
 }
 
+# my ($hit_description, $db_name, $hseq_prefix);
+# if (   $self->can('get_HitDescription')
+#     && ($hit_description = $self->get_HitDescription)
+#     && ($db_name         = $hit_description->db_name)
+#     && ($hseq_prefix     = $db_prefix->{$db_name}))
+# {
+#     $name = "$hseq_prefix:$name";
+#     $gff->{'attributes'}{''}
+# }
+
+
 {
+    package Bio::Vega::DnaDnaAlignFeature;
 
-    package Bio::Otter::DnaDnaAlignFeature;
-
-    sub _gff_hash {
-        my ($self, @args) = @_;
-        my $gff = $self->SUPER::_gff_hash(@args);
-        $gff->{attributes}->{Length} = $self->get_HitDescription->hit_length;
-
-        #$gff->{attributes}->{Note} = '"'.$self->get_HitDescription->description.'"';
-        return $gff;
-    }
+    # To avoid copy/pasting code:
+    *{_gff_hash} = *{Bio::Vega::DnaPepAlignFeature::_gff_hash}
 }
 
 {
-
-    package Bio::Otter::DnaPepAlignFeature;
+    package Bio::Vega::DnaPepAlignFeature;
 
     sub _gff_hash {
         my ($self, @args) = @_;
-        my $gff = $self->SUPER::_gff_hash(@args);
-        $gff->{attributes}->{Length} = $self->get_HitDescription->hit_length;
 
-        #$gff->{attributes}->{Note} = '"'.$self->get_HitDescription->description.'"';
+        my $gff = $self->SUPER::_gff_hash(@args);
+
+        my $hd = $self->get_HitDescription;
+        $gff->{'attributes'}{'Length'}   = $hd->hit_length;
+        $gff->{'attributes'}{'Taxon_ID'} = $hd->taxon_id;
+        $gff->{'attributes'}{'DB_Name'}  = sprintf(q{"%s"}, $hd->db_name);
+        if (my $desc = $hd->description) {
+            $desc =~ s/"/\\"/g;
+            $gff->{'attributes'}{'Description'} = qq{"$desc"};
+        }
+
         return $gff;
     }
 }

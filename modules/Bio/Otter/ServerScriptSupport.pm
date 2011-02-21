@@ -6,16 +6,16 @@ use warnings;
 
 use Bio::Vega::Author;
 use Bio::Otter::Version qw( $SCHEMA_VERSION $XML_VERSION );
-use Bio::Otter::Lace::TempFile;
-use Bio::Otter::Lace::ViaText qw( %LangDesc &GenerateFeatures );
-use Bio::Vega::DBSQL::SimpleBindingAdaptor;
-use Bio::Vega::Utils::EnsEMBL2GFF;
+use Bio::Otter::Lace::ViaText qw( %LangDesc );
+use Bio::Vega::Utils::GFF;
+use Bio::Vega::Enrich::SliceGetAllAlignFeatures;
 
 use IO::Compress::Gzip qw(gzip);
 
+use CGI;
 use SangerWeb;
 
-use base ('CGI', 'Bio::Otter::MFetcher');
+use base ('Bio::Otter::MFetcher');
 
 
 BEGIN {
@@ -29,11 +29,13 @@ our $COMPRESSION_ENABLED;
 $COMPRESSION_ENABLED = 1 unless defined $COMPRESSION_ENABLED;
 
 sub new {
-    my ( $pkg, %params ) = @_;
+    my ( $pkg ) = @_;
 
-    my $self = $pkg->CGI::new();    # CGI part of the object needs initialization
-
-    @{$self}{ keys %params } = values %params; # set the rest of the parameters
+    my $self = {
+        _cgi         => CGI->new,
+        _compression => 0,
+    };
+    bless $self, $pkg;
 
     if ($self->show_restricted_datasets || ! $self->local_user) {
         $self->authorized_user;
@@ -45,6 +47,21 @@ sub new {
     $self->species_dat_filename($self->data_dir . '/species.dat');
 
     return $self;
+}
+
+sub cgi {
+    my ($self) = @_;
+    return $self->{_cgi};
+}
+
+sub header {
+    my ($self, @args) = @_;
+    return $self->cgi->header(@args);
+}
+
+sub param {
+    my ($self, @args) = @_;
+    return $self->cgi->param(@args);
 }
 
 sub dataset_name { # overloads the one provided by MFetch
@@ -112,9 +129,9 @@ sub data_dir {
 
     # overloading because certain species may need to be masked
 sub load_species_dat_file {
-    my $self = shift;
+    my ($self, @args) = @_;
 
-    $self->SUPER::load_species_dat_file(@_);
+    $self->SUPER::load_species_dat_file(@args);
 
     unless ($self->local_user || $self->internal_user) {        
         # External users only see datasets listed after their names in users.txt file
@@ -168,17 +185,15 @@ sub read_user_file {
 =head2 sangerweb()
 
 Instance method.  Cache and return an instance of L<SangerWeb>
-configured with us as the CGI instance.
-
-It is important to instantiate only one CGI (or subclass) instance,
-because it will eat the POST input.
+configured with our CGI instance.
 
 =cut
 
 sub sangerweb {
     my ($self) = @_;
 
-    return $self->{'_sangerweb'} ||= SangerWeb->new({ cgi => $self });
+    return $self->{'_sangerweb'} ||=
+        SangerWeb->new({ cgi => $self->cgi });
 }
 
 
@@ -261,11 +276,20 @@ sub log { ## no critic(Subroutines::ProhibitBuiltinHomonyms)
     return;
 }
 
+sub compression {
+    my ($self, @args) = @_;
+    if (@args) {
+        my ($compression) = @args;
+        $self->{_compression} = $compression;
+    }
+    return $self->{_compression};
+}
+
 sub send_response {
 
-    my ($self, $response, $wrap, $compress) = @_;
+    my ($self, $response, $wrap) = @_;
 
-    if ($COMPRESSION_ENABLED && $compress) {
+    if ($COMPRESSION_ENABLED && $self->compression) {
         print $self->header(
             -status             => 200,
             -type               => 'text/plain',
@@ -344,26 +368,6 @@ sub return_emptyhanded {
     exit(0); # <--- this forces all the scripts to exit normally
 }
 
-sub tempfile_from_argument {
-    my ($self, $argname, $file_name) = @_;
-
-    $file_name ||= $self->csn().'_'.$self->require_argument('author').'.xml';
-
-    my $tmp_file = Bio::Otter::Lace::TempFile->new;
-    $tmp_file->root('/tmp');
-    $tmp_file->name($file_name);
-    my $full_name = $tmp_file->full_name();
-
-    $self->log("Dumping the data to the temporary file '$full_name'");
-
-    my $write_fh = eval{
-        $tmp_file->write_file_handle();
-    } || $self->error_exit("Can't write to '$full_name' : $!");
-    print $write_fh $self->require_argument($argname);
-
-    return $tmp_file;
-}
-
 ############# Creation of an Author object from arguments #######
 
 sub make_Author_obj {
@@ -393,68 +397,9 @@ sub fetch_Author_obj {
     return $author_obj;
 }
 
-#################### ideally the following snippet should live in an Otter/Vega adaptor ############
-
-sub enrich {
-    my ($afs, $enriched_class) = @_;
-
-    my $server = Bio::Otter::ServerScriptSupport->new;
-
-        # Put the names into the hit_description hash:
-    my %hd_hash = ();
-    foreach my $af (@$afs) {
-        $hd_hash{$af->hseqname()} = '';
-    }
-
-    # Fetch the hit descriptions from the pipeline
-    my $pdbc = $server->satellite_dba( '' )->dbc();
-    my $hd_adaptor = Bio::Vega::DBSQL::SimpleBindingAdaptor->new( $pdbc );
-    $hd_adaptor->fetch_into_hash(
-        'hit_description',
-        'hit_name',
-        { qw(
-            hit_name _hit_name
-            hit_length _hit_length
-            hit_description _description
-            hit_taxon _taxon_id
-            hit_db _db_name
-        )},
-        'Bio::Otter::HitDescription',
-        \%hd_hash,
-    );
-
-    foreach my $af (@$afs) {
-        if(my $hd = $hd_hash{$af->hseqname()}) {
-            bless $af, $enriched_class;
-            $af->{'_hit_description'} = $hd;
-        }
-    }
-
-    return $afs;
-}
-
-# It is  a lucky  coincidence that these  two classes need  to be  enriched, and
-# their fetching methods in Bio::EnsEMBL::Slice are not systematically named. We
-# make  use of  this coincidence  by enriching  the methods  without subclassing
-# Bio::EnsEMBL::Slice
-
-sub Bio::EnsEMBL::Slice::get_all_DnaDnaAlignFeatures {
-    my ($self, @args) = @_;
-    my $naked_features = $self->get_all_DnaAlignFeatures(@args);
-    return enrich($naked_features, 'Bio::Otter::DnaDnaAlignFeature');
-}
-
-sub Bio::EnsEMBL::Slice::get_all_DnaPepAlignFeatures {
-    my ($self, @args) = @_;
-    my $naked_features = $self->get_all_ProteinAlignFeatures(@args);
-    return enrich($naked_features, 'Bio::Otter::DnaPepAlignFeature');
-}
-
-#################### ideally the preceding snippet should live in an Otter/Vega adaptor ############
-
 sub get_requested_features {
 
-    my $self = shift;
+    my ($self) = @_;
 
     my @feature_kinds  = split(/,/, $self->require_argument('kind'));
     my $analysis_list = $self->param('analysis');
@@ -534,9 +479,9 @@ sub get_requested_features {
     return \@feature_list;
 }
 
-sub empty_gff_header {
+sub gff_header {
     
-    my $self = shift;
+    my ($self) = @_;
     
     my $name    = $self->param('type');
     my $start   = $self->param('start');
@@ -548,7 +493,7 @@ sub empty_gff_header {
         $start = 1;
     }
     
-    return Bio::Vega::Utils::EnsEMBL2GFF::gff_header($name, $start, $end);
+    return Bio::Vega::Utils::GFF::gff_header($name, $start, $end);
 }
 
 ## no critic(Modules::ProhibitMultiplePackages)

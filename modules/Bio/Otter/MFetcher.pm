@@ -112,94 +112,121 @@ sub default_assembly {
 sub satellite_dba {
     my ($self, $metakey, $may_be_absent) = @_;
 
-    # Note: as multiple satellite_db's can be used, we have to explicitly send $metakey
+    $metakey ||= 'pipeline_db_head';
 
-    $metakey ||= '';
+    # check for a cached dba
+    my $dba_cached = $self->{_sdba}{$metakey};
+    return $dba_cached if $dba_cached;
 
-        # It may well be true that the caller
-        # is interested in features from otter_db itself.
-        # (This is NOT the default behaviour,
-        #  so he has to specify it by setting metakey='.')
-
-    if($metakey eq '.') {
-        $self->log("Connecting to the otter_db itself");
-        return $self->otter_dba();
+    # get and check the options
+    my $options = $self->satellite_dba_options($metakey);
+    unless ($options) {
+        my $method = $may_be_absent ? "log" : "error_exit";
+        $self->$method("metakey '$metakey' is not defined");
+        return;
     }
 
-    my $kind;
+    # special case, '.' means the Otter database
+    return $self->otter_dba if $options eq '.';
 
-    if(! $metakey) {
-        $metakey = 'pipeline_db_head';
-        $kind    = 'pipeline DB'
-    } else {
-        $kind    = 'satellite DB';
+    # create the adaptor
+    my $adaptor_class = "Bio::EnsEMBL::DBSQL::DBAdaptor";
+    my $dba = $self->satellite_dba_make($metakey, $adaptor_class, $options);
+
+    # re-bless if necessary
+    bless $dba,'Bio::Vega::DBSQL::DBAdaptor'
+        if lc($self->default_assembly($dba)) eq 'otter';
+
+    # create the variation database (if there is one)
+    my $vdba = $self->variation_satellite_dba_make("${metakey}_variation");
+    $vdba->dnadb($dba) if $vdba;
+
+    return $dba;
+}
+
+sub variation_satellite_dba_make {
+    my ($self, $metakey) = @_;
+
+    # check for a cached dba
+    my $dba = $self->{_sdba}{$metakey};
+    return $dba if $dba;
+
+    # get and check the options
+    my $options = $self->satellite_dba_options($metakey);
+    return unless $options;
+
+    # special case, '.' means the Otter database
+    $self->error_exit("cannot specify the otter database for a variation database")
+        if $options eq '.';
+
+    # create the adaptor
+    my $adaptor_class = "Bio::EnsEMBL::Variation::DBSQL::DBAdaptor";
+    $dba = $self->satellite_dba_make($metakey, $adaptor_class, $options);
+
+    return $dba;
+}
+
+sub satellite_dba_make {
+    my ($self, $metakey, $adaptor_class, $options) = @_;
+
+    $self->log("connecting to the satellite DB '$metakey'...");
+
+    my @options;
+    {
+        ## no critic(BuiltinFunctions::ProhibitStringyEval)
+        @options = eval $options;
     }
-
-    if($self->{_sdba}{$metakey}) {
-        $self->log("Get the cached [$metakey] adapter...");
-        return $self->{_sdba}{$metakey};
-    }
-
-    $self->log("connecting to the '$kind' using [$metakey] meta entry...");
-
-    # get the minimal adaptor (may be extended to Vega in future)
-    my $is_variation = $metakey =~ /_variation$/;
-    my $adaptor_class =
-        $is_variation
-        ? 'Bio::EnsEMBL::Variation::DBSQL::DBAdaptor'
-        : 'Bio::EnsEMBL::DBSQL::DBAdaptor';
-
-    my ($opt_str) = @{ $self->otter_dba()->get_MetaContainer()->list_value_by_key($metakey) };
-
-    if(!$opt_str) {
-        if($may_be_absent) {
-            $self->log("cannot connect to metakey='$metakey' as this key is not defined in the meta table.");
-            return;
-        } else {
-            $self->error_exit(longmess("Could not find meta entry for '$metakey' satellite db"));
-        }
-    } elsif($opt_str =~ /^\=otter/) {
-        return $self->otter_dba();
-    } elsif($opt_str =~ /^\=pipeline/) {
-        return $self->satellite_dba('');
-    } elsif($opt_str =~ /^\=(\w+)$/) {
-        return $self->satellite_dba($1);
-    }
+    $self->error_exit("Error evaluating '$options' : $@") if $@;
 
     my %anycase_options = (
          -group     => $metakey,
          -species   => $self->dataset_name,
-        eval $opt_str, ## no critic(BuiltinFunctions::ProhibitStringyEval)
+        @options,
     );
-    if ($@) {
-        $self->error_exit("Error evaluating '$opt_str' : $@");
-    }
 
     my %uppercased_options = ();
     while( my ($k,$v) = each %anycase_options) {
         $uppercased_options{uc($k)} = $v;
     }
 
-    $self->error_exit("No connection parameters for '$metakey' in otter database")
-        unless (keys %uppercased_options);
-
-    my $sdba = $adaptor_class->new(%uppercased_options)
-        || $self->error_exit("Couldn't connect to '$metakey' satellite db");
-
-        # Unfortunately we can only do it once the connection established, hence re-blessing:
-    if( lc($self->default_assembly($sdba)) eq 'otter') {
-        bless $sdba,'Bio::Vega::DBSQL::DBAdaptor';
-    }
+    my $dba = $adaptor_class->new(%uppercased_options);
+    $self->error_exit("Couldn't connect to '$metakey' satellite db")
+        unless $dba;
 
     $self->log("... with parameters: ".join(', ', map { "$_=".$uppercased_options{$_} } keys %uppercased_options ));
 
-    if ( ! $is_variation ) {
-        # create any variation database
-        my $vdba = $self->satellite_dba("${metakey}_variation", 1);
-        $vdba->dnadb($sdba) if $vdba;
+    $self->{_sdba}{$metakey} = $dba;
+
+    return $dba;
+}
+
+sub satellite_dba_options {
+    my ($self, $metakey) = @_;
+
+    return '.' if $metakey eq '.'; # special value, means otter_dba()
+
+    my $meta_container = $self->otter_dba->get_MetaContainer;
+
+    while(1) {
+        my ($options) = @{ $meta_container->list_value_by_key($metakey) };
+
+        return unless $options; # nothing found, give up
+        return '.' if $options eq '=otter';  # special value, means otter_dba()
+
+        # check for redirects
+        if ($options eq '=pipeline') { # redirect to the pipeline
+            $metakey = 'pipeline_db_head';
+            next;
+        }
+        if ($options =~ /^\=(\w+)$/) { # redirect to another metakey
+            $options = $1;
+            next;
+        }
+
+        return $options;
     }
 
-    return $self->{_sdba}{$metakey} = $sdba;
+    return;
 }
 
 sub get_slice {
@@ -695,6 +722,20 @@ sub fetch_mapped_features {
               ." ${feature_name}s have been sent to the client");
 
     return $features;
+}
+
+sub Bio::EnsEMBL::Gene::propagate_slice {
+    my ($gene, $slice) = @_;
+
+    foreach my $exon (@{ $gene->get_all_Exons }) {
+        $exon->slice($slice);
+    }
+    foreach my $transcript (@{ $gene->get_all_Transcripts }) {
+        $transcript->slice($slice);
+    }
+    $gene->slice($slice);
+
+    return;
 }
 
 1;

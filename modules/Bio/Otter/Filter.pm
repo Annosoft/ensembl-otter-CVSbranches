@@ -16,6 +16,12 @@ sub new {
     return bless {}, ref($obj_or_class) || $obj_or_class;
 }
 
+sub server_script {
+    my ($self, $server_script) = @_;
+    $self->{_server_script} = $server_script if defined $server_script;
+    return $self->{_server_script};
+}
+
 sub wanted { # it's a flag showing whether the user wants this filter to be loaded
              # ( initialized from ['species'.use_filters] section of otter_config )
     my ($self, $wanted) = @_;
@@ -114,6 +120,78 @@ sub featuresets {
     return $self->{_featuresets};
 }
 
+sub zmap_column {
+    my ($self, $zmap_column) = @_;
+    
+    if ($zmap_column) {
+        $self->{'_zmap_column'} = $zmap_column;
+    }
+    return $self->{'_zmap_column'};
+}
+
+sub zmap_style {
+    my ($self, $zmap_style) = @_;
+    
+    if ($zmap_style) {
+        $self->{'_zmap_style'} = $zmap_style;
+    }
+    return $self->{'_zmap_style'};
+}
+
+sub ditypes {
+    my ($self, $ditypes) = @_;
+    
+    if ($ditypes) {
+        $self->{'_ditypes'} = $ditypes;
+    }
+    return $self->{'_ditypes'};
+}
+
+sub process_gff_file {
+    my($self, $flag) = @_;
+    
+    if (defined $flag) {
+        $self->{'_process_gff_file'} = $flag ? 1 : 0;
+    }
+    return $self->{'_process_gff_file'};
+}
+
+sub grouplabel {
+    my ($self, $grouplabel) = @_;
+    $self->{_grouplabel} = $grouplabel if $grouplabel;
+    return $self->{_grouplabel};
+}
+
+sub dsn {
+    my ($self, $dsn) = @_;
+    $self->{_dsn} = $dsn if $dsn;
+    return $self->{_dsn};
+}
+
+sub sieve {
+    my ($self, $sieve) = @_;
+    $self->{_sieve} = $sieve if $sieve;
+    return $self->{_sieve};
+}
+
+sub source {
+    my ($self, $source) = @_;
+    $self->{_source} = $source if $source;
+    return $self->{_source};
+}
+
+sub transcript_analyses {
+    my ($self, $transcript_analyses) = @_;
+    $self->{_transcript_analyses} = $transcript_analyses if $transcript_analyses;
+    return $self->{_transcript_analyses};
+}
+
+sub translation_xref_dbs {
+    my ($self, $translation_xref_dbs) = @_;
+    $self->{_translation_xref_dbs} = $translation_xref_dbs if $translation_xref_dbs;
+    return $self->{_translation_xref_dbs};
+}
+
 sub server_params {
     
     # this method defines the parameters and their corresponding values that are 
@@ -122,6 +200,8 @@ sub server_params {
     my ($self) = @_;
     
     return {
+
+        # common
         analysis        => $self->analysis_name,
         kind            => $self->feature_kind,
         csver_remote    => $self->csver_remote,
@@ -129,14 +209,22 @@ sub server_params {
         filter_module   => $self->filter_module,
         swap_strands    => $self->swap_strands,
         url_string      => $self->url_string,
-        client          => 'otterlace',
+
+        # GFF
+        ditypes         => $self->ditypes,
+
+        # DAS
+        grouplabel      => $self->grouplabel,
+        dsn             => $self->dsn,
+        sieve           => $self->sieve,
+        source          => $self->source,
+
+        # Gene
+        transcript_analyses  => $self->transcript_analyses,
+        translation_xref_dbs => $self->translation_xref_dbs,
+
     };
 }
-
-
-
-sub transcript_name_from_transcript_xref {}
-
 
 
 1;
