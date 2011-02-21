@@ -6,73 +6,54 @@ use warnings;
 use Digest::MD5 qw(md5_hex);
 use URI::Escape qw(uri_escape uri_unescape);
 
-my $DEBUG   = 1;
 my $LOG     = 1;
 
 my %args;
 foreach my $pair (@ARGV) {
-    my ($key, $val) = split /=/, $pair;
+    my ($key, $val) = split(/=/, $pair);
     $args{uri_unescape($key)} = uri_unescape($val);
 }
 
 # pull off arguments meant for us
 
-my $url_root        = delete $args{url_root};
-my $server_script   = delete $args{server_script};
-my $session_dir     = delete $args{session_dir};
-my $cookie_jar      = delete $args{cookie_jar};
+my $url_root        = delete $args{'url_root'};
+my $server_script   = delete $args{'server_script'};
+my $session_dir     = delete $args{'session_dir'};
+my $cookie_jar      = delete $args{'cookie_jar'};
+my $process_gff     = delete $args{'process_gff_file'};
 
-my $log_file;
-if ($LOG) {
-    $args{log} = 1; # enable logging on the server
-    my $log_file_name = $session_dir.'/gff_log.txt';
-    open $log_file, '>>', $log_file_name;
-}
+chdir($session_dir) or die "Could not chdir to '$session_dir'; $!";
 
+open my $log_file, '>>', 'gff_log.txt';
+
+$args{log} = 1 if $LOG; # enable logging on the server
 $args{rebase} = 1 unless $ENV{OTTERLACE_CHROMOSOME_COORDINATES};
 
 # concatenate the rest of the arguments into a parameter string
 
 my $params = join '&', map { uri_escape($_).'='.uri_escape($args{$_}) } keys %args;
 
-my $gff_filename;
+my $gff_filename = sprintf '%s_%s.gff', $args{gff_source}, md5_hex($params);
 
-if ($DEBUG) {
-    $gff_filename = $args{gff_source}.'.gff';
-}
-else {
-    $gff_filename = md5_hex($params).'.gff';
-}
-
-my $top_dir = $session_dir.'/gff_cache';
+my $top_dir = 'gff_cache';
 
 unless (-d $top_dir) {
-    mkdir $top_dir or print STDERR "Failed to create toplevel cache directory: $!\n";
+    mkdir $top_dir or die "Failed to create toplevel cache directory: $!\n";
 }
 
-my $cache_file;
-
-if ($DEBUG) {
-    $cache_file = $top_dir.'/'.$gff_filename;
-}
-else {
-    my $cache_dir = $top_dir.'/'.substr($gff_filename, 0, 2);
-    unless (-d $cache_dir) {
-        mkdir $cache_dir or print STDERR "Failed to create cache directory: $!\n";
-    }
-    $cache_file = $cache_dir.'/'.$gff_filename;
-}
+my $cache_file = $top_dir.'/'.$gff_filename;
 
 if (-e $cache_file) {
     # cache hit
 
-    print $log_file "cache hit for $gff_filename\n" if $LOG;
+    print $log_file "cache hit for $gff_filename\n";
 
-    open my $gff_file, '<', $cache_file or print STDERR "Failed to open cache file: $!\n";
+    open my $gff_file, '<', $cache_file or die "Failed to open cache file: $!\n";
 
     while (<$gff_file>) {
         print;
     }
+    close STDOUT or die "Error writing to STDOUT; $!";
 }
 else {
     # cache miss
@@ -82,8 +63,9 @@ else {
     require LWP::UserAgent;
     require HTTP::Request;
     require HTTP::Cookies::Netscape;
+    require DBI;
     
-    print $log_file "cache miss for $gff_filename\n" if $LOG;
+    print $log_file "cache miss for $gff_filename\n";
     
     my $request = HTTP::Request->new;
 
@@ -93,7 +75,7 @@ else {
 
     my $url = $url_root . '/' . $server_script . '?' . $params;
 
-    print $log_file "URL: $url\n" if $LOG && $DEBUG;
+    print $log_file "URL: $url\n";
     
     $request->uri($url);
     
@@ -117,21 +99,32 @@ else {
 
         if ($gff =~ /EnsEMBL2GFF/) {
             
+            # Send data to zmap on STDOUT
             print $gff;
+
+            
+            # cache the result
+            open my $cache_file_h, '>', $cache_file or die "Cannot write to cache file '$cache_file'; $!\n";
+            print $cache_file_h $gff;
+            close $cache_file_h or die "Error writing to '$cache_file'; $!";
+            
+            my $dbh = DBI->connect("dbi:SQLite:dbname=$session_dir/otter.sqlite", undef, undef, {
+                RaiseError => 1,
+                AutoCommit => 1,
+                });
+            my $sth = $dbh->prepare(
+                q{ UPDATE otter_filter SET done = 1, failed = 0, gff_file = ?, process_gff = ? WHERE filter_name = ? }
+            );
+            $sth->execute($cache_file, $process_gff || 0, $args{'gff_source'});
             
             # zmap waits for STDOUT to be closed as an indication that all
             # data has been sent, so we close the handle now so that zmap
-            # can start processing the data while we create the cached copy
-
-            close STDOUT;
-            
-            # cache the result
-            open my $cache_file_h, '>', $cache_file or print STDERR "Failed to open cache file: $!\n";
-        
-            print $cache_file_h $gff;
+            # doesn't tell otterlace about the successful loading of the column
+            # before we have the SQLite db updated and the cache file saved.
+            close STDOUT or die "Error writing to STDOUT; $!";
         }
         else {
-            print STDERR "Unexpected response for $source_name: $gff\n";
+            die "Unexpected response for $source_name: $gff\n";
         }
     }
     elsif ($response) {
@@ -152,10 +145,10 @@ else {
             $err_msg = $res;
         }
         
-        print STDERR "Webserver error for $source_name: $err_msg\n";
+        die "Webserver error for $source_name: $err_msg\n";
     }
     else {
-        print STDERR "No response for $source_name\n";
+        die "No response for $source_name\n";
     }
 }
 
