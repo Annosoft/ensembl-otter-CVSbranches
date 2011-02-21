@@ -15,9 +15,9 @@ my @mail      = qw(smtp Server localhost);
 my $loggingOn = 0;
 
 sub initialise {
-    my $self = shift;
+    my ($self, @args) = @_;
 
-    $self->SUPER::initialise(@_);
+    $self->SUPER::initialise(@args);
 
     my $lw        = $self->window;
     my $top_frame = $lw->Frame->pack(
@@ -81,7 +81,7 @@ sub initialise {
 }
 
 sub draw {
-    my $self = shift;
+    my ($self) = @_;
     return if $self->{'_drawn'};
 
     my $file      = $self->current_logfile;
@@ -159,7 +159,7 @@ sub mail_contents {
     my $file   = $self->current_logfile;
     my $subj   = "[$0] error log $file";
     my $dialog = $self->window->toplevel->DialogBox(
-        -title          => "Email $to?",
+        -title          => "otter: Email $to?",
         -buttons        => [qw(Ok Cancel)],
         -default_button => 'Cancel',
     );

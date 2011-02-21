@@ -81,15 +81,6 @@ sub SequenceNotes {
     return $self->{'_sequence_notes'} ;
 }
 
-sub EviCollection {
-    my( $self, $EviCollection ) = @_;
-
-    if ($EviCollection) {
-        $self->{'_EviCollection'} = $EviCollection;
-    }
-    return $self->{'_EviCollection'};
-}
-
 sub initialize {
     my( $self ) = @_;
 
@@ -106,6 +97,7 @@ sub initialize {
                     );
     }
 
+    $self->fetch_external_SubSeqs;
     $self->draw_subseq_list;
     $self->populate_clone_menu;
     $self->zMapInitialize;
@@ -739,22 +731,14 @@ sub show_lcd_dialog {
 sub populate_clone_menu {
     my ($self) = @_;
 
-    my $clones_by_name =
-        $self->{_clones_by_name} = { };
-    my $clones_by_accession_version =
-        $self->{_clones_by_accession_version} = { };
-
     my $clone_menu = $self->clone_menu;
     foreach my $clone ($self->Assembly->get_all_Clones) {
-        my $name = $clone->clone_name;
-        $clones_by_name->{$name} = $clone;
-        my $accession_version = $clone->accession_version;
-        $clones_by_accession_version->{$accession_version} = $clone;
         $clone_menu->add('command',
-            -label          => $name,
+            # NB: $clone->name ne $clone->clone_name
+            -label          => $clone->clone_name,
             # Not an accelerator - just for formatting!
-            -accelerator    => $accession_version,
-            -command        => sub{ $self->edit_Clone_by_name($name) },
+            -accelerator    => $clone->accession_version,
+            -command        => sub{ $self->edit_Clone_by_name($clone->name) },
             );
     }
 
@@ -967,7 +951,7 @@ sub exit_save_data {
 
     # Ask the user if any changes should be saved
     my $dialog = $self->top_window()->Dialog(
-        -title          => 'Otter save?',
+        -title          => 'otter: Save?',
         -bitmap         => 'question',
         -text           => "Save any changes to otter server?",
         -default_button => 'Yes',
@@ -1474,6 +1458,48 @@ sub add_SubSeq_and_paste_evidence {
     return;
 }
 
+sub add_external_SubSeqs {
+    my ($self, @ext_subs) = @_;
+
+    # Subsequences from Zmap gff which are not in acedb database
+    my $asm = $self->Assembly;
+    my $dna = $asm->Sequence;
+    foreach my $sub (@ext_subs) {
+        if (my $ext = $self->get_SubSeq($sub->name)) {
+            if ($ext->GeneMethod->name eq $sub->GeneMethod->name) {
+                # Looks zmap has been restarted, which has
+                # triggered a reload of this data.
+                next;
+            }
+            else {
+                confess sprintf "External transcript '%s' from '%s' has same name as transcript from '%s'\n",
+                    $sub->name, $sub->GeneMethod->name, $ext->GeneMethod->name;
+            }
+        }
+        $sub->clone_Sequence($dna);
+        $asm->add_SubSeq($sub);
+        $self->add_SubSeq($sub);
+    }
+}
+
+sub fetch_external_SubSeqs {
+    my ($self) = @_;
+    
+    my $sth = $self->AceDatabase->DB->dbh->prepare(
+        q{ SELECT filter_name FROM otter_filter WHERE done = 1 AND process_gff = 1 }
+        );
+    $sth->execute;
+    my $filt_hash = $self->AceDatabase->filters;
+    while (my ($filt_name) = $sth->fetchrow) {
+        my $filt = $filt_hash->{$filt_name}{'filter'};
+        my @tsct = $self->AceDatabase->process_gff_file_from_Filter($filt);
+        if (@tsct) {
+            $self->add_external_SubSeqs(@tsct);
+        }
+    }
+    $self->draw_subseq_list;
+}
+
 sub delete_subsequences {
     my( $self ) = @_;
 
@@ -1503,15 +1529,15 @@ sub delete_subsequences {
     my( $question );
     if (@to_die > 1) {
         $question = join('',
-            "Really delete these subsequences?\n\n",
+            "Really delete these transcripts?\n\n",
             map { "  $_\n" } map { $_->name } @to_die
             );
     } else {
-        $question = "Really delete this subsequence?\n\n  "
+        $question = "Really delete this transcript?\n\n  "
             . $to_die[0]->name ."\n";
     }
     my $dialog = $self->top_window()->Dialog(
-        -title          => 'Delete subsequenes?',
+        -title          => 'otter: Delete Transcripts?',
         -bitmap         => 'question',
         -text           => $question,
         -default_button => 'Yes',
@@ -1717,7 +1743,7 @@ sub edit_Clone {
     my $cew;
     unless ($cew = $self->{'_clone_edit_window'}{$name}) {
         $cew = EditWindow::Clone->new($self->top_window->Toplevel(
-            -title => sprintf("Clone: %s", $clone->clone_name),
+            -title => sprintf("otter: Clone %s", $clone->clone_name),
             ));
         $cew->XaceSeqChooser($self);
         $cew->Clone($clone);
@@ -1735,10 +1761,7 @@ sub edit_Clone {
 sub edit_Clone_by_name {
     my ($self, $name) = @_;
 
-    my $clone = $self->{_clones_by_name}{$name};
-    confess sprintf "No clone with this name: '%s'", $name
-        unless $clone;
-
+    my $clone = $self->Assembly->get_Clone($name);
     $self->edit_Clone($clone);
 
     return;
@@ -1747,12 +1770,7 @@ sub edit_Clone_by_name {
 sub edit_Clone_by_accession_version {
     my ($self, $accession_version) = @_;
 
-    my $clone = $self->{_clones_by_accession_version}{$accession_version};
-    confess 
-        sprintf "No clone with this accession.version: '%s'",
-        $accession_version
-        unless $clone;
-
+    my $clone = $self->Assembly->get_Clone_by_accession_version($accession_version);
     $self->edit_Clone($clone);
 
     return;
@@ -2325,7 +2343,7 @@ sub rename_locus {
         $ren_window->top->destroy;
     }
     my $parent = $self->top_window;
-    my $top = $parent->Toplevel(-title => 'rename locus');
+    my $top = $parent->Toplevel(-title => 'otter: Rename Locus');
     $top->transient($parent);
     my $lr = EditWindow::LocusName->new($top);
     $lr->XaceSeqChooser($self);
@@ -2343,7 +2361,7 @@ sub run_dotter {
     my $dw = $self->{'_dotter_window'};
     unless ($dw) {
         my $parent = $self->top_window();
-        my $top = $parent->Toplevel(-title => 'run dotter');
+        my $top = $parent->Toplevel(-title => 'otter: Run Dotter');
         $top->transient($parent);
         $dw = EditWindow::Dotter->new($top);
         $dw->initialise;
@@ -2362,7 +2380,7 @@ sub run_exonerate {
     unless ($ew) {
         my $parent = $self->top_window();
         my $top = $parent->Toplevel(
-            -title => 'On The Fly (OTF) Alignment - brought to you by exonerate'
+            -title => 'otter: On The Fly (OTF) Alignment'
             );
         $top->transient($parent);
         $ew = EditWindow::Exonerate->new($top);

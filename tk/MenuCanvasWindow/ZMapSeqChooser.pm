@@ -442,7 +442,7 @@ sub zMapDotZmapContent{
 }
 
 sub zMapGlyphDefaults {
-    my $self = shift;
+    my ($self) = @_;
     
     return $self->formatZmapDefaults(
         'glyphs',
@@ -462,6 +462,9 @@ sub zMapAceServerDefaults {
 
     my $url = sprintf q{%s://%s:%s@%s:%d}, $protocol, $server->user, $server->pass, $server->host, $server->port;
 
+    my $collection = $self->Assembly->MethodCollection;
+    my $featuresets = join ' ; ', map { $_->name } $collection->get_all_top_level_Methods;
+
     return $self->formatZmapDefaults(
         $self->slice_name,
         url       => $url,
@@ -475,7 +478,7 @@ sub zMapAceServerDefaults {
 
         # Can specify a stylesfile instead of featuresets
 
-        featuresets     => ( join ' ; ', $self->zMapListMethodNames_ordered ),
+        featuresets     => $featuresets,
         stylesfile      => $stylesfile,
     );
 }
@@ -744,7 +747,7 @@ sub zMapDotGtkrcContent {
 }
 
 sub zMapWriteDotGtkrc {
-    my $self = shift;
+    my ($self) = @_;
 
     my $dir  = $self->zMapZmapDir;
     my $file = "$dir/.gtkrc";
@@ -770,13 +773,6 @@ sub zMapZmapDir {
         confess "Can't mkdir('$path') : $!\n" unless -d $path;
     }
     return $path;
-}
-
-sub zMapListMethodNames_ordered {
-    my $self       = shift;
-    my @list       = ();
-    my $collection = $self->Assembly->MethodCollection;
-    return map { $_->name } $collection->get_all_top_level_Methods;
 }
 
 #===========================================================
@@ -920,9 +916,6 @@ sub zMapHighlight {
     }
     else { confess "Not a 'select' action\n"; }
 
-    my $cache = $self->AceDatabase->AccessionTypeCache;
-    $cache->cache_type_from_Zmap_XML($features_hash);
-
     return (200, $zc->handled_response(1));
 }
 
@@ -940,7 +933,7 @@ sub zMapTagValues {
 
     my $pages = "";
     if ($xml_hash->{'request'}->{'action'} eq 'feature_details') {
-        my $feature_hash = $xml_hash->{'request'}->{'align'}->{'block'}->{'featureset'}->{'feature'} || {};
+        my $feature_hash = $xml_hash->{'request'}{'align'}{'block'}{'featureset'}{'feature'} || {};
 
         # There is only ever 1 feature in the XML from Zmap
         my ($name) = keys %$feature_hash;
@@ -951,7 +944,8 @@ sub zMapTagValues {
         elsif (my $subseq = $self->get_SubSeq($name)) {
             $pages .= $subseq->zmap_info_xml;
         }
-        else {
+        elsif (! $feature_hash->{$name}{'subfeature'}) {
+            # It is not a transcript if it doesn't have subfeatures
             $pages .= $self->zmap_feature_details_xml($name);
             $pages .= $self->zmap_feature_evidence_xml($name);
         }
@@ -983,23 +977,20 @@ my $zmap_feature_details_tags = [
 sub zmap_feature_details_xml {
     my ($self, $feat_name) = @_;
 
-    my $details_content =
-        $self->AceDatabase->Client->http_response_content(
-            'POST', 'get_feature_details',
-            { 'feature' => $feat_name, });
-    my $details = { $details_content =~ /^(.*?)\t(.*)$/mg };
-    return '' unless keys %{$details};
+    my $sth = $self->AceDatabase->DB->dbh->prepare(q{
+        SELECT source_db, taxon_id, description FROM accession_info WHERE accession_sv = ?
+    });
+    $sth->execute($feat_name);
+    my ($source_db, $taxon_id, $desc) = $sth->fetchrow;
 
     # Put this on the "Details" page which already exists.
     my $xml = Hum::XmlWriter->new(5);
     $xml->open_tag('page',       { name => 'Details' });
     $xml->open_tag('subsection', { name => 'Feature' });
     $xml->open_tag('paragraph',  { type => 'tagvalue_table' });
-    for ( @{$zmap_feature_details_tags} ) {
-        my ($key, $tag) = @{$_};
-        next unless my $value = $details->{$key};
-        $xml->full_tag('tagvalue', $tag, $value);
-    }
+    $xml->full_tag('tagvalue', { name => 'Source database', type => 'simple' }, $source_db);
+    $xml->full_tag('tagvalue', { name => 'Taxon ID',        type => 'simple' }, $taxon_id);
+    $xml->full_tag('tagvalue', { name => 'Description', type => 'scrolled_text' }, $desc);
     $xml->close_all_open_tags;
 
     return $xml->flush;
@@ -1084,54 +1075,46 @@ sub zMapRemoveView {
 sub zMapFeaturesLoaded {
     my ($self, $xml) = @_;
     
-    my @featuresets = split(/;/, $xml->{request}->{featureset}->{names});
+    my @featuresets = split(/;/, $xml->{'request'}{'featureset'}{'names'});
     
-    my $status = $xml->{request}->{status}->{value};
+    my $status = $xml->{'request'}{'status'}{'value'};
+    my $msg    = $xml->{'request'}{'status'}{'message'};
     
-    # warn "zmap loaded featuresets: ".$xml->{request}->{featureset}->{names}." status: $status\n";   
-    
-    my $msg = $xml->{request}->{status}->{message};
-    
-    unless ($self->{_gff_filters_by_featureset}) {
-        my $filters_by_fset;
-
-        for (values %{$self->AceDatabase->filters}) {
-            my $state_hash = $_->{state};
-            for ( @{$_->{filter}->featuresets} ) {
-                $filters_by_fset->{lc($_)} = $state_hash; # lc because zmap does
-            }
-        }
-        
-        $self->{_gff_filters_by_featureset} = $filters_by_fset;
-    }
-    
-    my $gff_filters_by_featureset = $self->{_gff_filters_by_featureset};
-    
+    my $filt_hash = $self->AceDatabase->filters;
     my $state_changed = 0;
-    
-    for my $name (@featuresets) {;
-        if (my $state_hash =
-            $gff_filters_by_featureset->{lc($name)}) { # lc here too in case zmap changes!
-            if ($status == 0 && ! $state_hash->{failed}) {
-                $state_changed = 1;
-                $state_hash->{failed} = 1;
-                $state_hash->{fail_msg} = $msg;
-            }
-            elsif ($status == 1 && ! $state_hash->{done}) {
-                $state_changed = 1;
-                $state_hash->{done} = 1;
-                $state_hash->{failed} = 0; # reset failed flag if filter succeeds
+    foreach my $set_name (@featuresets) {
+        # Zmap lowercases everything in its XML
+        foreach my $name (keys %$filt_hash) {
+            if (lc($name) eq lc($set_name)) {
+                 if (my $state_hash = $filt_hash->{$name}{'state'}) {
+                    if ($status == 0 && ! $state_hash->{'failed'}) {
+                        $state_changed = 1;
+                        $state_hash->{'failed'} = 1;
+                        $state_hash->{'fail_msg'} = $msg; ### Could store in SQLite db
+                    }
+                    elsif ($status == 1 && ! $state_hash->{'done'}) {
+                        $state_changed = 1;
+                        $state_hash->{'done'} = 1;
+                        $state_hash->{'failed'} = 0; # reset failed flag if filter succeeds
+                        my $filt = $filt_hash->{$name}{'filter'};
+                        if ($filt->process_gff_file) {
+                            my @tsct = $self->AceDatabase->process_gff_file_from_Filter($filt);
+                            if (@tsct) {
+                                $self->add_external_SubSeqs(@tsct);
+                                $self->draw_subseq_list;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
     
     if ($state_changed) {
         # save the state of each gff filter to disk so we can recover the session
-        
         $self->AceDatabase->save_filter_state;
         
         # and update the delayed flags in the zmap config file
-        
         $self->zMapUpdateConfigFile;
     }
     
@@ -1139,7 +1122,7 @@ sub zMapFeaturesLoaded {
 }
 
 sub zMapUpdateConfigFile {
-    my $self = shift;
+    my ($self) = @_;
     
     my $cfg = $self->{_zmap_cfg} ||= Config::IniFiles->new( -file => $self->zMapZmapDir . '/ZMap' );
 

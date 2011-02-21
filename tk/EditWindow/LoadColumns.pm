@@ -38,6 +38,7 @@ sub initialize {
     my( $self ) = @_;
 
     my $species = $self->species;
+    $self->AceDatabase->DB;
     my @filters = values %{$self->AceDatabase->filters};
 
     my $selection =
@@ -68,8 +69,8 @@ sub initialize {
 
     $hlist->configure(
         -browsecmd => sub {
+            my ($i) = @_;
             $hlist->anchorClear;
-            my $i = shift;
             my $cb = $self->hlist->itemCget($i, 0, '-widget');
             $cb->invoke unless $cb->cget('-selectcolor') eq $STATE_COLORS{'done'}
         }
@@ -264,7 +265,7 @@ sub init_flag {
 
 
 sub load_filters {
-    my $self = shift;
+    my ($self) = @_;
 
     my $top = $self->top;
     $top->Busy(-recurse => 1);
@@ -310,7 +311,7 @@ sub load_filters {
         }
         else {
             $top->messageBox(
-                -title      => 'Nothing to fetch',
+                -title      => 'otter: Nothing to fetch',
                 -icon       => 'warning',
                 -message    => 'All selected columns have already been loaded',
                 -type       => 'OK',
@@ -320,7 +321,7 @@ sub load_filters {
         # we need to set up and show an XaceSeqChooser        
         my $xc = MenuCanvasWindow::XaceSeqChooser->new(
             $self->top->Toplevel(
-                -title => $self->AceDatabase->title,
+                -title => 'otter: Session ' . $self->AceDatabase->title,
             )
         );
         
@@ -424,12 +425,12 @@ sub change_checkbutton_state {
 
 sub show_filters {
    
-    my $self = shift;
+    my ($self, $names_in_order) = @_;
 
     my $filters = $self->AceDatabase->filters;
 
-    my $names_in_order =
-        shift || $self->{_last_names_in_order} || keys %{ $filters };
+    $names_in_order ||=
+        $self->{_last_names_in_order} || keys %{ $filters };
 
     $self->{_last_names_in_order} = $names_in_order;
     

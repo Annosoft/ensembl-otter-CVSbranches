@@ -71,87 +71,19 @@ sub do_search {
     my $qnames = [ split(/[\s,]+/, ${$self->search_field()} ) ];
 
 
-    my $results_list = $self->Client()->find_string_match_in_clones($self->DataSet->name(), $qnames);
-    
-    foreach my $locator (sort { ace_sort($a->qname(), $b->qname()) } @$results_list) {
+    my $results = $self->Client()->find_string_match_in_clones($self->DataSet->name(), $qnames);
+    my $results_by_qname = {};
+    push @{$results_by_qname->{$_->{qname}}}, $_ for @{$results};
 
-        my $result_frame = $self->{_results_frame}->Frame(
-        )->pack(-side => 'top', -fill => 'x');
-
-        push @{$self->found_elements}, $result_frame;
-
-        my $qname        = $locator->qname();
-        my $qtype        = $locator->qtype();
-        my $ssname       = $locator->assembly();
-        my $clone_names  = $locator->component_names();
-        my $clone_number = scalar(@$clone_names);
-
-        if($clone_number) {
-
-                # PREPARE TO set the subset in the SequenceSet
-            my $ds = $self->DataSet();
-            my $ss = $ds->get_SequenceSet_by_name($ssname);
-            my $subset_tag = "$ssname:Found:$qname";
-
-            $qtype=~s/_/ /g; # underscores become spaces for readability
-
-            my $label1 = $result_frame->Label(
-                -text => "$qname [$qtype] found on ",
-            )->pack(-side => 'left', -fill => 'x');
-
-            my $button = $result_frame->Button(
-                -text => "$clone_number clone".(($clone_number>1) ? 's' : '')." on $ssname",
-                -command => sub {
-                    print STDERR "Opening '$subset_tag'...\n";
-
-                    # See whether this step can be omittied in the new implementation
-                    #
-                    #    # pre-load the clone sequences, if they have not been loaded yet
-                    #unless(defined($ss->CloneSequence_list())) {
-                    #    $ds->fetch_all_CloneSequences_for_SequenceSet($ss, 1);
-                    #}
-                        # ACTUALLY SET the subset in the SequenceSet
-                    $ss->set_subset($subset_tag, $clone_names);
-
-                    $self->SequenceSetChooser()->open_sequence_set_by_ssname_subset(
-                            $ssname, $subset_tag
-                    );
-                },
-            )->pack(-side => 'left');
-
-
-            my $center_index = int(($clone_number-1)/2);
-            my %show_clone_index = (
-                0               => 1,               # always show the first one
-                ($center_index==2) ? (1 => 1) : (), # show the second one if there is only one in the gap
-                $center_index   => 1,               # always show the middle one
-                ($clone_number==5) ? (3 => 1) : (), # show the fourth one if there is only one in the gap
-                $clone_number-1 => 1,               # always show the last one
-            );
-
-            my @clone_names_to_show = ();
-            my $skipped_number = 0;
-            foreach my $i (0..scalar(@$clone_names)-1) {
-                if($show_clone_index{$i}) {
-                    if($skipped_number) {
-                        push @clone_names_to_show, '...';
-                        $skipped_number = 0;
-                    }
-                    my $clone_name = $clone_names->[$i];
-                    push @clone_names_to_show, $clone_name;
-                } else {
-                    $skipped_number++;
-                }
-            }
-
-            my $label2 = $result_frame->Label(
-                -text => ' [ '.join(', ', @clone_names_to_show).' ]',
-            )->pack(-side => 'left', -fill => 'x');
-
+    foreach my $qname (sort { ace_sort($a,$b); } @{$qnames}) {
+        my $qname_results = $results_by_qname->{$qname};
+        if ($qname_results) {
+            $self->_new_result_entry($_) for @{$qname_results};
         } else {
-            my $label = $result_frame->Label(
-                -text => "$qname not found",
-            )->pack(-side => 'left', -fill => 'x');
+            $self
+                ->_new_result_frame
+                ->Label(-text => "$qname not found")
+                ->pack(-side => 'left', -fill => 'x');
         }
     }
 
@@ -160,6 +92,124 @@ sub do_search {
     $self->top_window->Unbusy;
 
     return;
+}
+
+sub _new_result_entry {
+    my ($self, $result) = @_;
+
+    my $result_frame = $self->_new_result_frame;
+    $self->_result_label_1($result_frame, $result);
+    $self->_clones_button($result_frame, $result);
+    $self->_result_label_2($result_frame, $result);
+
+    return;
+}
+
+sub _new_result_frame {
+    my ($self) = @_;
+
+    my $result_frame = $self
+        ->{_results_frame}->Frame()
+        ->pack(-side => 'top', -fill => 'x');
+    push @{$self->found_elements}, $result_frame;
+
+    return $result_frame;
+}
+
+sub _result_label_1 {
+    my ($self, $result_frame, $result) = @_;
+
+    my ($qname, $qtype) =
+        @{$result}{qw( qname qtype )};
+    $qtype=~s/_/ /g; # underscores become spaces for readability
+    my $label_text = sprintf '%s [%s] found on ', $qname, $qtype;
+
+    $result_frame
+        ->Label(-text => $label_text,)
+        ->pack(-side => 'left', -fill => 'x');
+
+    return;
+}
+
+sub _clones_button {
+    my ($self, $result_frame, $result) = @_;
+
+    my ($ssname, $clone_names) =
+        @{$result}{qw( assembly components )};
+    my $clone_number = scalar(@$clone_names);
+
+    my $button_text = sprintf
+        "%d clone%s on %s",
+        $clone_number,
+        (($clone_number>1) ? 's' : ''),
+        $ssname;
+
+    my $button_command =
+        sub { $self->_clones_button_command($result); };
+
+    $result_frame
+        ->Button(-text => $button_text, -command => $button_command)
+        ->pack(-side => 'left');
+
+    return;
+}
+
+sub _clones_button_command {
+    my ($self, $result) = @_;
+
+    my ($qname, $ssname, $clone_names) =
+        @{$result}{qw( qname assembly components )};
+    my $ss = $self->DataSet->get_SequenceSet_by_name($ssname);
+    my $subset_tag = "${ssname}:Found:${qname}";
+
+    $ss->set_subset($subset_tag, $clone_names);
+    $self->SequenceSetChooser->open_sequence_set_by_ssname_subset($ssname, $subset_tag);
+
+    return;
+}
+
+sub _result_label_2 {
+    my ($self, $result_frame, $result) = @_;
+
+    my $label_text = $self->_clone_names_label($result);
+    $result_frame
+        ->Label(-text => $label_text)
+        ->pack(-side => 'left', -fill => 'x');
+
+    return;
+}
+
+sub _clone_names_label {
+    my ($self, $result) = @_;
+
+    my $clone_names = $result->{components};
+    my $clone_number = scalar(@$clone_names);
+    my $center_index = int(($clone_number-1)/2);
+
+    my %show_clone_index = (
+        0               => 1,               # always show the first one
+        ($center_index==2) ? (1 => 1) : (), # show the second one if there is only one in the gap
+        $center_index   => 1,               # always show the middle one
+        ($clone_number==5) ? (3 => 1) : (), # show the fourth one if there is only one in the gap
+        $clone_number-1 => 1,               # always show the last one
+        );
+
+    my @clone_names_to_show = ();
+    my $skipped_number = 0;
+    foreach my $i (0..scalar(@$clone_names)-1) {
+        if($show_clone_index{$i}) {
+            if($skipped_number) {
+                push @clone_names_to_show, '...';
+                $skipped_number = 0;
+            }
+            my $clone_name = $clone_names->[$i];
+            push @clone_names_to_show, $clone_name;
+        } else {
+            $skipped_number++;
+        }
+    }
+
+    return sprintf ' [ %s ] ', join ', ', @clone_names_to_show;
 }
 
 sub new {
