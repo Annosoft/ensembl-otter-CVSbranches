@@ -15,7 +15,7 @@ use Bio::Das::Lite;
 use Bio::EnsEMBL::SimpleFeature;
 use Bio::EnsEMBL::PredictionExon;
 use Bio::Otter::ServerScriptSupport;
-use Bio::Otter::Lace::ViaText qw( &GenerateFeatures %LangDesc );
+use Bio::Otter::Lace::ViaText qw( %LangDesc );
 use Bio::Vega::Utils::EnsEMBL2GFF;
 
 sub struct_traverse_path {
@@ -285,24 +285,25 @@ eval {
         (map { defined($server->param($_)) ? $server->param($_) : '' } qw(cs name type start end metakey csver csver_remote)),
         1, # do the short version of mapping, without the target database
     );
-    
-    if (@$features) {
-        
-        $gff_string = $features->[0]->slice->gff_header(rebase => $rebase, gff_seqname => $gff_seqname);
-        
-        for my $f (@$features) {
-            $gff_string .= $f->to_gff(rebase => $rebase, gff_source => $gff_source, gff_seqname => $gff_seqname)."\n";
-        }
-    }
-    else {
-        $gff_string = $server->empty_gff_header;
+
+    my %gff_args;
+    $gff_args{$_} = $server->param($_) for qw(
+        rebase
+        gff_source
+        gff_seqname
+    );
+
+    for my $f (@$features) {
+        my $gff = $f->to_gff(%gff_args);
+        $gff_string .= $gff if $gff;
     }
 };
 
 if ($@) {
     $server->error_exit($@);
 } else {
-    $server->send_response($gff_string, 0, 1);
+    $server->compression(1);
+    $server->send_response($server->gff_header . $gff_string);
 }
 
 1;
