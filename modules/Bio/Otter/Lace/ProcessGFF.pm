@@ -8,6 +8,8 @@ use warnings;
 use Carp;
 use Text::ParseWords qw{ quotewords };
 use Hum::Ace::SubSeq;
+use Hum::Ace::Method;
+use Hum::Ace::Locus;
 
 {
     ### Should add this to otter_config
@@ -66,6 +68,9 @@ sub make_ace_transcripts_from_gff {
     
     open my $gff_fh, '<', $gff_file or confess "Can't read GFF file '$gff_file'; $!";
     my $length;     ### HACK: Should truncate to Slice on server
+    
+    my %locus_by_name;
+    
     while (<$gff_fh>) {
         if (/^\s*#/) {
             if (/^##sequence-region (\S+) (\d+) (\d+)/) {
@@ -97,6 +102,21 @@ sub make_ace_transcripts_from_gff {
         
         if ($feat_type eq 'Sequence') {
             $sub->strand($strand eq '-' ? -1 : 1);
+            if (my $stable = $attrib->{'Stable_ID'}) {
+                $sub->otter_id($stable);
+            }
+            if (my $loc_name = $attrib->{'Locus'}) {
+                my $locus = $locus_by_name{$loc_name};
+                unless ($locus) {
+                    $locus = $locus_by_name{$loc_name}
+                        = Hum::Ace::Locus->new;
+                    $locus->name($loc_name);
+                    if (my $stable = $attrib->{'Locus_Stable_ID'}) {
+                        $locus->otter_id($stable);
+                    }
+                }
+                $sub->Locus($locus);
+            }
         }
         elsif ($feat_type eq 'exon') {
             # Truncate exons to slice
@@ -108,6 +128,9 @@ sub make_ace_transcripts_from_gff {
             my $exon = $sub->new_Exon;
             $exon->start($start);
             $exon->end($end);
+            if (my $stable = $attrib->{'Stable_ID'}) {
+                $exon->otter_id($stable);
+            }
         }
         elsif ($feat_type eq 'CDS') {            
             # Don't attempt truncated CDS
@@ -116,9 +139,23 @@ sub make_ace_transcripts_from_gff {
 
             $sub->translation_region($start, $end);
             $sub->GeneMethod($coding_gene_method);
+            if (my $stable = $attrib->{'Stable_ID'}) {
+                $sub->translation_otter_id($stable);
+            }
         }
     }
-    return values %tsct;
+    
+    my (@ok_tsct);
+    while (my ($name, $sub) = each %tsct) {
+        eval {$sub->validate};
+        if ($@) {
+            warn "Error in SubSeq '$name':\n$@";
+        }
+        else {
+            push(@ok_tsct, $sub);
+        }
+    }
+    return @ok_tsct;
 }
 
 sub parse_gff_line {
