@@ -7,7 +7,7 @@
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl60 otter53 humpub };
+use SangerPaths qw{ core bioperl123 ensembl60 otter54 humpub };
 use SangerWeb;
 
 use IO::Socket;
@@ -51,8 +51,7 @@ use Bio::Otter::Utils::MM;
 
     my $response = '';
     foreach my $acc (keys %$types) {
-        my ($acc_type, $full_acc, $source_db) = @{$types->{$acc}};
-        $response .= "$acc\t$acc_type\t$full_acc\t$source_db\n";
+        $response .= join("\t", $acc, @{$types->{$acc}}) . "\n";
     }
     $server->send_response($response);
 }

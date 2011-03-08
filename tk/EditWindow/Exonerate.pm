@@ -490,6 +490,9 @@ sub get_query_seq {
     # identify the types of all the accessions supplied
 
     my $cache = $self->XaceSeqChooser->AceDatabase->AccessionTypeCache;
+    # The populate method will fetch the latest version of
+    # any accessions which are supplied without a SV into
+    # the cache object.
     $cache->populate(\@accessions);
 
     # add type and full accession information to the existing sequences
@@ -506,29 +509,35 @@ sub get_query_seq {
         }
     }
 
-    my @to_pfetch;
-    foreach my $acc (@supplied_accs) {
-        my $full = $cache->full_accession($acc)
-            or next;    # No point trying to pfetch invalid accessions
-        push(@to_pfetch, $acc);
+    my (%acc_type_full, @to_pfetch);
+    for (my $i = 0; $i < @supplied_accs;) {
+        my $acc = $supplied_accs[$i];
+        my ($type, $full) = $cache->type_and_name_from_accession($acc);
+        if ($type and $full) {
+            $i++;
+            $acc_type_full{$acc} = [$type, $full];            
+            push(@to_pfetch, $full);
+        }
+        else {
+            # No point trying to pfetch invalid accessions
+            $missing_msg .= "  $acc unknown accession\n";
+            splice(@supplied_accs, $i, 1);
+        }
     }
 
     my %seqs_fetched = map {$_->name => $_} Hum::Pfetch::get_Sequences(@to_pfetch);
+
     foreach my $acc (@supplied_accs) {
-        my $full = $cache->full_accession($acc);
-        unless ($full) {
-            $missing_msg .= "  $acc (unknown accession)\n";
-            next;
-        }
+        my ($type, $full) = @{$acc_type_full{$acc}};
         
         # Delete from the hash so that we can check for
         # unclaimed sequences.
         my $seq = delete($seqs_fetched{$full});
         if ($seq) {
-            $seq->type($cache->type($full));
+            $seq->type($type);
         }
         else {
-            $missing_msg .= "  $acc ($full)\n";
+            $missing_msg .= "  $acc ($full) could not pfetch\n";
             next;
         }
         
@@ -547,7 +556,7 @@ sub get_query_seq {
             if $missing_msg;
 
         $remapped_msg =
-          "The following supplied accessions have been mapped to full accessions:\n\n$remapped_msg\n"
+          "The following supplied accessions have been mapped to full ACCESSION.SV:\n\n$remapped_msg\n"
             if $remapped_msg;
 
         my $unclaimed_msg = '';
