@@ -380,6 +380,7 @@ sub build_Transcript {
 
     my $exons = delete $exon_list{$self};
     my $chr_slice = $self->get_ChromosomeSlice;
+    my $transcript_name = $data->{'name'};
 
     my $ana = $self->get_Analysis($data->{'analysis'} || 'Otter');
 
@@ -426,11 +427,11 @@ sub build_Transcript {
 
         # TO DO: decide whether is this kludge is necessary and remove it if not
         ##probably add a check to see if $end_Exon_Pos is set or not
-        if ($start_Exon->strand == 1 && $start_Exon->start != $tran_start_pos) {
-          $start_Exon->end_phase(($start_Exon->length-$start_Exon_Pos+1)%3);
-        } elsif ($start_Exon->strand == -1 && $start_Exon->end != $tran_start_pos) {
-          $start_Exon->end_phase(($start_Exon->length-$start_Exon_Pos+1)%3);
-        }
+        # if ($start_Exon->strand == 1 && $start_Exon->start != $tran_start_pos) {
+        #   $start_Exon->end_phase(($start_Exon->length-$start_Exon_Pos+1)%3);
+        # } elsif ($start_Exon->strand == -1 && $start_Exon->end != $tran_start_pos) {
+        #   $start_Exon->end_phase(($start_Exon->length-$start_Exon_Pos+1)%3);
+        # }
 
         if ($end_Exon->length >= $end_Exon_Pos) {
           $end_Exon->end_phase(-1);
@@ -454,28 +455,23 @@ sub build_Transcript {
       $transcript->transcript_author($transcript_author);
   }
 
-  ##transcript attributes
-  my $transcript_attributes;
-  my $mRNA_start_not_found = $data->{'mRNA_start_not_found'};
-  if (defined $mRNA_start_not_found){
-     my $attrib=$self->make_Attribute('mRNA_start_NF', $mRNA_start_not_found);
-     push @$transcript_attributes,$attrib;
-  }
-  my $mRNA_end_not_found = $data->{'mRNA_end_not_found'};
-  if (defined $mRNA_end_not_found ){
-     my $attrib=$self->make_Attribute('mRNA_end_NF', $mRNA_end_not_found);
-     push @$transcript_attributes,$attrib;
-  }
-  my $cds_start_not_found = $data->{'cds_start_not_found'};
-  if (defined $cds_start_not_found ){
-     my $attrib= $self->make_Attribute('cds_start_NF', $cds_start_not_found);
-     push @$transcript_attributes,$attrib;
-  }
-  my $cds_end_not_found = $data->{'cds_end_not_found'};
-  if (defined $cds_end_not_found ){
-     my $attrib= $self->make_Attribute('cds_end_NF', $cds_end_not_found);
-     push @$transcript_attributes,$attrib;
-  }
+    # Transcript attributes
+    my $transcript_attributes;
+    if (my $mRNA_start_not_found = $data->{'mRNA_start_not_found'}) {
+        push @$transcript_attributes, $self->make_Attribute('mRNA_start_NF', $mRNA_start_not_found);
+    }
+    if (my $mRNA_end_not_found = $data->{'mRNA_end_not_found'}) {
+        push @$transcript_attributes, $self->make_Attribute('mRNA_end_NF', $mRNA_end_not_found);
+    }
+    if (my $cds_start_not_found = $data->{'cds_start_not_found'}) {
+        if ($start_Exon_Pos != 1) {
+            die "Transcript '$transcript_name' has CDS start not found set but has 5' UTR";
+        }
+        push @$transcript_attributes, $self->make_Attribute('cds_start_NF', $cds_start_not_found);
+    }
+    if (my $cds_end_not_found = $data->{'cds_end_not_found'}) {
+        push @$transcript_attributes, $self->make_Attribute('cds_end_NF', $cds_end_not_found);
+    }
 
   if(my $remarks=$data->{'remark'}) {
       foreach my $rem (@$remarks){
@@ -490,7 +486,7 @@ sub build_Transcript {
       }
   }
 
-  if(my $transcript_name=$data->{'name'}) {
+  if ($transcript_name) {   ### Don't we always have a name?
      if ($seen_transcript_name{$self}{$transcript_name}) {
         die "more than one transcript has the name $transcript_name";
      } else {
@@ -509,6 +505,8 @@ sub build_Transcript {
 
   my $list = $transcript_list{$self} ||= [];
   push @$list, $transcript;
+
+    return;
 }
 
 sub translation_pos {
