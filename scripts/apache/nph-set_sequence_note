@@ -3,14 +3,14 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2011-01-31 17:30:29 $
-# Id:            $Id: nph-set_sequence_note,v 1.20.2.4 2011-01-31 17:30:29 jh13 Exp $
+# Last modified: $Date: 2011-03-25 16:02:25 $
+# Id:            $Id: nph-set_sequence_note,v 1.20.2.5 2011-03-25 16:02:25 jgrg Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-set_sequence_note,v $
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl60 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl61 otter52 };
 
 use Bio::Otter::ServerScriptSupport;
 

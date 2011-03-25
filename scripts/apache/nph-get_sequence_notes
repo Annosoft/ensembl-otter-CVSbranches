@@ -3,14 +3,14 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2011-01-31 17:30:29 $
-# Id:            $Id: nph-get_sequence_notes,v 1.19.2.5 2011-01-31 17:30:29 jh13 Exp $
+# Last modified: $Date: 2011-03-25 16:02:24 $
+# Id:            $Id: nph-get_sequence_notes,v 1.19.2.6 2011-03-25 16:02:24 jgrg Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_sequence_notes,v $
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl60 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl61 otter52 };
 
 use Bio::Otter::ServerScriptSupport;
 

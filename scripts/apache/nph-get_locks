@@ -3,14 +3,14 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2011-01-31 17:30:28 $
-# Id:            $Id: nph-get_locks,v 1.20.2.4 2011-01-31 17:30:28 jh13 Exp $
+# Last modified: $Date: 2011-03-25 16:02:22 $
+# Id:            $Id: nph-get_locks,v 1.20.2.5 2011-03-25 16:02:22 jgrg Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_locks,v $
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl60 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl61 otter52 };
 
 use Bio::Otter::ServerScriptSupport;
 
