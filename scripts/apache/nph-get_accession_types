@@ -4,14 +4,14 @@
 # Author:        gr5
 # Group:         anacode
 # Maintainer:    gr5
-# Last modified: $Date: 2011-05-13 12:11:26 $
-# Id:            $Id: nph-get_accession_types,v 1.34.2.7 2011-05-13 12:11:26 jh13 Exp $
+# Last modified: $Date: 2011-05-17 15:28:36 $
+# Id:            $Id: nph-get_accession_types,v 1.34.2.8 2011-05-17 15:28:36 jgrg Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_accession_types,v $
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl62 otter52 humpub };
+use SangerPaths qw{ core bioperl123 ensembl61 otter52 humpub };
 use SangerWeb;
 use IO::Socket;
 

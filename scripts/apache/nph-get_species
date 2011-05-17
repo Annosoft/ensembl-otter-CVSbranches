@@ -3,15 +3,15 @@
 # Author:        jgrg
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2011-05-13 12:11:26 $
-# Id:            $Id: nph-get_species,v 1.15.2.6 2011-05-13 12:11:26 jh13 Exp $
+# Last modified: $Date: 2011-05-17 15:28:38 $
+# Id:            $Id: nph-get_species,v 1.15.2.7 2011-05-17 15:28:38 jgrg Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_species,v $
 
 use strict;
 use warnings;
 
 use DBI;
-use SangerPaths qw{ core bioperl123 ensembl62 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl61 otter52 };
 use SangerWeb;
 
 use Bio::Otter::ServerScriptSupport;

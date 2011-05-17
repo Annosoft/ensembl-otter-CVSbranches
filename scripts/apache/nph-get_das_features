@@ -3,14 +3,14 @@
 # Author:        lg4
 # Group:         anacode
 # Maintainer:    jgrg
-# Last modified: $Date: 2011-05-13 12:11:26 $
-# Id:            $Id: nph-get_das_features,v 1.18.2.7 2011-05-13 12:11:26 jh13 Exp $
+# Last modified: $Date: 2011-05-17 15:28:37 $
+# Id:            $Id: nph-get_das_features,v 1.18.2.8 2011-05-17 15:28:37 jgrg Exp $
 # Source:        $Source: /tmp/ENSCOPY-ENSEMBL-OTTER/scripts/apache/Attic/nph-get_das_features,v $
 
 use strict;
 use warnings;
 
-use SangerPaths qw{ core bioperl123 ensembl62 otter52 };
+use SangerPaths qw{ core bioperl123 ensembl61 otter52 };
 
 my $http_proxy = $ENV{http_proxy};
 
